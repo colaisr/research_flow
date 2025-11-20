@@ -123,7 +123,8 @@ main() {
     # Check/create virtual environment
     if [ ! -d ".venv" ]; then
         print_warning "⚠️  Virtual environment not found. Creating..."
-        python3.11 -m venv .venv || python3 -m venv .venv
+        # Try python3.12 first (production), then 3.11, then default python3
+        python3.12 -m venv .venv 2>/dev/null || python3.11 -m venv .venv 2>/dev/null || python3 -m venv .venv
     fi
     
     # Activate virtual environment
