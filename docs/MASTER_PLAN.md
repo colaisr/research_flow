@@ -39,7 +39,10 @@ Constraints and preferences:
   - Monorepo checked out to `/srv/research-flow/` (contains `backend/` and `frontend/` subdirectories)
   - Backend: Python venv, Uvicorn via systemd; connects to local or external MySQL
   - Frontend: Next.js production build, `npm run start` via systemd
-  - Scripts: `deploy.sh` (pulls repo), `restart_backend.sh`, `restart_frontend.sh`
+  - Scripts: 
+    - `research-flow-deploy` (standalone script in `/usr/local/bin/` - complete deployment)
+    - `scripts/deploy.sh` (pulls repo, updates deps, migrations, builds frontend)
+    - `scripts/restart_backend.sh`, `scripts/restart_frontend.sh`
   - Local MySQL defaults (dev): host `localhost`, port `3306`, db `research_flow_dev`, user `research_flow_user`
     - SQLAlchemy DSN: `mysql+pymysql://research_flow_user:YOUR_PASSWORD@localhost:3306/research_flow_dev?charset=utf8mb4`
     - Use script: `scripts/mysql_local_setup.sql` (edit password, then apply with a privileged MySQL user)
@@ -1015,5 +1018,88 @@ Notes:
 - `scripts/README.md`: Updated path reference
 - `frontend/app/page.tsx`: Updated landing page text
 - `backend/scripts/test_polling_lock.py`: Updated lock file paths
+
+---
+
+### 17) Production Deployment (Completed)
+
+**Date**: Production deployment to dedicated server
+
+**Production Server Details**:
+- **Hostname**: `zfeafctorr`
+- **External IP**: `84.54.30.222`
+- **Private IP**: `10.19.0.3`
+- **OS**: Ubuntu 24.04.3 LTS
+- **SSH Alias**: `rf-prod`
+- **Deployment Path**: `/srv/research-flow`
+
+**Database Configuration**:
+- **Database Name**: `rf_prod`
+- **MySQL Server**: Remote (`10.19.0.2:3306`)
+- **Database User**: `rf_prod`
+- **Remote Access Password**: `&rJx&kD86*EZ` (for connections from `10.19.0.3`)
+- **Connection String**: `mysql+pymysql://rf_prod:&rJx&kD86*EZ@10.19.0.2:3306/rf_prod?charset=utf8mb4`
+
+**Deployment Steps Completed**:
+1. ✅ **Server Prerequisites**: Node.js 20.x installed, Python 3.12.3 available
+2. ✅ **Repository Setup**: Cloned to `/srv/research-flow`
+3. ✅ **Backend Setup**: 
+   - Python virtual environment created
+   - All dependencies installed
+   - `config_local.py` configured with production database
+   - SESSION_SECRET generated: `b85ad761d02e1c2eb6c52be75b167744378b471d9717221c35b641b6b52ebe32`
+4. ✅ **Database Setup**:
+   - All Alembic migrations applied successfully (16 migrations)
+   - Production database seeded with 4 analysis types
+   - Admin user created: `admin@rf.ru` / `1234`
+5. ✅ **Frontend Setup**:
+   - Dependencies installed (`npm ci`)
+   - Production build completed successfully
+   - Environment configured: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
+6. ✅ **Systemd Services**:
+   - Backend service: `research-flow-backend.service` (running on port 8000)
+   - Frontend service: `research-flow-frontend.service` (running on port 3000)
+   - Both services enabled for auto-start on boot
+7. ✅ **Verification**:
+   - Backend health endpoint: ✅ `http://localhost:8000/health`
+   - Frontend: ✅ `http://localhost:3000` (HTTP 200)
+   - Database connection: ✅ Verified
+   - Services status: ✅ Both active and running
+
+**Service Configuration**:
+- **Backend**: Uvicorn with 2 workers, auto-restart enabled
+- **Frontend**: Next.js production server, auto-restart enabled
+- **Logs**: Available via `journalctl -u research-flow-backend` and `journalctl -u research-flow-frontend`
+
+**Access Information**:
+- **Frontend URL**: `http://84.54.30.222:3000` (or via domain if reverse proxy configured)
+- **Backend API**: `http://84.54.30.222:8000`
+- **API Docs**: `http://84.54.30.222:8000/docs`
+- **Admin Login**: `admin@rf.ru` / `1234`
+
+**Deployment Scripts**:
+- `research-flow-deploy`: Standalone deployment script installed in `/usr/local/bin/`
+  - Complete end-to-end deployment: git pull, dependencies, migrations, build, restart services
+  - Usage: `research-flow-deploy` (can be run from anywhere)
+  - Installation: `sudo bash scripts/install_standalone_deploy.sh`
+- `scripts/deploy.sh`: Pulls latest changes, updates dependencies, runs migrations, builds frontend
+- `scripts/restart_backend.sh`: Restarts backend service
+- `scripts/restart_frontend.sh`: Restarts frontend service
+- `scripts/install_systemd_services.sh`: Installs systemd service files (requires non-root user)
+
+**Next Steps for Production**:
+1. Configure reverse proxy (Nginx/Caddy) for HTTPS and domain name
+2. Set up firewall rules (ports 8000, 3000, or reverse proxy ports)
+3. Configure OpenRouter API key via Settings UI
+4. Configure Telegram bot token via Settings UI
+5. Set up monitoring and log rotation
+6. Configure backup strategy for database
+
+**Security Notes**:
+- `config_local.py` has secure permissions (`chmod 600`)
+- SESSION_SECRET is unique for production
+- Database credentials stored securely (not in git)
+- SSH key-based authentication configured
+- Services run as root (consider creating dedicated user for production)
 
 
