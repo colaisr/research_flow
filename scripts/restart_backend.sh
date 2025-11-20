@@ -45,28 +45,28 @@ else
 fi
 
 # Restart service (if systemd service exists)
-if systemctl is-active --quiet max-signal-backend 2>/dev/null; then
+if systemctl is-active --quiet research-flow-backend 2>/dev/null; then
     echo "🔄 Restarting backend service..."
-    sudo systemctl restart max-signal-backend
+    sudo systemctl restart research-flow-backend
     echo -e "${GREEN}✅ Service restarted${NC}"
     
     # Wait a moment and check status
     sleep 2
-    if systemctl is-active --quiet max-signal-backend; then
+    if systemctl is-active --quiet research-flow-backend; then
         echo -e "${GREEN}✅ Backend is running${NC}"
     else
         echo -e "${RED}❌ Backend failed to start. Check logs:${NC}"
-        echo "   sudo journalctl -u max-signal-backend -n 50"
+        echo "   sudo journalctl -u research-flow-backend -n 50"
         exit 1
     fi
 else
-    echo -e "${YELLOW}⚠️  Systemd service 'max-signal-backend' not found or not active.${NC}"
+    echo -e "${YELLOW}⚠️  Systemd service 'research-flow-backend' not found or not active.${NC}"
     echo "   To start manually: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
 fi
 
 echo ""
 echo "📋 Useful commands:"
-echo "   Check status: sudo systemctl status max-signal-backend"
-echo "   View logs:    sudo journalctl -u max-signal-backend -f"
+echo "   Check status: sudo systemctl status research-flow-backend"
+echo "   View logs:    sudo journalctl -u research-flow-backend -f"
 echo "   Health check: curl http://localhost:8000/health"
 

@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STANDALONE_SCRIPT="${SCRIPT_DIR}/standalone_deploy.sh"
-TARGET="/usr/local/bin/max-signal-deploy"
+TARGET="/usr/local/bin/research-flow-deploy"
 
 # Colors
 GREEN='\033[0;32m'
@@ -59,7 +59,7 @@ echo ""
 echo -e "${GREEN}✅ Standalone deploy script installed successfully!${NC}"
 echo ""
 echo "📋 Usage:"
-echo "   max-signal-deploy"
+echo "   research-flow-deploy"
 echo ""
 echo "📋 What it does:"
 echo "   ✅ Pulls latest changes from git"
@@ -73,7 +73,7 @@ echo "   ✅ Verifies services are running"
 echo ""
 echo "📋 Configuration:"
 echo "   Edit $TARGET to change:"
-echo "   - PROJECT_ROOT (default: /srv/max-signal)"
+echo "   - PROJECT_ROOT (default: /srv/research-flow)"
 echo "   - GIT_BRANCH (default: main)"
 echo ""
 echo -e "${GREEN}✅ Ready to use!${NC}"

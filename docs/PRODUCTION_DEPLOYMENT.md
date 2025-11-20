@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers deploying Max Signal Bot to a single VM without Docker, following the architecture outlined in `MASTER_PLAN.md`.
+This guide covers deploying Research Flow to a single VM without Docker, following the architecture outlined in `MASTER_PLAN.md`.
 
 ## Pre-Deployment Checklist
 
@@ -44,9 +44,9 @@ This guide covers deploying Max Signal Bot to a single VM without Docker, follow
 
 ```bash
 # Create deployment directory
-sudo mkdir -p /srv/max-signal
-sudo chown $USER:$USER /srv/max-signal
-cd /srv/max-signal
+sudo mkdir -p /srv/research-flow
+sudo chown $USER:$USER /srv/research-flow
+cd /srv/research-flow
 
 # Clone monorepo (contains both backend and frontend)
 git clone <repo-url> .
@@ -58,9 +58,9 @@ git clone <repo-url> .
 ```bash
 # Create production database
 mysql -u root -p << EOF
-CREATE DATABASE max_signal_prod CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'max_signal_prod'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD_HERE';
-GRANT ALL PRIVILEGES ON max_signal_prod.* TO 'max_signal_prod'@'localhost';
+CREATE DATABASE research_flow_prod CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'research_flow_prod'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD_HERE';
+GRANT ALL PRIVILEGES ON research_flow_prod.* TO 'research_flow_prod'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 ```
@@ -68,12 +68,12 @@ EOF
 **Option B: Remote MySQL**
 - Create database and user on remote MySQL server
 - Ensure firewall allows connections from your VM
-- Use remote host in DSN: `mysql+pymysql://user:pass@remote-host:3306/max_signal_prod?charset=utf8mb4`
+- Use remote host in DSN: `mysql+pymysql://user:pass@remote-host:3306/research_flow_prod?charset=utf8mb4`
 
 ### 3. Backend Configuration
 
 ```bash
-cd /srv/max-signal/backend
+cd /srv/research-flow/backend
 
 # Create virtual environment
 python3.11 -m venv .venv
@@ -89,7 +89,7 @@ cp app/config_local.example.py app/config_local.py
 **Edit `app/config_local.py`:**
 ```python
 # Database (PRODUCTION)
-MYSQL_DSN = "mysql+pymysql://max_signal_prod:STRONG_PASSWORD@localhost:3306/max_signal_prod?charset=utf8mb4"
+MYSQL_DSN = "mysql+pymysql://research_flow_prod:STRONG_PASSWORD@localhost:3306/research_flow_prod?charset=utf8mb4"
 
 # OpenRouter (will be set via Settings UI, but can set here as fallback)
 OPENROUTER_API_KEY = None  # Prefer AppSettings table
@@ -104,7 +104,7 @@ TELEGRAM_CHANNEL_ID = None  # Not used (direct messages to users)
 DAYSTART_SCHEDULE = "08:00"
 
 # Security (CRITICAL: Generate a strong random secret!)
-SESSION_COOKIE_NAME = "maxsignal_session"
+SESSION_COOKIE_NAME = "researchflow_session"
 SESSION_SECRET = "GENERATE_RANDOM_SECRET_HERE_USE_OPENSSL_RAND_HEX_32"
 
 # Feature flags
@@ -120,7 +120,7 @@ openssl rand -hex 32
 ### 4. Run Database Migrations
 
 ```bash
-cd /srv/max-signal/backend
+cd /srv/research-flow/backend
 source .venv/bin/activate
 alembic upgrade head
 ```
@@ -128,7 +128,7 @@ alembic upgrade head
 ### 5. Create Initial Admin User
 
 ```bash
-cd /srv/max-signal/backend
+cd /srv/research-flow/backend
 source .venv/bin/activate
 python scripts/create_admin_user.py <email> <password>
 ```
@@ -136,7 +136,7 @@ python scripts/create_admin_user.py <email> <password>
 ### 6. Frontend Configuration
 
 ```bash
-cd /srv/max-signal/frontend
+cd /srv/research-flow/frontend
 
 # Install dependencies
 npm ci
@@ -156,38 +156,38 @@ npm run build
 
 ### 7. Create Systemd Service Files
 
-**Backend Service** (`/etc/systemd/system/max-signal-backend.service`):
+**Backend Service** (`/etc/systemd/system/research-flow-backend.service`):
 ```ini
 [Unit]
-Description=Max Signal Bot Backend (FastAPI)
+Description=Research Flow Backend (FastAPI)
 After=network.target mysql.service
 
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/srv/max-signal/backend
-Environment="PATH=/srv/max-signal/backend/.venv/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/srv/max-signal/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+WorkingDirectory=/srv/research-flow/backend
+Environment="PATH=/srv/research-flow/backend/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/srv/research-flow/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=max-signal-backend
+SyslogIdentifier=research-flow-backend
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**Frontend Service** (`/etc/systemd/system/max-signal-frontend.service`):
+**Frontend Service** (`/etc/systemd/system/research-flow-frontend.service`):
 ```ini
 [Unit]
-Description=Max Signal Bot Frontend (Next.js)
-After=network.target max-signal-backend.service
+Description=Research Flow Frontend (Next.js)
+After=network.target research-flow-backend.service
 
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/srv/max-signal/frontend
+WorkingDirectory=/srv/research-flow/frontend
 Environment="NODE_ENV=production"
 Environment="NEXT_PUBLIC_API_BASE_URL=http://localhost:8000"
 Environment="PORT=3000"
@@ -196,7 +196,7 @@ Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=max-signal-frontend
+SyslogIdentifier=research-flow-frontend
 
 [Install]
 WantedBy=multi-user.target
@@ -206,12 +206,12 @@ WantedBy=multi-user.target
 
 ### 8. Create Deployment Scripts
 
-**Deploy Scripts** (in `/srv/max-signal/scripts/`):
+**Deploy Scripts** (in `/srv/research-flow/scripts/`):
 
 **Important:** The deployment scripts are part of the git repository. When you pull latest changes, the scripts are automatically updated. Always use the scripts from the git repo:
 
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 ./scripts/deploy.sh  # Use script from git repo
 ```
 
@@ -220,11 +220,11 @@ cd /srv/max-signal
 The standalone deploy script is completely independent and can be placed outside the tracked folder. It does everything automatically:
 
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 sudo ./scripts/install_standalone_deploy.sh
 ```
 
-This installs `max-signal-deploy` to `/usr/local/bin/` which:
+This installs `research-flow-deploy` to `/usr/local/bin/` which:
 - ✅ Pulls latest git changes
 - ✅ Updates backend dependencies
 - ✅ Runs database migrations
@@ -236,7 +236,7 @@ This installs `max-signal-deploy` to `/usr/local/bin/` which:
 
 **Usage:**
 ```bash
-max-signal-deploy  # Run from anywhere!
+research-flow-deploy  # Run from anywhere!
 ```
 
 **Why standalone?**
@@ -246,8 +246,8 @@ max-signal-deploy  # Run from anywhere!
 - Safe to run from anywhere (including as root)
 
 **Configuration:**
-Edit `/usr/local/bin/max-signal-deploy` to change:
-- `PROJECT_ROOT` (default: `/srv/max-signal`)
+Edit `/usr/local/bin/research-flow-deploy` to change:
+- `PROJECT_ROOT` (default: `/srv/research-flow`)
 - `GIT_BRANCH` (default: `main`)
 
 1. **`deploy.sh`** - Complete deployment preparation:
@@ -258,7 +258,7 @@ Edit `/usr/local/bin/max-signal-deploy` to change:
    - Updates frontend dependencies (`package.json`)
    - Builds frontend for production
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 ./scripts/deploy.sh
 ```
 
@@ -267,7 +267,7 @@ cd /srv/max-signal
    - Runs migrations (idempotent)
    - Restarts systemd service
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 ./scripts/restart_backend.sh
 ```
 
@@ -275,13 +275,13 @@ cd /srv/max-signal
    - Verifies build exists (rebuilds if needed)
    - Restarts systemd service
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 ./scripts/restart_frontend.sh
 ```
 
 **Typical deployment flow:**
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 # Step 1: Pull, update dependencies, run migrations, build
 ./scripts/deploy.sh
 
@@ -298,16 +298,16 @@ cd /srv/max-signal
 
 ```bash
 # Enable services (start on boot)
-sudo systemctl enable max-signal-backend
-sudo systemctl enable max-signal-frontend
+sudo systemctl enable research-flow-backend
+sudo systemctl enable research-flow-frontend
 
 # Start services
-sudo systemctl start max-signal-backend
-sudo systemctl start max-signal-frontend
+sudo systemctl start research-flow-backend
+sudo systemctl start research-flow-frontend
 
 # Check status
-sudo systemctl status max-signal-backend
-sudo systemctl status max-signal-frontend
+sudo systemctl status research-flow-backend
+sudo systemctl status research-flow-frontend
 ```
 
 ### 10. Initial Configuration via UI
@@ -344,8 +344,8 @@ curl http://localhost:8000/health
 curl http://localhost:3000
 
 # Check service logs
-sudo journalctl -u max-signal-backend -n 50
-sudo journalctl -u max-signal-frontend -n 50
+sudo journalctl -u research-flow-backend -n 50
+sudo journalctl -u research-flow-frontend -n 50
 ```
 
 ### Test Full Flow
@@ -365,7 +365,7 @@ For production, consider using Nginx or Caddy as a reverse proxy for:
 - Port hiding
 - Better security headers
 
-**Example Nginx Config** (`/etc/nginx/sites-available/max-signal`):
+**Example Nginx Config** (`/etc/nginx/sites-available/research-flow`):
 ```nginx
 server {
     listen 80;
@@ -415,41 +415,41 @@ NEXT_PUBLIC_API_BASE_URL=https://your-domain.com/api
 
 ```bash
 # Backend logs
-sudo journalctl -u max-signal-backend -f
+sudo journalctl -u research-flow-backend -f
 
 # Frontend logs
-sudo journalctl -u max-signal-frontend -f
+sudo journalctl -u research-flow-frontend -f
 
 # Combined logs
-sudo journalctl -u max-signal-backend -u max-signal-frontend -f
+sudo journalctl -u research-flow-backend -u research-flow-frontend -f
 ```
 
 ### Database Backups
 
 ```bash
 # Create backup script
-cat > /srv/max-signal/backup_db.sh << 'EOF'
+cat > /srv/research-flow/backup_db.sh << 'EOF'
 #!/bin/bash
-BACKUP_DIR="/srv/max-signal/backups"
+BACKUP_DIR="/srv/research-flow/backups"
 mkdir -p "$BACKUP_DIR"
 DATE=$(date +%Y%m%d_%H%M%S)
-mysqldump -u max_signal_prod -p max_signal_prod > "$BACKUP_DIR/max_signal_prod_$DATE.sql"
+mysqldump -u research_flow_prod -p research_flow_prod > "$BACKUP_DIR/research_flow_prod_$DATE.sql"
 # Keep only last 7 days
-find "$BACKUP_DIR" -name "max_signal_prod_*.sql" -mtime +7 -delete
+find "$BACKUP_DIR" -name "research_flow_prod_*.sql" -mtime +7 -delete
 EOF
 
-chmod +x /srv/max-signal/backup_db.sh
+chmod +x /srv/research-flow/backup_db.sh
 
 # Add to crontab (daily at 2 AM)
 crontab -e
-# Add: 0 2 * * * /srv/max-signal/backup_db.sh
+# Add: 0 2 * * * /srv/research-flow/backup_db.sh
 ```
 
 ### Updates
 
 **Typical deployment:**
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 # Pull latest changes
 ./scripts/deploy.sh
 
@@ -463,20 +463,20 @@ cd /srv/max-signal
 ## Troubleshooting
 
 ### Backend won't start
-- Check logs: `sudo journalctl -u max-signal-backend -n 100`
+- Check logs: `sudo journalctl -u research-flow-backend -n 100`
 - Verify MySQL connection in `config_local.py`
 - Check Python version: `python3.11 --version`
-- Verify virtual environment: `ls -la /srv/max-signal/backend/.venv`
+- Verify virtual environment: `ls -la /srv/research-flow/backend/.venv`
 
 ### Frontend won't start
-- Check logs: `sudo journalctl -u max-signal-frontend -n 100`
+- Check logs: `sudo journalctl -u research-flow-frontend -n 100`
 - Verify Node.js version: `node --version`
-- Check build: `cd /srv/max-signal/frontend && npm run build`
+- Check build: `cd /srv/research-flow/frontend && npm run build`
 - Verify environment variable: `echo $NEXT_PUBLIC_API_BASE_URL`
 
 ### Database connection errors
 - Verify MySQL is running: `sudo systemctl status mysql`
-- Test connection: `mysql -u max_signal_prod -p max_signal_prod`
+- Test connection: `mysql -u research_flow_prod -p research_flow_prod`
 - Check DSN in `config_local.py`
 - Verify firewall rules
 
@@ -528,7 +528,7 @@ If deployment fails:
 
 **Rollback:**
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 # Reset to previous commit
 git reset --hard <previous-commit-hash>
 
@@ -553,7 +553,7 @@ After successful deployment:
 ---
 
 **Questions or Issues?**
-- Check logs first: `sudo journalctl -u max-signal-backend -u max-signal-frontend`
+- Check logs first: `sudo journalctl -u research-flow-backend -u research-flow-frontend`
 - Review this guide and `MASTER_PLAN.md`
 - Verify all configuration steps completed
 

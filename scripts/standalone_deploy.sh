@@ -1,21 +1,21 @@
 #!/bin/bash
-# Standalone deployment script for Max Signal Bot
-# This script is completely independent and can be placed anywhere (e.g., /usr/local/bin/max-signal-deploy)
+# Standalone deployment script for Research Flow
+# This script is completely independent and can be placed anywhere (e.g., /usr/local/bin/research-flow-deploy)
 # It does NOT depend on any files in the repository
 #
 # Installation:
-#   sudo cp scripts/standalone_deploy.sh /usr/local/bin/max-signal-deploy
-#   sudo chmod +x /usr/local/bin/max-signal-deploy
+#   sudo cp scripts/standalone_deploy.sh /usr/local/bin/research-flow-deploy
+#   sudo chmod +x /usr/local/bin/research-flow-deploy
 #
 # Usage:
-#   max-signal-deploy
+#   research-flow-deploy
 
 set -e
 
 # ============================================================================
 # CONFIGURATION - Edit these if your paths are different
 # ============================================================================
-PROJECT_ROOT="/srv/max-signal"
+PROJECT_ROOT="/srv/research-flow"
 BACKEND_DIR="${PROJECT_ROOT}/backend"
 FRONTEND_DIR="${PROJECT_ROOT}/frontend"
 GIT_BRANCH="main"  # Change to your default branch if different
@@ -54,7 +54,7 @@ print_info() {
 main() {
     echo ""
     echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║     Max Signal Bot - Complete Deployment Script          ║${NC}"
+    echo -e "${BLUE}║     Research Flow - Complete Deployment Script          ║${NC}"
     echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -188,27 +188,27 @@ main() {
     # Step 6: Restart Backend Service
     # ========================================================================
     print_step "🔄 Step 6: Restarting backend service..."
-    if systemctl list-units --type=service --state=running | grep -q "max-signal-backend" || systemctl is-active --quiet max-signal-backend 2>/dev/null; then
+    if systemctl list-units --type=service --state=running | grep -q "research-flow-backend" || systemctl is-active --quiet research-flow-backend 2>/dev/null; then
         print_info "   Stopping backend service..."
-        sudo systemctl stop max-signal-backend 2>/dev/null || true
+        sudo systemctl stop research-flow-backend 2>/dev/null || true
         sleep 1
         print_info "   Starting backend service..."
-        sudo systemctl start max-signal-backend
+        sudo systemctl start research-flow-backend
         sleep 3
         
         # Verify service is running
-        if systemctl is-active --quiet max-signal-backend; then
+        if systemctl is-active --quiet research-flow-backend; then
             print_step "✅ Backend service restarted and running"
         else
             print_error "❌ Backend service failed to start"
-            print_info "   Check logs: sudo journalctl -u max-signal-backend -n 50"
+            print_info "   Check logs: sudo journalctl -u research-flow-backend -n 50"
             exit 1
         fi
     else
         print_warning "⚠️  Backend service not found or not active"
         print_info "   Attempting to start service..."
-        sudo systemctl start max-signal-backend 2>/dev/null || print_warning "   Service may not be installed"
-        print_info "   Service name: max-signal-backend"
+        sudo systemctl start research-flow-backend 2>/dev/null || print_warning "   Service may not be installed"
+        print_info "   Service name: research-flow-backend"
     fi
     echo ""
     
@@ -216,27 +216,27 @@ main() {
     # Step 7: Restart Frontend Service
     # ========================================================================
     print_step "🔄 Step 7: Restarting frontend service..."
-    if systemctl list-units --type=service --state=running | grep -q "max-signal-frontend" || systemctl is-active --quiet max-signal-frontend 2>/dev/null; then
+    if systemctl list-units --type=service --state=running | grep -q "research-flow-frontend" || systemctl is-active --quiet research-flow-frontend 2>/dev/null; then
         print_info "   Stopping frontend service..."
-        sudo systemctl stop max-signal-frontend 2>/dev/null || true
+        sudo systemctl stop research-flow-frontend 2>/dev/null || true
         sleep 1
         print_info "   Starting frontend service..."
-        sudo systemctl start max-signal-frontend
+        sudo systemctl start research-flow-frontend
         sleep 3
         
         # Verify service is running
-        if systemctl is-active --quiet max-signal-frontend; then
+        if systemctl is-active --quiet research-flow-frontend; then
             print_step "✅ Frontend service restarted and running"
         else
             print_error "❌ Frontend service failed to start"
-            print_info "   Check logs: sudo journalctl -u max-signal-frontend -n 50"
+            print_info "   Check logs: sudo journalctl -u research-flow-frontend -n 50"
             exit 1
         fi
     else
         print_warning "⚠️  Frontend service not found or not active"
         print_info "   Attempting to start service..."
-        sudo systemctl start max-signal-frontend 2>/dev/null || print_warning "   Service may not be installed"
-        print_info "   Service name: max-signal-frontend"
+        sudo systemctl start research-flow-frontend 2>/dev/null || print_warning "   Service may not be installed"
+        print_info "   Service name: research-flow-frontend"
     fi
     echo ""
     
@@ -266,7 +266,7 @@ main() {
     
     if [ "$BACKEND_OK" = false ]; then
         print_warning "⚠️  Backend health check failed after retries"
-        print_info "   Check logs: sudo journalctl -u max-signal-backend -n 50"
+        print_info "   Check logs: sudo journalctl -u research-flow-backend -n 50"
     fi
     
     # Check frontend (retry up to 3 times)
@@ -287,7 +287,7 @@ main() {
     
     if [ "$FRONTEND_OK" = false ]; then
         print_warning "⚠️  Frontend check returned HTTP $FRONTEND_STATUS"
-        print_info "   Check logs: sudo journalctl -u max-signal-frontend -n 50"
+        print_info "   Check logs: sudo journalctl -u research-flow-frontend -n 50"
         print_info "   This may indicate the frontend build needs to be regenerated"
     fi
     echo ""
@@ -309,10 +309,10 @@ main() {
     echo "   ✅ Frontend service restarted"
     echo ""
     print_info "📋 Useful commands:"
-    echo "   Check backend status:  sudo systemctl status max-signal-backend"
-    echo "   Check frontend status: sudo systemctl status max-signal-frontend"
-    echo "   View backend logs:     sudo journalctl -u max-signal-backend -f"
-    echo "   View frontend logs:    sudo journalctl -u max-signal-frontend -f"
+    echo "   Check backend status:  sudo systemctl status research-flow-backend"
+    echo "   Check frontend status: sudo systemctl status research-flow-frontend"
+    echo "   View backend logs:     sudo journalctl -u research-flow-backend -f"
+    echo "   View frontend logs:    sudo journalctl -u research-flow-frontend -f"
     echo "   Backend health:        curl http://localhost:8000/health"
     echo "   Frontend URL:          http://localhost:3000"
     echo ""

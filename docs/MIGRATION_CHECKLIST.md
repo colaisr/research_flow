@@ -20,7 +20,7 @@
 ## Phase 2: Server Setup
 
 - [ ] SSH into new server
-- [ ] Create `/srv/max-signal` directory
+- [ ] Create `/srv/research-flow` directory
 - [ ] Clone new repository
 - [ ] Create MySQL database and user
 - [ ] Test database connection
@@ -50,9 +50,9 @@
 - [ ] Copy service files to `/etc/systemd/system/`
 - [ ] Edit service files (replace `YOUR_USERNAME` and `YOUR_GROUP`)
 - [ ] Reload systemd (`sudo systemctl daemon-reload`)
-- [ ] Enable services (`sudo systemctl enable max-signal-*`)
-- [ ] Start services (`sudo systemctl start max-signal-*`)
-- [ ] Verify services running (`sudo systemctl status max-signal-*`)
+- [ ] Enable services (`sudo systemctl enable research-flow-*`)
+- [ ] Start services (`sudo systemctl start research-flow-*`)
+- [ ] Verify services running (`sudo systemctl status research-flow-*`)
 
 ## Phase 6: Verification
 
@@ -94,8 +94,8 @@ cd temp-project && rm -rf .git
 cp -r . /path/to/new-repo/
 
 # On new server - Initial setup
-sudo mkdir -p /srv/max-signal && sudo chown $USER:$USER /srv/max-signal
-cd /srv/max-signal && git clone <new-repo-url> .
+sudo mkdir -p /srv/research-flow && sudo chown $USER:$USER /srv/research-flow
+cd /srv/research-flow && git clone <new-repo-url> .
 
 # Backend setup
 cd backend && python3.11 -m venv .venv
@@ -112,10 +112,10 @@ npm run build
 
 # Systemd services
 sudo cp scripts/systemd/*.service /etc/systemd/system/
-sudo nano /etc/systemd/system/max-signal-backend.service  # Edit user
-sudo nano /etc/systemd/system/max-signal-frontend.service  # Edit user
+sudo nano /etc/systemd/system/research-flow-backend.service  # Edit user
+sudo nano /etc/systemd/system/research-flow-frontend.service  # Edit user
 sudo systemctl daemon-reload
-sudo systemctl enable --now max-signal-backend max-signal-frontend
+sudo systemctl enable --now research-flow-backend research-flow-frontend
 
 # Verify
 curl http://localhost:8000/health

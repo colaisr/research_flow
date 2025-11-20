@@ -81,7 +81,7 @@ async def login(
     
     # Set cookie
     response.set_cookie(
-        key="maxsignal_session",
+        key="researchflow_session",
         value=session_token,
         httponly=True,
         secure=False,  # Set to True in production with HTTPS
@@ -105,14 +105,14 @@ async def login(
 @router.post("/logout", response_model=dict)
 async def logout(
     response: Response,
-    maxsignal_session: Optional[str] = Cookie(None)
+    researchflow_session: Optional[str] = Cookie(None)
 ):
     """Logout and clear session."""
-    if maxsignal_session:
-        delete_session(maxsignal_session)
+    if researchflow_session:
+        delete_session(researchflow_session)
     
     response.delete_cookie(
-        key="maxsignal_session",
+        key="researchflow_session",
         httponly=True,
         samesite="lax"
     )

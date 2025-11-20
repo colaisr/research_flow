@@ -11,7 +11,7 @@
 ### 1. SSH to Production Server
 ```bash
 ssh max-signal-vm  # or your SSH alias
-cd /srv/max-signal
+cd /srv/research-flow
 ```
 
 ### 2. Run Deployment Script
@@ -46,7 +46,7 @@ source .venv/bin/activate
 python3 -c "import tinkoff.invest; import apimoex; print('✅ Packages installed')"
 
 # Check backend logs
-sudo journalctl -u max-signal-backend -n 50
+sudo journalctl -u research-flow-backend -n 50
 ```
 
 **Check Frontend:**
@@ -79,11 +79,11 @@ curl http://localhost:8000/api/instruments/all | grep -i "SBER\|MOEX" | head -5
 
 **If Tinkoff section doesn't appear:**
 - Check frontend build completed: `ls -la frontend/.next`
-- Check frontend logs: `sudo journalctl -u max-signal-frontend -n 50`
+- Check frontend logs: `sudo journalctl -u research-flow-frontend -n 50`
 - Hard refresh browser (Ctrl+Shift+R or Cmd+Shift+R)
 
 **If MOEX instruments don't appear:**
-- Check backend logs: `sudo journalctl -u max-signal-backend -n 50 | grep -i "moex\|apimoex"`
+- Check backend logs: `sudo journalctl -u research-flow-backend -n 50 | grep -i "moex\|apimoex"`
 - Verify `apimoex` is installed: `cd backend && source .venv/bin/activate && python3 -c "import apimoex"`
 - Check API response: `curl http://localhost:8000/api/instruments/all | jq '.[] | select(.exchange == "MOEX")' | head -20`
 

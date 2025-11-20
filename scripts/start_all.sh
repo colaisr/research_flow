@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start all services for Max Signal Bot
+# Start all services for Research Flow
 # Starts backend (FastAPI) and frontend (Next.js) servers
 
 set -e
@@ -15,7 +15,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}🚀 Starting Max Signal Bot Services${NC}"
+echo -e "${GREEN}🚀 Starting Research Flow Services${NC}"
 echo "=================================="
 echo ""
 

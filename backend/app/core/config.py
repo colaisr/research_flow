@@ -30,7 +30,7 @@ except ImportError:
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHANNEL_ID: Optional[int] = None
     DAYSTART_SCHEDULE: str = "08:00"
-    SESSION_COOKIE_NAME: str = "maxsignal_session"
+    SESSION_COOKIE_NAME: str = "researchflow_session"
     SESSION_SECRET: Optional[str] = None
     ENABLE_TELEGRAM_AUTO_SEND: bool = False
     ENABLE_BACKTESTING: bool = False

@@ -5,7 +5,7 @@
 **SSH into production server and run:**
 
 ```bash
-max-signal-deploy
+research-flow-deploy
 ```
 
 This single command will:
@@ -29,15 +29,15 @@ This single command will:
 **Verify it worked:**
 ```bash
 # Check services
-sudo systemctl status max-signal-backend
-sudo systemctl status max-signal-frontend
+sudo systemctl status research-flow-backend
+sudo systemctl status research-flow-frontend
 
 # Check health
 curl http://localhost:8000/health
 curl http://localhost:3000
 
 # View logs if needed
-sudo journalctl -u max-signal-frontend -n 50
+sudo journalctl -u research-flow-frontend -n 50
 ```
 
 **Test in browser:**
@@ -47,27 +47,27 @@ sudo journalctl -u max-signal-frontend -n 50
 
 ## First-Time Setup
 
-If `max-signal-deploy` is not installed yet:
+If `research-flow-deploy` is not installed yet:
 
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 git pull origin main
 sudo ./scripts/install_standalone_deploy.sh
-max-signal-deploy
+research-flow-deploy
 ```
 
-After installation, you can run `max-signal-deploy` from anywhere!
+After installation, you can run `research-flow-deploy` from anywhere!
 
 ## Troubleshooting
 
 If deployment fails:
 ```bash
 # Check what went wrong
-sudo journalctl -u max-signal-backend -n 50
-sudo journalctl -u max-signal-frontend -n 50
+sudo journalctl -u research-flow-backend -n 50
+sudo journalctl -u research-flow-frontend -n 50
 
 # Manual restart if needed
-sudo systemctl restart max-signal-backend
-sudo systemctl restart max-signal-frontend
+sudo systemctl restart research-flow-backend
+sudo systemctl restart research-flow-frontend
 ```
 

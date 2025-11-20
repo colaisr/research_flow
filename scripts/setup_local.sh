@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local development setup script for Max Signal Bot
+# Local development setup script for Research Flow
 # This script helps set up the MySQL database, Python venv, and run migrations
 
 set -e
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 
-echo "🚀 Max Signal Bot - Local Setup"
+echo "🚀 Research Flow - Local Setup"
 echo "================================"
 echo ""
 

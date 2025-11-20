@@ -1,6 +1,6 @@
-# Max Signal Bot — Frontend
+# Research Flow — Frontend
 
-Next.js frontend for market analysis and trading signal generation.
+Next.js frontend for analytical pipelines and research workflows.
 
 ## Setup
 

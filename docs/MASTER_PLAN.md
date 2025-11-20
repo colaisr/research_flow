@@ -1,4 +1,4 @@
-## Max Signal Bot — MVP Master Plan
+## Research Flow — MVP Master Plan
 
 ### 1) Purpose and Scope
 
@@ -36,12 +36,12 @@ Constraints and preferences:
   - Pages: Dashboard (trigger run), Run detail (intrasteps), Settings
 
 - Deployment (single VM, no Docker)
-  - Monorepo checked out to `/srv/max-signal/` (contains `backend/` and `frontend/` subdirectories)
+  - Monorepo checked out to `/srv/research-flow/` (contains `backend/` and `frontend/` subdirectories)
   - Backend: Python venv, Uvicorn via systemd; connects to local or external MySQL
   - Frontend: Next.js production build, `npm run start` via systemd
   - Scripts: `deploy.sh` (pulls repo), `restart_backend.sh`, `restart_frontend.sh`
-  - Local MySQL defaults (dev): host `localhost`, port `3306`, db `max_signal_dev`, user `max_signal_user`
-    - SQLAlchemy DSN: `mysql+pymysql://max_signal_user:YOUR_PASSWORD@localhost:3306/max_signal_dev?charset=utf8mb4`
+  - Local MySQL defaults (dev): host `localhost`, port `3306`, db `research_flow_dev`, user `research_flow_user`
+    - SQLAlchemy DSN: `mysql+pymysql://research_flow_user:YOUR_PASSWORD@localhost:3306/research_flow_dev?charset=utf8mb4`
     - Use script: `/Users/colakamornik/Desktop/max_signal_bot/scripts/mysql_local_setup.sql` (edit password, then apply with a privileged MySQL user)
     - Note: This creates a NEW database on the same MySQL server (separate from infrazen_dev, which belongs to another project and should not be touched)
 
@@ -575,17 +575,17 @@ Users can create, edit, and manage their own custom analysis pipelines using the
 ### 9) Deployment (Single VM, no Docker)
 
 - Directory layout
-  - `/srv/max-signal/` (monorepo git repo)
+  - `/srv/research-flow/` (monorepo git repo)
     - `backend/` (Python venv at `backend/.venv/`)
     - `frontend/`
     - `scripts/` (deployment scripts)
-  - `/srv/max-signal/scripts/deploy.sh` (pulls entire repo)
-  - `/srv/max-signal/scripts/restart_backend.sh` (updates backend deps, migrations, restarts)
-  - `/srv/max-signal/scripts/restart_frontend.sh` (updates frontend deps, builds, restarts)
+  - `/srv/research-flow/scripts/deploy.sh` (pulls entire repo)
+  - `/srv/research-flow/scripts/restart_backend.sh` (updates backend deps, migrations, restarts)
+  - `/srv/research-flow/scripts/restart_frontend.sh` (updates frontend deps, builds, restarts)
 
 - Systemd units
-  - `max-signal-backend.service`: runs Uvicorn with 2 workers, working dir `/srv/max-signal/backend`
-  - `max-signal-frontend.service`: runs `npm run start -- --port 3000` in `/srv/max-signal/frontend`
+  - `research-flow-backend.service`: runs Uvicorn with 2 workers, working dir `/srv/research-flow/backend`
+  - `research-flow-frontend.service`: runs `npm run start -- --port 3000` in `/srv/research-flow/frontend`
 
 - Deploy scripts (manual run after push)
   - Step 1: `./scripts/deploy.sh` - Complete deployment preparation:
@@ -620,7 +620,7 @@ Users can create, edit, and manage their own custom analysis pipelines using the
 #### 10b) Local Auth Flow Notes & Troubleshooting (Dev)
 
 - Standard session auth
-  - Backend sets `maxsignal_session` as an HttpOnly cookie with `SameSite=lax`, `Path=/` (set `secure=True` in production over HTTPS).
+  - Backend sets `researchflow_session` as an HttpOnly cookie with `SameSite=lax`, `Path=/` (set `secure=True` in production over HTTPS).
   - Frontend checks auth via `GET /api/auth/me` only on protected routes; public routes (`/`, `/login`) do not trigger the check.
 - Single source of API base URL
   - `frontend/lib/config.ts` exports `API_BASE_URL` which derives from `window.location.hostname` when env is not set. This keeps cookies same‑site in dev (avoids `localhost` vs `127.0.0.1` mismatches).
@@ -647,7 +647,7 @@ Users can create, edit, and manage their own custom analysis pipelines using the
    - MySQL wiring (SQLAlchemy models) and Alembic initialized with baseline migration
    - Frontend skeleton (Next.js app + Tailwind + simple page)
    - Local config examples prepared
-   - Local MySQL database created (`max_signal_dev`)
+   - Local MySQL database created (`research_flow_dev`)
    - Alembic migrations applied (all tables created)
    - Start/stop automation scripts (`start_all.sh`, `stop_all.sh`)
    - Acceptance:

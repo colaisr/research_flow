@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the step-by-step process to copy the current Max Signal Bot project to a new repository and deploy it on a new server with a separate database. This creates an exact duplicate that can later be modified for the new analytical pipelines platform.
+This document outlines the step-by-step process to copy the current Research Flow project to a new repository and deploy it on a new server with a separate database. This creates an exact duplicate that can later be modified for the new analytical pipelines platform.
 
 ## Prerequisites
 
@@ -120,9 +120,9 @@ mysql --version        # Should be 8.0+
 
 ```bash
 # Create deployment directory
-sudo mkdir -p /srv/max-signal
-sudo chown $USER:$USER /srv/max-signal
-cd /srv/max-signal
+sudo mkdir -p /srv/research-flow
+sudo chown $USER:$USER /srv/research-flow
+cd /srv/research-flow
 
 # Clone new repository
 git clone <new-repo-url> .
@@ -139,14 +139,14 @@ ls -la
 ```bash
 # Create production database
 sudo mysql -u root -p << EOF
-CREATE DATABASE max_signal_prod CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'max_signal_prod'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD_HERE';
-GRANT ALL PRIVILEGES ON max_signal_prod.* TO 'max_signal_prod'@'localhost';
+CREATE DATABASE research_flow_prod CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'research_flow_prod'@'localhost' IDENTIFIED BY 'STRONG_PASSWORD_HERE';
+GRANT ALL PRIVILEGES ON research_flow_prod.* TO 'research_flow_prod'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
 # Test connection
-mysql -u max_signal_prod -p max_signal_prod
+mysql -u research_flow_prod -p research_flow_prod
 # Enter password, then type: exit
 ```
 
@@ -155,7 +155,7 @@ mysql -u max_signal_prod -p max_signal_prod
 ```bash
 # On remote MySQL server, create database and user
 # Then test connection from new server:
-mysql -u max_signal_prod -p -h remote-mysql-host max_signal_prod
+mysql -u research_flow_prod -p -h remote-mysql-host research_flow_prod
 ```
 
 ---
@@ -165,7 +165,7 @@ mysql -u max_signal_prod -p -h remote-mysql-host max_signal_prod
 #### Step 3.1: Backend Environment Setup
 
 ```bash
-cd /srv/max-signal/backend
+cd /srv/research-flow/backend
 
 # Create virtual environment
 python3.11 -m venv .venv
@@ -190,9 +190,9 @@ nano app/config_local.py
 
 ```python
 # Database (PRODUCTION - NEW SERVER)
-MYSQL_DSN = "mysql+pymysql://max_signal_prod:STRONG_PASSWORD@localhost:3306/max_signal_prod?charset=utf8mb4"
+MYSQL_DSN = "mysql+pymysql://research_flow_prod:STRONG_PASSWORD@localhost:3306/research_flow_prod?charset=utf8mb4"
 # OR for remote MySQL:
-# MYSQL_DSN = "mysql+pymysql://max_signal_prod:STRONG_PASSWORD@remote-host:3306/max_signal_prod?charset=utf8mb4"
+# MYSQL_DSN = "mysql+pymysql://research_flow_prod:STRONG_PASSWORD@remote-host:3306/research_flow_prod?charset=utf8mb4"
 
 # OpenRouter (will be set via Settings UI)
 OPENROUTER_API_KEY = None  # Set via Settings UI after deployment
@@ -207,7 +207,7 @@ TELEGRAM_CHANNEL_ID = None  # Not used (direct messages)
 DAYSTART_SCHEDULE = "08:00"
 
 # Security (CRITICAL: Generate new secret!)
-SESSION_COOKIE_NAME = "maxsignal_session"
+SESSION_COOKIE_NAME = "researchflow_session"
 SESSION_SECRET = "GENERATE_NEW_RANDOM_SECRET_HERE"
 
 # Feature flags
@@ -229,28 +229,28 @@ chmod 600 app/config_local.py
 #### Step 3.3: Run Database Migrations
 
 ```bash
-cd /srv/max-signal/backend
+cd /srv/research-flow/backend
 source .venv/bin/activate
 
 # Run migrations (creates all tables)
 alembic upgrade head
 
 # Verify tables created
-mysql -u max_signal_prod -p max_signal_prod -e "SHOW TABLES;"
+mysql -u research_flow_prod -p research_flow_prod -e "SHOW TABLES;"
 # Should show: analysis_types, analysis_runs, analysis_steps, instruments, etc.
 ```
 
 #### Step 3.4: Create Initial Admin User
 
 ```bash
-cd /srv/max-signal/backend
+cd /srv/research-flow/backend
 source .venv/bin/activate
 
 # Create admin user (replace email and password)
 python scripts/create_admin_user.py admin@newserver.com STRONG_PASSWORD
 
 # Verify user created
-mysql -u max_signal_prod -p max_signal_prod -e "SELECT email, role FROM users;"
+mysql -u research_flow_prod -p research_flow_prod -e "SELECT email, role FROM users;"
 ```
 
 ---
@@ -260,7 +260,7 @@ mysql -u max_signal_prod -p max_signal_prod -e "SELECT email, role FROM users;"
 #### Step 4.1: Frontend Environment Setup
 
 ```bash
-cd /srv/max-signal/frontend
+cd /srv/research-flow/frontend
 
 # Install dependencies
 npm ci
@@ -289,15 +289,15 @@ NEXT_PUBLIC_API_BASE_URL=https://your-domain.com/api
 #### Step 5.1: Create Systemd Service Files
 
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 
 # Copy systemd service files
-sudo cp scripts/systemd/max-signal-backend.service /etc/systemd/system/
-sudo cp scripts/systemd/max-signal-frontend.service /etc/systemd/system/
+sudo cp scripts/systemd/research-flow-backend.service /etc/systemd/system/
+sudo cp scripts/systemd/research-flow-frontend.service /etc/systemd/system/
 
 # Edit service files to set correct user
-sudo nano /etc/systemd/system/max-signal-backend.service
-sudo nano /etc/systemd/system/max-signal-frontend.service
+sudo nano /etc/systemd/system/research-flow-backend.service
+sudo nano /etc/systemd/system/research-flow-frontend.service
 ```
 
 **Update both files:**
@@ -317,20 +317,20 @@ Group=deploy
 sudo systemctl daemon-reload
 
 # Enable services (start on boot)
-sudo systemctl enable max-signal-backend
-sudo systemctl enable max-signal-frontend
+sudo systemctl enable research-flow-backend
+sudo systemctl enable research-flow-frontend
 
 # Start services
-sudo systemctl start max-signal-backend
-sudo systemctl start max-signal-frontend
+sudo systemctl start research-flow-backend
+sudo systemctl start research-flow-frontend
 
 # Check status
-sudo systemctl status max-signal-backend
-sudo systemctl status max-signal-frontend
+sudo systemctl status research-flow-backend
+sudo systemctl status research-flow-frontend
 
 # View logs
-sudo journalctl -u max-signal-backend -f
-sudo journalctl -u max-signal-frontend -f
+sudo journalctl -u research-flow-backend -f
+sudo journalctl -u research-flow-frontend -f
 ```
 
 ---
@@ -349,8 +349,8 @@ curl http://localhost:3000
 # Should return HTML
 
 # Check services
-sudo systemctl is-active max-signal-backend  # Should return: active
-sudo systemctl is-active max-signal-frontend # Should return: active
+sudo systemctl is-active research-flow-backend  # Should return: active
+sudo systemctl is-active research-flow-frontend # Should return: active
 ```
 
 #### Step 6.2: Initial Configuration via UI
@@ -393,23 +393,23 @@ sudo systemctl is-active max-signal-frontend # Should return: active
 #### Step 7.1: Install Standalone Deploy Script (Optional but Recommended)
 
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 
 # Install standalone deploy script
 sudo ./scripts/install_standalone_deploy.sh
 
 # Test deployment
-max-signal-deploy
+research-flow-deploy
 
 # Verify services still running
-sudo systemctl status max-signal-backend
-sudo systemctl status max-signal-frontend
+sudo systemctl status research-flow-backend
+sudo systemctl status research-flow-frontend
 ```
 
 #### Step 7.2: Verify Deployment Scripts Work
 
 ```bash
-cd /srv/max-signal
+cd /srv/research-flow
 
 # Test deploy script
 ./scripts/deploy.sh
@@ -430,13 +430,13 @@ cd /srv/max-signal
 - [ ] Database connection works from backend
 
 ### Backend
-- [ ] Backend service running (`systemctl status max-signal-backend`)
+- [ ] Backend service running (`systemctl status research-flow-backend`)
 - [ ] Health endpoint responds (`/health`)
 - [ ] Can access API docs (`http://server:8000/docs`)
 - [ ] Database queries work (test via API)
 
 ### Frontend
-- [ ] Frontend service running (`systemctl status max-signal-frontend`)
+- [ ] Frontend service running (`systemctl status research-flow-frontend`)
 - [ ] Frontend accessible (`http://server:3000`)
 - [ ] Can login with admin credentials
 - [ ] All pages load correctly
@@ -486,7 +486,7 @@ cd /srv/max-signal
 ### Backend Won't Start
 ```bash
 # Check logs
-sudo journalctl -u max-signal-backend -n 100
+sudo journalctl -u research-flow-backend -n 100
 
 # Common issues:
 # 1. Database connection error → Check MYSQL_DSN in config_local.py
@@ -497,7 +497,7 @@ sudo journalctl -u max-signal-backend -n 100
 ### Frontend Won't Start
 ```bash
 # Check logs
-sudo journalctl -u max-signal-frontend -n 100
+sudo journalctl -u research-flow-frontend -n 100
 
 # Common issues:
 # 1. Build missing → Run: npm run build
@@ -508,7 +508,7 @@ sudo journalctl -u max-signal-frontend -n 100
 ### Database Connection Errors
 ```bash
 # Test MySQL connection
-mysql -u max_signal_prod -p max_signal_prod
+mysql -u research_flow_prod -p research_flow_prod
 
 # Check MySQL is running
 sudo systemctl status mysql
@@ -520,7 +520,7 @@ sudo systemctl status mysql
 ### Migration Errors
 ```bash
 # Check current migration version
-cd /srv/max-signal/backend
+cd /srv/research-flow/backend
 source .venv/bin/activate
 alembic current
 
@@ -528,7 +528,7 @@ alembic current
 alembic history
 
 # If stuck, check alembic_version table
-mysql -u max_signal_prod -p max_signal_prod -e "SELECT * FROM alembic_version;"
+mysql -u research_flow_prod -p research_flow_prod -e "SELECT * FROM alembic_version;"
 ```
 
 ---
@@ -563,23 +563,23 @@ Once the duplicate is working:
 
 ```bash
 # Deployment
-cd /srv/max-signal
+cd /srv/research-flow
 ./scripts/deploy.sh                    # Full deployment
 ./scripts/restart_backend.sh            # Restart backend
 ./scripts/restart_frontend.sh           # Restart frontend
-max-signal-deploy                       # Standalone deploy (if installed)
+research-flow-deploy                       # Standalone deploy (if installed)
 
 # Service Management
-sudo systemctl status max-signal-backend
-sudo systemctl restart max-signal-backend
-sudo systemctl restart max-signal-frontend
+sudo systemctl status research-flow-backend
+sudo systemctl restart research-flow-backend
+sudo systemctl restart research-flow-frontend
 
 # Logs
-sudo journalctl -u max-signal-backend -f
-sudo journalctl -u max-signal-frontend -f
+sudo journalctl -u research-flow-backend -f
+sudo journalctl -u research-flow-frontend -f
 
 # Database
-mysql -u max_signal_prod -p max_signal_prod
+mysql -u research_flow_prod -p research_flow_prod
 alembic upgrade head                    # Run migrations
 
 # Health Checks

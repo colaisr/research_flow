@@ -1,0 +1,28 @@
+[Unit]
+Description=Research Flow Backend (FastAPI)
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+Group=YOUR_GROUP
+WorkingDirectory=/srv/research-flow/backend
+Environment="PATH=/srv/research-flow/backend/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/srv/research-flow/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=research-flow-backend
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/research-flow
+
+[Install]
+WantedBy=multi-user.target
+

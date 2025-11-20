@@ -54,7 +54,7 @@ def create_admin_user(email: str, password: str, full_name: str = "Admin User"):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Create admin user')
-    parser.add_argument('--email', default='admin@maxsignal.com', help='Admin email')
+    parser.add_argument('--email', default='admin@researchflow.com', help='Admin email')
     parser.add_argument('--password', default='admin123', help='Admin password')
     parser.add_argument('--name', default='Admin User', help='Admin full name')
     

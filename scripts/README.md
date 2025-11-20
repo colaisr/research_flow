@@ -14,20 +14,20 @@ This creates a NEW database on the same MySQL server (separate from infrazen_dev
 3) Connection details created by the script:
    - Host: `localhost`
    - Port: `3306`
-   - Database: `max_signal_dev`
-   - Username: `max_signal_user`
+   - Database: `research_flow_dev`
+   - Username: `research_flow_user`
    - Password: your chosen password in the script
 
 4) SQLAlchemy DSN (to use in backend `config_local.py`):
 
    ```
-   mysql+pymysql://max_signal_user:YOUR_PASSWORD@localhost:3306/max_signal_dev?charset=utf8mb4
+   mysql+pymysql://research_flow_user:YOUR_PASSWORD@localhost:3306/research_flow_dev?charset=utf8mb4
    ```
 
 5) Verify access (optional):
 
    ```bash
-   mysql -u max_signal_user -p -h localhost -P 3306 -e "SHOW DATABASES LIKE 'max_signal_dev';"
+   mysql -u research_flow_user -p -h localhost -P 3306 -e "SHOW DATABASES LIKE 'research_flow_dev';"
    ```
 
 

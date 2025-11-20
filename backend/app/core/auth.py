@@ -85,17 +85,17 @@ def delete_session(session_token: str):
 
 
 def get_current_user_dependency(
-    maxsignal_session: Optional[str] = Cookie(None),
+    researchflow_session: Optional[str] = Cookie(None),
     db: Session = Depends(get_db)
 ) -> User:
     """Dependency to get current authenticated user."""
-    if not maxsignal_session:
+    if not researchflow_session:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated"
         )
     
-    session_data = verify_session(maxsignal_session)
+    session_data = verify_session(researchflow_session)
     if not session_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

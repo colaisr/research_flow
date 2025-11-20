@@ -33,7 +33,7 @@ if [ "$EUID" -eq 0 ]; then
 fi
 
 # Check if service files exist
-if [ ! -f "$SYSTEMD_DIR/max-signal-backend.service" ] || [ ! -f "$SYSTEMD_DIR/max-signal-frontend.service" ]; then
+if [ ! -f "$SYSTEMD_DIR/research-flow-backend.service" ] || [ ! -f "$SYSTEMD_DIR/research-flow-frontend.service" ]; then
     echo -e "${RED}❌ Service files not found in $SYSTEMD_DIR${NC}"
     exit 1
 fi
@@ -43,17 +43,17 @@ TMP_BACKEND=$(mktemp)
 TMP_FRONTEND=$(mktemp)
 
 sed "s/YOUR_USERNAME/$CURRENT_USER/g; s/YOUR_GROUP/$CURRENT_GROUP/g" \
-    "$SYSTEMD_DIR/max-signal-backend.service" > "$TMP_BACKEND"
+    "$SYSTEMD_DIR/research-flow-backend.service" > "$TMP_BACKEND"
 
 sed "s/YOUR_USERNAME/$CURRENT_USER/g; s/YOUR_GROUP/$CURRENT_GROUP/g" \
-    "$SYSTEMD_DIR/max-signal-frontend.service" > "$TMP_FRONTEND"
+    "$SYSTEMD_DIR/research-flow-frontend.service" > "$TMP_FRONTEND"
 
 # Copy to systemd directory
 echo "📋 Installing backend service..."
-sudo cp "$TMP_BACKEND" /etc/systemd/system/max-signal-backend.service
+sudo cp "$TMP_BACKEND" /etc/systemd/system/research-flow-backend.service
 
 echo "📋 Installing frontend service..."
-sudo cp "$TMP_FRONTEND" /etc/systemd/system/max-signal-frontend.service
+sudo cp "$TMP_FRONTEND" /etc/systemd/system/research-flow-frontend.service
 
 # Reload systemd
 echo "🔄 Reloading systemd daemon..."
@@ -67,18 +67,18 @@ echo -e "${GREEN}✅ Systemd services installed!${NC}"
 echo ""
 echo "📋 Next steps:"
 echo "   1. Edit service files if needed:"
-echo "      sudo nano /etc/systemd/system/max-signal-backend.service"
-echo "      sudo nano /etc/systemd/system/max-signal-frontend.service"
+echo "      sudo nano /etc/systemd/system/research-flow-backend.service"
+echo "      sudo nano /etc/systemd/system/research-flow-frontend.service"
 echo ""
-echo "   2. Update WorkingDirectory paths if not using /srv/max-signal/"
+echo "   2. Update WorkingDirectory paths if not using /srv/research-flow/"
 echo ""
 echo "   3. Enable and start services:"
-echo "      sudo systemctl enable max-signal-backend"
-echo "      sudo systemctl enable max-signal-frontend"
-echo "      sudo systemctl start max-signal-backend"
-echo "      sudo systemctl start max-signal-frontend"
+echo "      sudo systemctl enable research-flow-backend"
+echo "      sudo systemctl enable research-flow-frontend"
+echo "      sudo systemctl start research-flow-backend"
+echo "      sudo systemctl start research-flow-frontend"
 echo ""
 echo "   4. Check status:"
-echo "      sudo systemctl status max-signal-backend"
-echo "      sudo systemctl status max-signal-frontend"
+echo "      sudo systemctl status research-flow-backend"
+echo "      sudo systemctl status research-flow-frontend"
 

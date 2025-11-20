@@ -6,7 +6,7 @@ Copy this file as `app/config_local.py` and keep it out of git.
 # Database (MySQL)
 # Replace the password and adjust host/port if needed.
 # This connects to a NEW database on the same MySQL server (separate from infrazen_dev).
-MYSQL_DSN = "mysql+pymysql://max_signal_user:CHANGE_ME_STRONG_PASSWORD@localhost:3306/max_signal_dev?charset=utf8mb4"
+MYSQL_DSN = "mysql+pymysql://research_flow_user:CHANGE_ME_STRONG_PASSWORD@localhost:3306/research_flow_dev?charset=utf8mb4"
 
 # OpenRouter API
 # Paste your key on the server only; do not commit.
@@ -22,7 +22,7 @@ TELEGRAM_CHANNEL_ID = -1001234567890  # replace with your channel id
 DAYSTART_SCHEDULE = "08:00"  # local server time HH:MM
 
 # Security
-SESSION_COOKIE_NAME = "maxsignal_session"
+SESSION_COOKIE_NAME = "researchflow_session"
 SESSION_SECRET = "CHANGE_ME_RANDOM_SECRET_FOR_SIGNING"  # keep only on the server
 
 # Feature flags

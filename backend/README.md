@@ -1,6 +1,6 @@
-# Max Signal Bot — Backend
+# Research Flow — Backend
 
-FastAPI backend for market analysis and trading signal generation.
+FastAPI backend for analytical pipelines and research workflows.
 
 ## Setup
 

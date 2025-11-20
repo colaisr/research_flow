@@ -2,7 +2,7 @@
 
 ## Overview
 
-This migration creates an **exact duplicate** of the current Max Signal Bot project in a new repository, deployed on a new server with a separate database. This is the foundation for the new analytical pipelines platform.
+This migration creates an **exact duplicate** of the current Research Flow project in a new repository, deployed on a new server with a separate database. This is the foundation for the new analytical pipelines platform.
 
 ## Approach
 
@@ -35,7 +35,7 @@ cd /path/to/new-repo
 git init
 git remote add origin <new-repo-url>
 git add .
-git commit -m "Initial commit: Migrated from max_signal_bot"
+git commit -m "Initial commit: Migrated from research_flow"
 git push -u origin main
 ```
 
@@ -116,9 +116,9 @@ cp -r . /path/to/new-repo/
 
 | Aspect | Original | New Migration |
 |--------|----------|---------------|
-| Repository | `max_signal_bot` | New repository |
+| Repository | `research_flow` | New repository |
 | Server | Original server | New server |
-| Database | `max_signal_dev` | `max_signal_prod` (or custom name) |
+| Database | `research_flow_dev` | `research_flow_prod` (or custom name) |
 | Git History | Original commits | Fresh start |
 | Configuration | Original secrets | New secrets |
 | Admin User | Original credentials | New credentials |
@@ -145,10 +145,10 @@ cp -r . /path/to/new-repo/
 ### 1. Database Connection
 ```python
 # OLD (original server)
-MYSQL_DSN = "mysql+pymysql://max_signal_user:password@localhost:3306/max_signal_dev?charset=utf8mb4"
+MYSQL_DSN = "mysql+pymysql://research_flow_user:password@localhost:3306/research_flow_dev?charset=utf8mb4"
 
 # NEW (new server)
-MYSQL_DSN = "mysql+pymysql://max_signal_prod:NEW_PASSWORD@localhost:3306/max_signal_prod?charset=utf8mb4"
+MYSQL_DSN = "mysql+pymysql://research_flow_prod:NEW_PASSWORD@localhost:3306/research_flow_prod?charset=utf8mb4"
 ```
 
 ### 2. Session Secret
@@ -208,7 +208,7 @@ Common issues and solutions:
 ### Backend won't start
 - Check database connection in `config_local.py`
 - Verify migrations ran: `alembic current`
-- Check logs: `sudo journalctl -u max-signal-backend -n 100`
+- Check logs: `sudo journalctl -u research-flow-backend -n 100`
 
 ### Frontend won't start
 - Verify build exists: `ls -la frontend/.next/`

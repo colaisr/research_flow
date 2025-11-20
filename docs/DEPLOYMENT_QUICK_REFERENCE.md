@@ -4,9 +4,9 @@
 
 ```bash
 # 1. Server setup
-sudo mkdir -p /srv/max-signal
-sudo chown $USER:$USER /srv/max-signal
-cd /srv/max-signal
+sudo mkdir -p /srv/research-flow
+sudo chown $USER:$USER /srv/research-flow
+cd /srv/research-flow
 
 # 2. Clone monorepo
 git clone <repo-url> .
@@ -29,15 +29,15 @@ npm run build
 # 5. Install systemd services
 cd ../../
 ./scripts/install_systemd_services.sh
-sudo systemctl enable max-signal-backend max-signal-frontend
-sudo systemctl start max-signal-backend max-signal-frontend
+sudo systemctl enable research-flow-backend research-flow-frontend
+sudo systemctl start research-flow-backend research-flow-frontend
 ```
 
 ## Regular Deployments
 
 ```bash
 # Step 1: Pull latest, update dependencies, run migrations, build
-cd /srv/max-signal
+cd /srv/research-flow
 ./scripts/deploy.sh
 
 # Step 2: Restart backend (if backend changed)
@@ -58,16 +58,16 @@ cd /srv/max-signal
 
 ```bash
 # Service status
-sudo systemctl status max-signal-backend
-sudo systemctl status max-signal-frontend
+sudo systemctl status research-flow-backend
+sudo systemctl status research-flow-frontend
 
 # View logs
-sudo journalctl -u max-signal-backend -f
-sudo journalctl -u max-signal-frontend -f
+sudo journalctl -u research-flow-backend -f
+sudo journalctl -u research-flow-frontend -f
 
 # Restart services
-sudo systemctl restart max-signal-backend
-sudo systemctl restart max-signal-frontend
+sudo systemctl restart research-flow-backend
+sudo systemctl restart research-flow-frontend
 
 # Health checks
 curl http://localhost:8000/health
@@ -91,29 +91,29 @@ curl http://localhost:3000
 
 **Backend won't start:**
 ```bash
-sudo journalctl -u max-signal-backend -n 100
+sudo journalctl -u research-flow-backend -n 100
 # Check MySQL connection, Python version, virtual environment
 ```
 
 **Frontend won't start:**
 ```bash
-sudo journalctl -u max-signal-frontend -n 100
+sudo journalctl -u research-flow-frontend -n 100
 # Check Node version, build output, environment variables
 ```
 
 **Database errors:**
 ```bash
-mysql -u max_signal_prod -p max_signal_prod
+mysql -u research_flow_prod -p research_flow_prod
 # Verify connection, check DSN in config_local.py
 ```
 
 ## Files Location
 
-- Monorepo: `/srv/max-signal/`
-- Backend: `/srv/max-signal/backend`
-- Frontend: `/srv/max-signal/frontend`
-- Scripts: `/srv/max-signal/scripts/`
-- Config: `/srv/max-signal/backend/app/config_local.py`
-- Logs: `journalctl -u max-signal-backend -u max-signal-frontend`
+- Monorepo: `/srv/research-flow/`
+- Backend: `/srv/research-flow/backend`
+- Frontend: `/srv/research-flow/frontend`
+- Scripts: `/srv/research-flow/scripts/`
+- Config: `/srv/research-flow/backend/app/config_local.py`
+- Logs: `journalctl -u research-flow-backend -u research-flow-frontend`
 - Services: `/etc/systemd/system/max-signal-*.service`
 

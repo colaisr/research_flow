@@ -35,7 +35,7 @@ async def list_analysis_types(
     db: Session = Depends(get_db),
     user_id: Optional[int] = Query(None, description="Filter by user ID"),
     system: Optional[bool] = Query(None, description="Filter by system pipelines (true) or user pipelines (false)"),
-    maxsignal_session: Optional[str] = Cookie(None)
+    researchflow_session: Optional[str] = Cookie(None)
 ):
     """List analysis types with optional filtering.
     
@@ -45,8 +45,8 @@ async def list_analysis_types(
     """
     # Get current user (optional)
     current_user = None
-    if maxsignal_session:
-        session_data = verify_session(maxsignal_session)
+    if researchflow_session:
+        session_data = verify_session(researchflow_session)
         if session_data:
             current_user = db.query(User).filter(User.id == session_data['user_id']).first()
             if current_user and not current_user.is_active:

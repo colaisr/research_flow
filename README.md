@@ -1,4 +1,4 @@
-# Max Signal Bot
+# Research Flow
 
 Market analysis and trading signal generation system with AI-powered analysis.
 
