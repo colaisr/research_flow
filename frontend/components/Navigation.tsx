@@ -13,6 +13,10 @@ const navigation = [
 ]
 
 export default function Navigation() {
+  // Don't show navigation on landing page
+  if (typeof window !== 'undefined' && window.location.pathname === '/') {
+    return null
+  }
   const pathname = usePathname()
 
   // Don't show nav on login page or landing page
