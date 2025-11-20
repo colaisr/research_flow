@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+# Allow frontend/lib/ (needed for frontend build)
+!frontend/lib/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+backend/.venv/
+backend/venv/
+ENV/
+env/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local config (NEVER commit)
+backend/app/config_local.py
+
+# Alembic
+backend/alembic/versions/*.pyc
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (if added later)
+.env
+.env.local
+.env*.local
+
+# Server logs and PID files (created by start_all.sh)
+backend.log
+frontend.log
+.server_pids*

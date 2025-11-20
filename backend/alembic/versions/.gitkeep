@@ -1,0 +1,3 @@
+# Placeholder for Alembic migration files
+# Run: alembic revision --autogenerate -m "Initial migration" after setting up config_local.py
+

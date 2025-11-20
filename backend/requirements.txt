@@ -1,0 +1,41 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.25
+pymysql==1.1.0
+cryptography==42.0.0  # required by pymysql
+alembic==1.13.1
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# HTTP client
+httpx==0.25.2  # Compatible with python-telegram-bot 20.7
+
+# Scheduling
+apscheduler==3.10.4
+
+# Logging
+structlog==24.1.0
+
+# Data adapters
+ccxt==4.2.25
+yfinance==0.2.33
+pandas==2.2.0  # Required by yfinance
+tinkoff-investments==0.2.0b117  # Tinkoff Invest API for MOEX instruments (latest beta)
+apimoex==1.3.0  # MOEX ISS API client for listing available instruments
+requests==2.31.0  # Required by apimoex
+
+# Telegram
+python-telegram-bot==20.7
+
+# OpenAI-compatible client for OpenRouter
+openai==1.12.0
+
+email-validator==2.1.1
+
