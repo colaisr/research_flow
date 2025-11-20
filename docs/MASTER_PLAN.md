@@ -100,7 +100,7 @@ Constraints and preferences:
   - `rag_documents`: id, rag_id, title, content, file_path (nullable), metadata (JSON), embedding_status, created_at, updated_at
   - `available_models`: id, name, display_name, provider, description, max_tokens, cost_per_1k_tokens, is_enabled, has_failures, created_at, updated_at
   - `schedules`: id, user_id, analysis_type_id, schedule_config (cron expression or interval), is_active, last_run_at, next_run_at, created_at, updated_at
-  - `data_cache`: id, key, payload, fetched_at, ttl_seconds
+- `data_cache`: id, key, payload, fetched_at, ttl_seconds
   - `output_deliveries`: id, run_id, output_type (telegram/email/webhook/file), config (JSON), status, delivered_at, error_message
 
 - Core services
@@ -544,10 +544,10 @@ The current trading analysis flows serve as **examples/templates** that demonstr
 Users can create any flow they need - the platform is domain-agnostic.
 
 **LLM Usage:**
-- System prompt defines role, output rules, style.
+  - System prompt defines role, output rules, style.
 - Each step uses structured prompt with any computed context (from previous steps, tools, RAGs).
-- Record model used, token counts, and estimated cost.
-- Default model is configurable; routed through OpenRouter for easy switching.
+  - Record model used, token counts, and estimated cost.
+  - Default model is configurable; routed through OpenRouter for easy switching.
 
 
 ### 5) APIs (initial)
@@ -617,8 +617,8 @@ Users can create any flow they need - the platform is domain-agnostic.
 **Output Handlers:**
 - **Telegram**: Direct messages to users (current implementation)
   - Bot token stored in user settings or `config_local.py`
-  - Split messages into ≤4096 characters
-  - Retry policy: exponential backoff on rate limits (429) and transient errors
+- Split messages into ≤4096 characters
+- Retry policy: exponential backoff on rate limits (429) and transient errors
 - **Email**: Send analysis results via email
   - SMTP configuration per user
   - Email templates
