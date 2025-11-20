@@ -1082,6 +1082,8 @@ Notes:
   - Complete end-to-end deployment: git pull, dependencies, migrations, build, restart services
   - Usage: `research-flow-deploy` (can be run from anywhere)
   - Installation: `sudo bash scripts/install_standalone_deploy.sh`
+  - **External to project**: Script is copied to `/usr/local/bin/` and won't be overwritten by git pull
+  - **Tested and verified**: Successfully deployed and tested on production server
 - `scripts/deploy.sh`: Pulls latest changes, updates dependencies, runs migrations, builds frontend
 - `scripts/restart_backend.sh`: Restarts backend service
 - `scripts/restart_frontend.sh`: Restarts frontend service
