@@ -55,7 +55,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             db.refresh(telegram_user)
             
             await update.message.reply_text(
-                "✅ Welcome to Max SigNal bot!\n\n"
+                "✅ Welcome to Research Flow bot!\n\n"
                 "You've been registered and will receive trading analysis updates.\n\n"
                 "Use /help to see available commands."
             )
@@ -76,7 +76,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     
     help_text = """
-📊 Max SigNal bot Commands:
+📊 Research Flow bot Commands:
 
 /start - Register to receive analysis updates
 /help - Show this help message

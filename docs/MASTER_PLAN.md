@@ -42,7 +42,7 @@ Constraints and preferences:
   - Scripts: `deploy.sh` (pulls repo), `restart_backend.sh`, `restart_frontend.sh`
   - Local MySQL defaults (dev): host `localhost`, port `3306`, db `research_flow_dev`, user `research_flow_user`
     - SQLAlchemy DSN: `mysql+pymysql://research_flow_user:YOUR_PASSWORD@localhost:3306/research_flow_dev?charset=utf8mb4`
-    - Use script: `/Users/colakamornik/Desktop/max_signal_bot/scripts/mysql_local_setup.sql` (edit password, then apply with a privileged MySQL user)
+    - Use script: `scripts/mysql_local_setup.sql` (edit password, then apply with a privileged MySQL user)
     - Note: This creates a NEW database on the same MySQL server (separate from infrazen_dev, which belongs to another project and should not be touched)
 
 - References
@@ -971,5 +971,49 @@ Since we need to test and observe the analysis pipeline, we should build a **min
 Notes:
 - OpenRouter provides a unified OpenAI-compatible interface to many models which simplifies switching and increases availability: `https://openrouter.ai/`.
 - This document is the living source of truth; update checkboxes and milestone notes as we progress.
+
+---
+
+### 16) Local Setup Validation (Completed)
+
+**Date**: Initial setup validation after project migration
+
+**Completed Tasks**:
+1. ✅ **Database Setup**: Created dedicated `research_flow_dev` database and `research_flow_user` MySQL user
+2. ✅ **Configuration**: Created `backend/app/config_local.py` with proper database credentials
+3. ✅ **Python Environment**: Set up Python virtual environment and installed all backend dependencies
+4. ✅ **Database Migrations**: Successfully ran all Alembic migrations (16 migrations applied)
+5. ✅ **Frontend Dependencies**: Installed all frontend npm packages
+6. ✅ **Database Connection**: Verified database connection works correctly
+7. ✅ **Admin User**: Created initial admin user (admin@rf.ru / 1234)
+8. ✅ **Project Name Updates**: Updated all references from "Max Signal Bot" to "Research Flow" across codebase
+
+**Database Status**:
+- Database: `research_flow_dev` ✅
+- User: `research_flow_user` ✅
+- Tables created: 12 tables (alembic_version, analysis_runs, analysis_steps, analysis_types, app_settings, available_data_sources, available_models, data_cache, instruments, telegram_posts, telegram_users, users) ✅
+- Analysis types seeded: 4 types ✅
+- Admin user created: 1 user ✅
+
+**Configuration Files**:
+- `backend/app/config_local.py`: Created with database credentials (gitignored)
+- Database password: `research_flow_password` (as set in mysql_local_setup.sql)
+
+**Next Steps for Full Functionality Testing**:
+1. Start backend server: `cd backend && source .venv/bin/activate && uvicorn app.main:app --reload`
+2. Start frontend server: `cd frontend && npm run dev`
+3. Test login with admin credentials
+4. Test API endpoints (instruments, analyses, runs)
+5. Verify Telegram bot integration (requires API keys)
+
+**Files Updated**:
+- `backend/app/main.py`: Updated API title and lock file paths
+- `backend/app/__init__.py`: Updated project name
+- `backend/app/api/health.py`: Updated service name
+- `backend/app/services/telegram/bot_handler.py`: Updated bot welcome messages
+- `scripts/stop_all.sh`: Updated service name
+- `scripts/README.md`: Updated path reference
+- `frontend/app/page.tsx`: Updated landing page text
+- `backend/scripts/test_polling_lock.py`: Updated lock file paths
 
 

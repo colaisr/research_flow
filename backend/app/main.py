@@ -11,7 +11,7 @@ from app.services.telegram.bot_handler import start_bot_polling, stop_bot_pollin
 app_settings = get_settings()
 
 app = FastAPI(
-    title="Max Signal Bot API",
+    title="Research Flow API",
     description="Market analysis and trading signal generation API",
     version="0.1.2",  # Deployment test v2
 )
@@ -49,8 +49,8 @@ def _acquire_polling_lock() -> tuple[bool, object]:
     import logging
     logger = logging.getLogger(__name__)
     
-    lock_file_path = "/tmp/max-signal-bot-polling.lock"
-    pid_file_path = "/tmp/max-signal-bot-polling.pid"
+    lock_file_path = "/tmp/research-flow-polling.lock"
+    pid_file_path = "/tmp/research-flow-polling.pid"
     current_pid = os.getpid()
     
     try:
@@ -121,7 +121,7 @@ def _release_polling_lock(lock_file):
     import logging
     logger = logging.getLogger(__name__)
     
-    pid_file_path = "/tmp/max-signal-bot-polling.pid"
+    pid_file_path = "/tmp/research-flow-polling.pid"
     
     try:
         if lock_file:

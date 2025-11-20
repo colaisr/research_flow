@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop all services for Max Signal Bot
+# Stop all services for Research Flow
 # Stops backend (FastAPI) and frontend (Next.js) servers
 
 set -e
@@ -14,7 +14,7 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${RED}🛑 Stopping Max Signal Bot Services${NC}"
+echo -e "${RED}🛑 Stopping Research Flow Services${NC}"
 echo "===================================="
 echo ""
 

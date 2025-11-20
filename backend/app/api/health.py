@@ -13,6 +13,6 @@ async def health_check():
     return {
         "status": "ok",
         "timestamp": datetime.utcnow().isoformat(),
-        "service": "max-signal-bot-api",
+        "service": "research-flow-api",
     }
 

@@ -50,7 +50,7 @@ export default function LandingPage() {
               Professional Trading Analysis Made Simple
             </h2>
             <p className="text-lg text-gray-700 dark:text-gray-300">
-              Max SigNal bot combines multiple advanced trading methodologies to provide comprehensive market analysis:
+              Research Flow combines multiple advanced trading methodologies to provide comprehensive market analysis:
             </p>
             <ul className="space-y-3 text-gray-700 dark:text-gray-300">
               <li className="flex items-start">
@@ -142,7 +142,7 @@ export default function LandingPage() {
 
         {/* Footer */}
         <div className="mt-16 text-center text-sm text-gray-500 dark:text-gray-400">
-          <p>Max SigNal bot - AI-Powered Market Analysis Platform</p>
+          <p>Research Flow - AI-Powered Market Analysis Platform</p>
         </div>
       </div>
     </div>

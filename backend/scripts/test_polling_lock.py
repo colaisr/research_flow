@@ -76,8 +76,8 @@ def test_stale_lock_recovery():
     print("\n🧪 Test 3: Testing stale lock recovery...")
     
     # Create a fake PID file with a non-existent PID
-    pid_file_path = "/tmp/max-signal-bot-polling.pid"
-    lock_file_path = "/tmp/max-signal-bot-polling.lock"
+    pid_file_path = "/tmp/research-flow-polling.pid"
+    lock_file_path = "/tmp/research-flow-polling.lock"
     
     # Clean up first
     try:

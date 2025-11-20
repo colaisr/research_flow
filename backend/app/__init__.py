@@ -1,2 +1,2 @@
-# Max Signal Bot Backend
+# Research Flow Backend
 

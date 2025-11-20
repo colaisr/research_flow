@@ -8,7 +8,7 @@ This creates a NEW database on the same MySQL server (separate from infrazen_dev
 2) Apply the script with a privileged MySQL user (root or an admin):
 
    ```bash
-   mysql -u root -p < /Users/colakamornik/Desktop/max_signal_bot/scripts/mysql_local_setup.sql
+   mysql -u root -p < scripts/mysql_local_setup.sql
    ```
 
 3) Connection details created by the script:
