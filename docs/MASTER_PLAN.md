@@ -160,8 +160,9 @@ Constraints and preferences:
     - `PUT /api/schedules/{id}` → update schedule
     - `DELETE /api/schedules/{id}` → delete schedule
   - **Outputs**:
-    - `POST /api/runs/{id}/publish` → publish run results (Telegram/email/webhook)
-    - `GET /api/runs/{id}/export` → export run results (PDF/JSON/CSV)
+    - `POST /api/runs/{id}/export` → export/deliver Summary via configured output handlers (Telegram/email/webhook/file)
+    - `GET /api/runs/{id}/summary` → get Summary content
+    - `GET /api/runs/{id}/export/{format}` → download Summary in specific format (PDF/JSON/CSV)
   - **System**:
     - `GET /api/models` → list available LLM models
     - `POST /api/models/sync` → sync models from OpenRouter
@@ -313,15 +314,15 @@ Constraints and preferences:
   - Preview how RAG will be used in analysis steps
 
 **Runs Page (`/runs`):**
-- Dashboard view with filters (analysis type, status, instrument, date range)
-- Runs table with columns: ID, Analysis Type, Instrument, Timeframe, Status, Steps Completed, Cost, Created/Finished
+- Dashboard view with filters (analysis type, status, date range)
+- Runs table with columns: ID, Analysis Type, Status, Steps Completed, Cost, Created/Finished
 - Status badges include:
   - `succeeded` (green) - All steps completed successfully
   - `failed` (red) - Pipeline failed completely
   - `model_failure` (orange) - Partial failure due to model errors (rate limits, not found, etc.)
     - Tooltip shows error details on hover
     - Model automatically marked with `has_failures=True` in database
-- Detail view: Timeline with expandable steps, final Telegram post preview, publish button
+- Detail view: Timeline with expandable steps, Summary preview, export/publish actions
 
 **Settings Page (`/settings`):**
 - Tabbed interface:
@@ -330,11 +331,11 @@ Constraints and preferences:
     - Model failure tracking and visual indicators
     - Search and filter functionality
     - Enable/disable toggles
-  - **Output Handlers**: Configure how analysis results are delivered
-    - **Telegram**: Bot token, active users, message formatting
-    - **Email**: SMTP configuration, email templates
-    - **Webhooks**: Configure webhook endpoints for different analysis types
-    - **File Exports**: Default export formats and settings
+  - **Output Handlers**: Configure how Summary is delivered
+    - **Telegram**: Bot token, active users, message formatting (split messages ≤4096 chars)
+    - **Email**: SMTP configuration, email templates, attachment options
+    - **Webhooks**: Configure webhook endpoints, authentication, retry logic
+    - **File Exports**: Default export formats (PDF, JSON, CSV) and settings
   - **RAG Settings**: Default embedding models, vector database configuration
   - **OpenRouter Configuration**: API key for OpenRouter (required for LLM calls)
   - **User Preferences**: Profile, theme, timezone, notifications, language
@@ -437,14 +438,14 @@ Users can create, edit, and manage their own custom analysis pipelines using the
   - System pipelines (`is_system=true`, `user_id=NULL`) are predefined templates
   - User pipelines (`is_system=false`, `user_id=current_user.id`) are custom pipelines
 - **Step Configuration Structure**:
-  - Each step has: `step_name`, `order`, `system_prompt`, `user_prompt_template`, `model`, `temperature`, `max_tokens`, `num_candles`, `include_context`, `publish_to_telegram`
+  - Each step has: `step_name`, `order`, `step_type`, `system_prompt`, `user_prompt_template`, `model`, `temperature`, `max_tokens`, `tool_id`, `include_context`, `is_summary` (marks step that produces final summary)
   - Steps are stored as JSON array in `analysis_types.config.steps`
   - Steps sorted by `order` field during execution
 - **Dynamic Execution**:
   - Pipeline builds step list dynamically from config (not hardcoded)
-  - Steps mapped to analyzer classes: standard steps (Wyckoff, SMC, etc.) use specific analyzers; custom steps use `GenericLLMAnalyzer`
+  - Steps mapped to executor classes based on step_type (LLM, API, RAG, Database, Transform)
   - Context inclusion: Steps can optionally include output from previous steps via `include_context` config
-  - Publishing: Any step can be publishable (marked with `publish_to_telegram: true`)
+  - Summary: Step marked with `is_summary: true` produces the final output that can be exported via output handlers
 
 **Key Features:**
 1. **Step Flexibility**: All steps are generic LLM calls - no functional difference except prompts
@@ -462,10 +463,11 @@ Users can create, edit, and manage their own custom analysis pipelines using the
    - Dynamic variables: `{step_name}_output` for any previous step
    - Variable palette: Click-to-insert UI showing all available variables
    - Validation: Checks variable references on save/reorder
-5. **Publishing Flexibility**:
-   - Any step can be marked as publishable to Telegram
-   - No special "Merge" step type - users create their own final steps
-   - If multiple steps are publishable, only the last one is published (with warning)
+5. **Summary Step**:
+   - Any step can be marked as the Summary step (produces final output)
+   - Summary can be exported via multiple output handlers (Telegram, email, webhook, file)
+   - If multiple steps are marked as summary, only the last one is used (with warning)
+   - Summary format is configurable per analysis
 
 **Access Control:**
 - **System Pipelines**: Read-only for regular users (can duplicate, can't edit)
@@ -604,9 +606,15 @@ Users can create any flow they need - the platform is domain-agnostic.
   - Jobs enqueue internal “run” creation the same way as manual triggers
 
 
-### 8) Output Handlers
+### 8) Summary and Output Handlers
 
-**Output Types:**
+**Summary Concept:**
+- Instead of a specific "Telegram post" step, analyses produce a **Summary** (final output)
+- The Summary is the consolidated result of all analysis steps
+- Summary can be exported/delivered via multiple output handlers
+- Users configure which output handlers to use for each analysis
+
+**Output Handlers:**
 - **Telegram**: Direct messages to users (current implementation)
   - Bot token stored in user settings or `config_local.py`
   - Split messages into ≤4096 characters
@@ -624,10 +632,11 @@ Users can create any flow they need - the platform is domain-agnostic.
   - CSV exports
   - Custom formats
 
-**Output Configuration:**
-- Users configure output handlers in Settings
-- Each analysis can specify which output handlers to use
-- Multiple outputs can be configured per analysis
+**Summary Configuration:**
+- Users mark which step produces the Summary (typically the last step or a dedicated summary step)
+- Summary format is configurable (text, structured data, formatted report)
+- Multiple output handlers can be configured per analysis
+- Output handlers are configured in Settings and selected per analysis
 
 
 ### 9) Deployment (Single VM, no Docker)
