@@ -1,6 +1,6 @@
 # Research Flow
 
-Market analysis and trading signal generation system with AI-powered analysis.
+General-purpose research platform for creating custom analysis flows using any data sources, tools, and knowledge bases.
 
 ## Repository Structure
 

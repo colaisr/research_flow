@@ -4,7 +4,7 @@
 
 set -e
 
-SERVER_IP="${1:-45.144.177.203}"
+SERVER_IP="${1:-84.54.30.222}"
 BACKEND_URL="http://${SERVER_IP}:8000"
 FRONTEND_URL="http://${SERVER_IP}:3000"
 
@@ -72,20 +72,19 @@ if [ "$BACKEND_STATUS" = "200" ] && [ "$FRONTEND_STATUS" = "200" ]; then
     echo -e "${GREEN}✅ Both services are responding${NC}"
     echo ""
     echo -e "${YELLOW}⚠️  If you see CSS errors in browser:${NC}"
-    echo "   1. SSH into server: ssh user@${SERVER_IP}"
-    echo "   2. Run: cd /srv/max-signal && ./scripts/deploy.sh"
-    echo "   3. Run: ./scripts/restart_frontend.sh"
+    echo "   1. SSH into server: ssh rf-prod"
+    echo "   2. Run: research-flow-deploy"
 else
     echo -e "${RED}❌ Some services are not responding properly${NC}"
     echo ""
     echo "Next steps:"
-    echo "   1. SSH into server: ssh user@${SERVER_IP}"
+    echo "   1. SSH into server: ssh rf-prod"
     echo "   2. Check service status:"
-    echo "      sudo systemctl status max-signal-backend"
-    echo "      sudo systemctl status max-signal-frontend"
+    echo "      sudo systemctl status research-flow-backend"
+    echo "      sudo systemctl status research-flow-frontend"
     echo "   3. Check logs:"
-    echo "      sudo journalctl -u max-signal-backend -n 50"
-    echo "      sudo journalctl -u max-signal-frontend -n 50"
+    echo "      sudo journalctl -u research-flow-backend -n 50"
+    echo "      sudo journalctl -u research-flow-frontend -n 50"
 fi
 echo ""
 

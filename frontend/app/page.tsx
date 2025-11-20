@@ -10,9 +10,6 @@ export default function LandingPage() {
   const router = useRouter()
 
   useEffect(() => {
-    console.log('🚀 Research Flow - Landing Page Loaded')
-    console.log('📅 Deployment test:', new Date().toISOString())
-    
     if (!isLoading && isAuthenticated) {
       router.push('/dashboard')
     }
