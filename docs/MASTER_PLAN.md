@@ -494,12 +494,12 @@ Users can create, edit, and manage their own custom analysis pipelines using the
   - `AnalysisPipeline` class builds steps dynamically from config
   - Steps sorted by `order` field before execution
   - Context built from previous step outputs based on `include_context` config
-  - Publishing finds steps with `publish_to_telegram: true` (fallback to "merge" for backward compatibility)
+  - Summary step identified by `is_summary: true` flag (fallback to "merge" step name for backward compatibility)
 
 **Migration:**
 - Existing analysis types migrated to include:
   - `order` field for each step (1-indexed)
-  - `publish_to_telegram: true` for merge steps
+  - `is_summary: true` for summary steps (previously merge steps)
   - `include_context` for ICT steps (references Wyckoff + SMC)
   - `include_context` for merge steps (references all previous steps)
   - All existing analyses marked as `is_system: true`
