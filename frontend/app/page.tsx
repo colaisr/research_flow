@@ -49,49 +49,40 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 py-20 lg:py-32">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 dark:text-white mb-6">
-              Платформа для создания
-              <br />
-              <span className="text-blue-600 dark:text-blue-400">исследовательских процессов</span>
-            </h1>
-            <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto mb-8">
-              Создавайте многошаговые исследовательские процессы, объединяющие любые источники данных, 
-              инструменты и базы знаний для комплексного анализа и отчётов.
-            </p>
-            <div className="flex justify-center space-x-4">
-              <Link
-                href="/login"
-                className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg hover:shadow-xl"
-              >
-                Начать работу
-              </Link>
+      {/* Hero Section with Video */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 min-h-[calc(100vh-4rem)] flex items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left: Text Content */}
+            <div>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 dark:text-white mb-6">
+                Платформа для создания
+                <br />
+                <span className="text-blue-600 dark:text-blue-400">исследовательских процессов</span>
+              </h1>
+              <p className="text-xl text-gray-600 dark:text-gray-400 mb-8">
+                Создавайте многошаговые исследовательские процессы, объединяющие любые источники данных, 
+                инструменты и базы знаний для комплексного анализа и отчётов.
+              </p>
             </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Video Section */}
-      <section className="py-16 bg-white dark:bg-gray-950">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
-              У меня есть 1 минута
-            </h2>
-            <p className="text-lg text-gray-600 dark:text-gray-400">
-              Посмотрите, как Research Flow помогает создавать исследовательские процессы за минуту.
-            </p>
-          </div>
-          <div className="max-w-4xl mx-auto">
-            <div className="aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-              <div className="text-center">
-                <svg className="w-16 h-16 mx-auto text-gray-400 dark:text-gray-600 mb-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                </svg>
-                <p className="text-gray-500 dark:text-gray-400">Видео будет здесь</p>
+            {/* Right: Video */}
+            <div>
+              <div className="mb-4">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                  У меня есть 1 минута
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Посмотрите, как Research Flow помогает создавать исследовательские процессы за минуту.
+                </p>
+              </div>
+              <div className="aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
+                <div className="text-center">
+                  <svg className="w-16 h-16 mx-auto text-gray-400 dark:text-gray-600 mb-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                  </svg>
+                  <p className="text-gray-500 dark:text-gray-400">Видео будет здесь</p>
+                </div>
               </div>
             </div>
           </div>
@@ -99,7 +90,7 @@ export default function LandingPage() {
       </section>
 
       {/* Three Main Blocks */}
-      <section className="py-20 bg-gray-50 dark:bg-gray-900">
+      <section className="py-16 bg-gray-50 dark:bg-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
@@ -166,7 +157,7 @@ export default function LandingPage() {
       </section>
 
       {/* Features Section */}
-      <section className="py-20 bg-white dark:bg-gray-950">
+      <section className="py-16 bg-white dark:bg-gray-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
@@ -237,7 +228,7 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950">
+      <section className="py-16 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
             Запустите Research Flow и создавайте исследовательские процессы
