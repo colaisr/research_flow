@@ -22,7 +22,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",      # Frontend dev server (localhost)
         "http://127.0.0.1:3000",      # Frontend dev server (127.0.0.1)
-        "http://45.144.177.203:3000",  # Production frontend
+        "http://45.144.177.203:3000",  # Old production frontend
+        "http://84.54.30.222:3000",    # Production frontend (rf-prod)
     ],
     allow_credentials=True,
     allow_methods=["*"],
