@@ -94,11 +94,11 @@ Constraints and preferences:
   - `users`: id, email, hashed_password, full_name, is_active, role (enum: admin/org_admin/org_user), created_at, updated_at
   - `organizations`: id, name, slug, owner_id, is_personal (boolean), created_at, updated_at
   - `organization_members`: id, organization_id, user_id, role (org_admin/org_user), invited_by, joined_at
-  - `analysis_types`: id, user_id (nullable, for user-created vs system), name, display_name, description, version, config (JSON with steps configuration), is_active, is_system, created_at, updated_at
+  - `analysis_types`: id, organization_id (required), name, display_name, description, version, config (JSON with steps configuration), is_active, is_system, created_at, updated_at
   - `analysis_runs`: id, trigger_type (manual/scheduled), analysis_type_id, status (queued/running/succeeded/failed/model_failure), input_params (JSON), created_at, finished_at, cost_est_total
   - `analysis_steps`: id, run_id, step_name, step_type (llm/data_transform/api_call/rag_query/etc), input_blob, output_blob, tool_id (nullable, links to user_tools), llm_model (nullable), tokens (nullable), cost_est, created_at
-  - `user_tools`: id, user_id, tool_type (database/api/rag/custom), name, display_name, config (JSON with connection details, credentials), is_active, created_at, updated_at
-  - `rag_knowledge_bases`: id, user_id, name, description, vector_db_type, embedding_model, document_count, created_at, updated_at
+  - `user_tools`: id, organization_id (required), tool_type (database/api/rag/custom), name, display_name, config (JSON with connection details, credentials), is_active, created_at, updated_at
+  - `rag_knowledge_bases`: id, organization_id (required), name, description, vector_db_type, embedding_model, document_count, created_at, updated_at
   - `rag_documents`: id, rag_id, title, content, file_path (nullable), metadata (JSON), embedding_status, created_at, updated_at
   - `available_models`: id, name, display_name, provider, description, max_tokens, cost_per_1k_tokens, is_enabled, has_failures, created_at, updated_at
   - `schedules`: id, user_id, analysis_type_id, schedule_config (cron expression or interval), is_active, last_run_at, next_run_at, created_at, updated_at
