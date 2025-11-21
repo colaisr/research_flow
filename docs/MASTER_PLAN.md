@@ -1134,14 +1134,14 @@ return owner_features
 - Feature usage analytics
 - Bulk feature management
 
-**0.4) Admin Dashboard - User Management**
-- [ ] **Users List Page** (`/admin/users`):
+**0.4) Admin Dashboard - User Management** ✅ **COMPLETE**
+- [x] **Users List Page** (`/admin/users`):
   - Table with columns: Name, Email, Platform Role (admin/user), Personal Org, Other Orgs, Status, Created, Actions
   - Filters: Platform Role (admin/user), Organization, Status (active/inactive)
   - Search by name/email
   - Actions: Edit, Disable/Enable, Delete, View Details, Change Platform Role (admin ↔ user), **Impersonate**
   - **Note**: Organization-specific roles (`org_admin`/`org_user`) are managed per-organization, not at platform level
-- [ ] **User Details Page** (`/admin/users/{id}`):
+- [x] **User Details Page** (`/admin/users/{id}`):
   - User Profile: Name, email, platform role (admin/user), personal organization, organization memberships
   - Organization Roles: Show user's role in each organization (`org_admin`/`org_user` per organization)
   - **Statistics**:
@@ -1154,7 +1154,7 @@ return owner_features
   - **Feature Management**: Enable/disable features, set expiration
   - **Activity Log**: Recent runs, pipeline creations, etc.
   - **Impersonate Button**: "Login as this user" action
-- [ ] **User Impersonation**:
+- [x] **User Impersonation**:
   - **Backend API**: `POST /api/admin/users/{user_id}/impersonate`
     - Only accessible to platform `admin` role
     - Creates new session as the target user
@@ -1184,7 +1184,7 @@ return owner_features
     - All actions during impersonation logged with `impersonated_by` field
     - Log entries include: timestamp, admin user, target user, action performed
     - Admin can view impersonation history in audit logs
-- [ ] **Bulk Operations**:
+- [ ] **Bulk Operations** (Optional - deferred to Phase 1+):
   - Enable/disable features for multiple users
   - Change roles for multiple users
   - Assign users to organizations
@@ -1226,13 +1226,16 @@ return owner_features
 - [x] Backend endpoint: `GET /api/organizations/{organization_id}` for organization details
 - [x] Frontend: Organization switcher shows "Личная" badge for personal orgs
 - [x] Frontend: Proper loading states for organization permission checks
+- [x] Organization filter in users list page - Phase 0.4 ✅
+- [x] Activity Log tab in user details page (recent runs and pipeline creations) - Phase 0.4 ✅
+- [x] Admin can view user statistics - Phase 0.4 ✅
+- [x] Admin can change user platform roles (admin ↔ user) - Phase 0.4 ✅
+- [x] Admin can view user's organization-specific roles (per organization) - Phase 0.4 ✅
+- [x] Admin can impersonate users (for troubleshooting) - Phase 0.4 ✅
+- [x] Impersonation audit trail (impersonation start/end events logged) - Phase 0.4 ✅
+- [x] Removed redundant Features tab from Admin Settings - Phase 0.4 ✅
 - [ ] Feature checks in endpoints (optional - will be added when features are implemented) - Phase 0.3
 - [ ] Feature-based UI visibility (optional - will be added when features are implemented) - Phase 0.3
-- [ ] Admin can view user statistics - Phase 0.4
-- [ ] Admin can change user platform roles (admin ↔ user) - Phase 0.4
-- [ ] Admin can view user's organization-specific roles (per organization) - Phase 0.4
-- [ ] Admin can impersonate users (for troubleshooting) - Phase 0.4
-- [ ] Impersonation audit trail (all actions logged) - Phase 0.4
 
 ---
 

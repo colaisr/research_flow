@@ -50,6 +50,15 @@ interface UserFeatures {
   [feature_name: string]: boolean | null
 }
 
+interface ActivityLogItem {
+  type: 'run' | 'pipeline'
+  id: number
+  name: string
+  status: string | null
+  created_at: string
+  organization_name: string | null
+}
+
 async function fetchUserDetails(userId: number) {
   const { data } = await apiClient.get<UserDetails>(
     `${API_BASE_URL}/api/admin/users/${userId}`,
@@ -92,6 +101,14 @@ async function setUserFeature(userId: number, featureName: string, enabled: bool
   return data
 }
 
+async function fetchUserActivity(userId: number) {
+  const { data } = await apiClient.get<ActivityLogItem[]>(
+    `${API_BASE_URL}/api/admin/users/${userId}/activity?limit=50`,
+    { withCredentials: true }
+  )
+  return data
+}
+
 async function impersonateUser(userId: number) {
   const { data } = await apiClient.post(
     `${API_BASE_URL}/api/admin/users/${userId}/impersonate`,
@@ -108,7 +125,7 @@ export default function UserDetailsPage() {
   const queryClient = useQueryClient()
   const userId = parseInt(params.id as string)
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'statistics' | 'features' | 'organizations'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'statistics' | 'features' | 'organizations' | 'activity'>('profile')
   const [editingName, setEditingName] = useState(false)
   const [editingEmail, setEditingEmail] = useState(false)
   const [newName, setNewName] = useState('')
@@ -129,6 +146,12 @@ export default function UserDetailsPage() {
   const { data: availableFeatures = {} } = useQuery({
     queryKey: ['admin', 'features'],
     queryFn: fetchAvailableFeatures
+  })
+
+  const { data: activityLog = [] } = useQuery({
+    queryKey: ['admin', 'user-activity', userId],
+    queryFn: () => fetchUserActivity(userId),
+    enabled: !!userId && activeTab === 'activity'
   })
 
   const updateUserMutation = useMutation({
@@ -221,7 +244,7 @@ export default function UserDetailsPage() {
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
         <nav className="-mb-px flex space-x-8">
-          {(['profile', 'statistics', 'features', 'organizations'] as const).map((tab) => (
+          {(['profile', 'statistics', 'features', 'organizations', 'activity'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -235,6 +258,7 @@ export default function UserDetailsPage() {
               {tab === 'statistics' && 'Статистика'}
               {tab === 'features' && 'Функции'}
               {tab === 'organizations' && 'Организации'}
+              {tab === 'activity' && 'Активность'}
             </button>
           ))}
         </nav>
@@ -497,6 +521,70 @@ export default function UserDetailsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'activity' && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Последние действия пользователя: запуски анализов и создание пайплайнов.
+            </p>
+            {activityLog.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                Нет активности
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {activityLog.map((item) => (
+                  <div
+                    key={`${item.type}-${item.id}`}
+                    className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900/50"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-1 text-xs font-semibold rounded ${
+                          item.type === 'run'
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                            : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        }`}>
+                          {item.type === 'run' ? 'Запуск' : 'Пайплайн'}
+                        </span>
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {item.name}
+                        </span>
+                        {item.status && (
+                          <span className={`px-2 py-1 text-xs rounded ${
+                            item.status === 'succeeded'
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                              : item.status === 'failed' || item.status === 'model_failure'
+                              ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                              : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                          }`}>
+                            {item.status === 'succeeded' ? 'Успешно' : 
+                             item.status === 'failed' ? 'Ошибка' :
+                             item.status === 'model_failure' ? 'Ошибка модели' :
+                             item.status === 'running' ? 'Выполняется' :
+                             item.status === 'queued' ? 'В очереди' : item.status}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {new Date(item.created_at).toLocaleString('ru-RU')}
+                        {item.organization_name && ` • ${item.organization_name}`}
+                      </div>
+                    </div>
+                    {item.type === 'run' && (
+                      <button
+                        onClick={() => router.push(`/runs/${item.id}`)}
+                        className="ml-4 px-3 py-1 text-sm text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        Просмотр
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

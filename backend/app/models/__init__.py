@@ -2,6 +2,7 @@
 Database models.
 """
 from app.models.user import User
+from app.models.audit_log import AuditLog
 from app.models.user_feature import UserFeature
 from app.models.organization import Organization, OrganizationMember
 from app.models.organization_feature import OrganizationFeature
@@ -15,6 +16,7 @@ from app.models.telegram_user import TelegramUser
 from app.models.data_cache import DataCache
 from app.models.settings import AvailableModel, AvailableDataSource, AppSettings
 from app.models.platform_settings import PlatformSettings
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "User",
@@ -34,5 +36,6 @@ __all__ = [
     "AvailableDataSource",
     "AppSettings",
     "PlatformSettings",
+    "AuditLog",
 ]
 

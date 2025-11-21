@@ -29,6 +29,23 @@ interface ListUsersParams {
   offset?: number
 }
 
+interface Organization {
+  id: number
+  name: string
+  slug: string | null
+  is_personal: boolean
+  owner_id: number | null
+  created_at: string | null
+}
+
+async function fetchOrganizations() {
+  const { data } = await apiClient.get<Organization[]>(
+    `${API_BASE_URL}/api/admin/organizations`,
+    { withCredentials: true }
+  )
+  return data
+}
+
 async function fetchUsers(params: ListUsersParams = {}) {
   const queryParams = new URLSearchParams()
   if (params.role) queryParams.append('role', params.role)
@@ -70,6 +87,7 @@ export default function UsersPage() {
 
   const [roleFilter, setRoleFilter] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [organizationFilter, setOrganizationFilter] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [debouncedSearch, setDebouncedSearch] = useState<string>('')
 
@@ -81,11 +99,17 @@ export default function UsersPage() {
     return () => clearTimeout(timer)
   }, [searchQuery])
 
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['admin', 'organizations'],
+    queryFn: fetchOrganizations
+  })
+
   const { data: users = [], isLoading, refetch } = useQuery({
-    queryKey: ['admin', 'users', roleFilter, statusFilter, debouncedSearch],
+    queryKey: ['admin', 'users', roleFilter, statusFilter, organizationFilter, debouncedSearch],
     queryFn: () => fetchUsers({
       role: roleFilter || undefined,
       status: statusFilter || undefined,
+      organization_id: organizationFilter ? parseInt(organizationFilter) : undefined,
       search: debouncedSearch || undefined,
       limit: 100,
       offset: 0
@@ -155,7 +179,7 @@ export default function UsersPage() {
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Поиск
@@ -186,6 +210,24 @@ export default function UsersPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Организация
+            </label>
+            <select
+              value={organizationFilter}
+              onChange={(e) => setOrganizationFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">Все организации</option>
+              {organizations.map((org) => (
+                <option key={org.id} value={org.id.toString()}>
+                  {org.name} {org.is_personal ? '(Личная)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Статус
             </label>
             <select
@@ -204,6 +246,7 @@ export default function UsersPage() {
               onClick={() => {
                 setRoleFilter('')
                 setStatusFilter('')
+                setOrganizationFilter('')
                 setSearchQuery('')
               }}
               className="w-full px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"

@@ -1,7 +1,7 @@
 """
 Admin settings API endpoints.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie, Request, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
 from pydantic import BaseModel
@@ -13,6 +13,8 @@ from app.models.platform_settings import PlatformSettings
 from app.core.auth import get_current_admin_user_dependency, create_session, verify_session, delete_session
 from app.services.feature import FEATURES, get_user_features, get_organization_features, get_effective_features, set_user_feature, set_organization_feature
 from app.services.organization import get_user_organizations
+from app.models.organization import Organization
+from app.models.audit_log import AuditLog
 
 router = APIRouter()
 
@@ -271,6 +273,25 @@ async def set_user_feature_endpoint(
         created_at=feature.created_at,
         updated_at=feature.updated_at
     )
+
+@router.get("/organizations", response_model=List[Dict])
+async def list_all_organizations(
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """List all organizations (admin only)."""
+    organizations = db.query(Organization).order_by(Organization.name).all()
+    return [
+        {
+            "id": org.id,
+            "name": org.name,
+            "slug": org.slug,
+            "is_personal": org.is_personal,
+            "owner_id": org.owner_id,
+            "created_at": org.created_at.isoformat() if org.created_at else None
+        }
+        for org in organizations
+    ]
 
 
 @router.get("/organizations/{organization_id}/features", response_model=Dict[str, bool])
@@ -609,6 +630,78 @@ async def get_user_details(
     )
 
 
+class ActivityLogItem(BaseModel):
+    type: str  # 'run' or 'pipeline'
+    id: int
+    name: str
+    status: Optional[str] = None  # For runs: 'succeeded', 'failed', etc.
+    created_at: datetime
+    organization_name: Optional[str] = None
+
+
+@router.get("/users/{user_id}/activity", response_model=List[ActivityLogItem])
+async def get_user_activity(
+    user_id: int,
+    limit: int = 50,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Get user activity log (recent runs and pipeline creations)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Get user's organizations
+    organizations = get_user_organizations(db, user_id)
+    org_ids = [org.id for org in organizations]
+    org_names = {org.id: org.name for org in organizations}
+    
+    activity = []
+    
+    # Get recent runs
+    from app.models.analysis_run import AnalysisRun
+    from app.models.analysis_type import AnalysisType
+    from app.models.instrument import Instrument
+    
+    recent_runs = db.query(AnalysisRun).filter(
+        AnalysisRun.organization_id.in_(org_ids)
+    ).order_by(AnalysisRun.created_at.desc()).limit(limit).all()
+    
+    for run in recent_runs:
+        analysis_name = run.analysis_type.display_name if run.analysis_type else "Unknown"
+        instrument_symbol = run.instrument.symbol if run.instrument else "Unknown"
+        activity.append(ActivityLogItem(
+            type='run',
+            id=run.id,
+            name=f"{analysis_name} - {instrument_symbol} ({run.timeframe})",
+            status=run.status.value,
+            created_at=run.created_at,
+            organization_name=org_names.get(run.organization_id)
+        ))
+    
+    # Get recent pipeline creations
+    recent_pipelines = db.query(AnalysisType).filter(
+        AnalysisType.organization_id.in_(org_ids)
+    ).order_by(AnalysisType.created_at.desc()).limit(limit).all()
+    
+    for pipeline in recent_pipelines:
+        activity.append(ActivityLogItem(
+            type='pipeline',
+            id=pipeline.id,
+            name=pipeline.display_name or pipeline.name,
+            status=None,
+            created_at=pipeline.created_at,
+            organization_name=org_names.get(pipeline.organization_id)
+        ))
+    
+    # Sort by created_at descending and limit
+    activity.sort(key=lambda x: x.created_at, reverse=True)
+    return activity[:limit]
+
+
 @router.put("/users/{user_id}", response_model=dict)
 async def update_user(
     user_id: int,
@@ -686,6 +779,7 @@ async def update_user(
 @router.post("/users/{user_id}/impersonate", response_model=dict)
 async def impersonate_user(
     user_id: int,
+    request: Request,
     response: Response,
     researchflow_session: Optional[str] = Cookie(None),
     current_user: User = Depends(get_current_admin_user_dependency),
@@ -758,6 +852,26 @@ async def impersonate_user(
     import app.core.auth as auth_module
     auth_module._sessions[session_token] = impersonated_session_data
     
+    # Log impersonation start
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get('user-agent', '')[:500] if request.headers else None
+    
+    audit_log = AuditLog(
+        action_type='impersonation_start',
+        admin_user_id=current_user.id,
+        target_user_id=target_user.id,
+        details={
+            'target_user_email': target_user.email,
+            'target_user_name': target_user.full_name,
+            'organization_id': personal_org.id,
+            'organization_name': personal_org.name
+        },
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    db.add(audit_log)
+    db.commit()
+    
     # Set new cookie
     response.set_cookie(
         key="researchflow_session",
@@ -787,6 +901,7 @@ async def impersonate_user(
 
 @router.post("/exit-impersonation", response_model=dict)
 async def exit_impersonation(
+    request: Request,
     response: Response,
     researchflow_session: Optional[str] = Cookie(None),
     db: Session = Depends(get_db)
@@ -815,12 +930,34 @@ async def exit_impersonation(
             detail="Original admin user not found"
         )
     
+    # Get target user (impersonated user)
+    target_user_id = session_data.get('user_id')
+    target_user = db.query(User).filter(User.id == target_user_id).first() if target_user_id else None
+    
     # Get admin's personal organization
     from app.models.organization import Organization
     admin_personal_org = db.query(Organization).filter(
         Organization.owner_id == admin_user.id,
         Organization.is_personal == True
     ).first()
+    
+    # Log impersonation end
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get('user-agent', '')[:500] if request.headers else None
+    
+    audit_log = AuditLog(
+        action_type='impersonation_end',
+        admin_user_id=admin_user.id,
+        target_user_id=target_user.id if target_user else None,
+        details={
+            'target_user_email': target_user.email if target_user else None,
+            'target_user_name': target_user.full_name if target_user else None
+        },
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    db.add(audit_log)
+    db.commit()
     
     # Create new admin session
     admin_session_token = create_session(
