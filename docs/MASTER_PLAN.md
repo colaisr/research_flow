@@ -425,30 +425,16 @@ Constraints and preferences:
 
 ### 4) Analysis Types and Pipelines
 
-The system supports multiple analysis types, each optimized for specific asset classes:
+**Note**: The platform is general-purpose and domain-agnostic. Users can create analysis flows for any domain or topic.
 
-**Available Analysis Types:**
-1. **Дневной анализ (Daystart Analysis)** - General-purpose analysis for any instrument
-2. **Анализ товарных фьючерсов (Commodity Futures Analysis)** - MOEX commodity futures focused
-3. **Анализ криптовалют (Crypto Analysis)** - Cryptocurrency markets (24/7, high volatility)
-4. **Анализ акций (Equity Analysis)** - Stock markets with fundamental context
+**System Analysis Templates** (Examples):
+The platform may include example/template analysis flows that demonstrate capabilities:
+- Financial market analysis (trading analysis as example)
+- Business intelligence workflows
+- Research report generation
+- Compliance monitoring
 
-**Common Pipeline Structure:**
-All analysis types use the same 6-7 step pipeline:
-1. Wyckoff - Market phase identification
-2. SMC - Structure and liquidity analysis
-3. VSA - Volume spread analysis
-4. Delta - Buying/selling pressure
-5. ICT - Liquidity manipulation and entry zones
-6. Price Action/Patterns - Chart patterns and candlestick formations (for commodity/crypto/equity)
-7. Merge - Combine all analyses into final Telegram post
-
-**Instrument Filtering:**
-- Each analysis type automatically filters available instruments:
-  - Commodity Futures → MOEX exchange only
-  - Crypto Analysis → crypto type only
-  - Equity Analysis → equity type, excluding MOEX
-  - Daystart → all instruments
+These serve as **templates** that users can duplicate and customize for their needs. See Section 4a for more details.
 
 ### 4e) User-Created Pipelines (Pipeline Editor)
 
@@ -696,16 +682,18 @@ Users can create any flow they need - the platform is domain-agnostic.
 ### 10a) Authentication and User Accounts
 
 - Requirements
-  - Email/password login; roles: `admin`, `trader` (viewer).
+  - Email/password login; roles: `admin` (platform admin), `org_admin` (organization admin), `org_user` (organization member).
   - Session cookie (HttpOnly, secure in prod), server-side validation; no tokens stored in frontend.
-  - Endpoints: `/auth/login`, `/auth/logout`, `/auth/me` (profile), `/auth/register` (admin only).
+  - Endpoints: `/api/auth/login`, `/api/auth/logout`, `/api/auth/me` (profile), `/api/auth/register` (public, can be disabled by admin).
   - Passwords hashed with bcrypt; rate limiting on login.
-  - Protected routes: publish to Telegram, Settings, scheduler changes (admin only).
-  - Tables: `users` (id, email, hashed_password, role, created_at, last_login_at), optional `user_sessions`.
+  - Protected routes: All authenticated routes require valid session.
+  - Tables: `users` (id, email, hashed_password, role, is_active, created_at, updated_at), session management via cookies.
+  - Organization context: User selects active organization; all resources filtered by organization context.
 
 - Frontend
-  - Login page; guard protected pages; show current user and role.
+  - Login page; guard protected pages; show current user, role, and current organization.
   - Error states and lockouts; logout action.
+  - Organization selector in navigation for switching contexts.
 
 #### 10b) Local Auth Flow Notes & Troubleshooting (Dev)
 
