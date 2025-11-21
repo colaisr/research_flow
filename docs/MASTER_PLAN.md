@@ -202,22 +202,38 @@ Constraints and preferences:
 ### 3a) UX Specification & Product Architecture
 
 **Navigation Structure:**
+- **Navigation Bar**:
+  - Logo/Brand name
+  - Main navigation links (Analyses, Tools, RAGs, Runs, Schedules, Settings)
+  - **Organization Selector** (dropdown):
+    - Shows current organization name
+    - Lists all organizations user belongs to (personal + shared)
+    - Visual indicators: Personal org badge, role badges (org_admin/org_user)
+    - Quick switch without page reload
+    - "Manage Organizations" link to settings
+  - User info (email, role badge if admin)
+  - Logout button
 - **Home (`/`)**: Landing page with product overview, quick stats, recent activity, quick actions
 - **Analyses (`/analyses`)**: Create and manage analysis flows
-  - List view: Cards showing all user's analysis flows
+  - List view: Cards showing analysis flows from current organization (with filter to show all)
+  - Organization filter: "Current Org", "All Organizations", or specific org
   - Detail/Edit view: Pipeline editor with step-by-step configuration
-  - Create: Build new analysis flow from scratch or template
+  - Create: Build new analysis flow from scratch or template (in current org context)
 - **Tools (`/tools`)**: Manage user-specific tools (databases, APIs, RAGs)
-  - List view: All configured tools grouped by type
-  - Create Tool: Wizard for setting up new tools
+  - List view: All configured tools from current organization (with filter to show all)
+  - Organization filter: "Current Org", "All Organizations", or specific org
+  - Create Tool: Wizard for setting up new tools (in current org context)
   - Edit Tool: Update tool configuration
 - **RAGs (`/rags`)**: Manage knowledge bases and documents
-  - List view: All RAG knowledge bases
-  - Create RAG: Set up new knowledge base
+  - List view: All RAG knowledge bases from current organization (with filter to show all)
+  - Organization filter: "Current Org", "All Organizations", or specific org
+  - Create RAG: Set up new knowledge base (in current org context)
   - Document Management: Upload, organize, and manage documents
 - **Runs (`/runs`)**: View all analysis runs (history, status, results)
+  - Filter by organization (current org or all)
 - **Schedules (`/schedules`)**: Manage scheduled analysis jobs
-- **Settings (`/settings`)**: Configuration management (models, output handlers, preferences)
+  - Filter by organization (current org or all)
+- **Settings (`/settings`)**: Configuration management (models, output handlers, preferences, organizations)
 
 **Key UX Principles:**
 - **Pipeline Transparency**: Users can see complete pipeline configuration before running:
@@ -233,7 +249,9 @@ Constraints and preferences:
 
 **Analyses Page (`/analyses`):**
 - **List View**: Card grid showing:
+  - Organization filter dropdown (Current Org / All Organizations / Specific Org)
   - Analysis name and description
+  - Organization badge (shows which org it belongs to)
   - Number of steps
   - Estimated cost range
   - Last run timestamp and status
@@ -766,6 +784,12 @@ This section outlines the detailed plan to implement the new general-purpose res
   - Preferences: Theme, language, timezone, notifications
   - API Keys: OpenRouter API key (user-specific)
   - Feature Toggles: Which features user can access (for future pricing)
+  - **Organizations Section**:
+    - List all organizations user belongs to
+    - Show role in each organization (org_admin/org_user)
+    - Quick switch to any organization
+    - Leave organization (if org_user)
+    - Create new organization
 - [ ] **Admin Settings Page** (`/admin/settings`):
   - Platform Configuration:
     - Enable/disable public registration
@@ -778,6 +802,12 @@ This section outlines the detailed plan to implement the new general-purpose res
   - Global API Keys: Fallback OpenRouter key (if user doesn't have one)
 
 **0.2) Organization & Multi-Tenancy**
+
+**Key Concept**: Users can belong to multiple organizations simultaneously:
+- **Personal Organization**: Auto-created, always exists, user is `org_admin`
+- **Shared Organizations**: User can be invited to multiple orgs as `org_admin` or `org_user`
+- **Organization Context**: User selects active organization to work within
+- **Quick Switching**: Easy UI to switch between organizations without losing context
 - [ ] **Organizations Table**:
   - `organizations`: id, name, slug, owner_id, is_personal (boolean, default False), created_at, updated_at
   - `organization_members`: id, organization_id, user_id, role (org_admin/org_user), invited_by, joined_at
@@ -793,6 +823,24 @@ This section outlines the detailed plan to implement the new general-purpose res
   - Invited users can accept invitations
   - Organization admins can manage members (remove, change roles)
   - Users can belong to multiple organizations (personal + any number of shared orgs)
+  - **Multi-Organization Support**: Same email/user can have:
+    - Personal organization (auto-created, always exists)
+    - Multiple shared organizations (invited as org_admin or org_user)
+- [ ] **Organization Context & Switching**:
+  - **Current Organization Context**: User selects active organization (stored in session/localStorage)
+  - **Organization Selector UI**: 
+    - Dropdown in navigation bar showing current org
+    - Lists all organizations user belongs to (personal + shared)
+    - Visual indicator: Personal org vs Shared orgs
+    - Quick switch without page reload
+  - **Resource Filtering**: 
+    - By default, show resources from current organization
+    - Option to "Show all" (resources from all orgs user belongs to)
+    - Filter by organization in list views
+  - **Context Persistence**: 
+    - Remember selected org across sessions (localStorage)
+    - Default to personal org on first login
+    - API requests include `X-Organization-Id` header or query param
 - [ ] **Resource Ownership**:
   - **Simplified Model**: All resources belong to an organization (never NULL)
   - Analyses, Tools, RAGs have `organization_id` (required, not nullable)
@@ -800,6 +848,7 @@ This section outlines the detailed plan to implement the new general-purpose res
     - Personal organization (private to user)
     - Shared organization (accessible to all org members)
   - Access control: Users can access resources from organizations where they're members
+  - **Resource Creation**: New resources created in current organization context
   - Migration: Update existing resources to belong to user's personal org
 
 **0.3) Feature Enablement System**
@@ -849,7 +898,13 @@ This section outlines the detailed plan to implement the new general-purpose res
 - [ ] Can create additional organization (beyond personal)
 - [ ] Can invite user to organization
 - [ ] Invited user can accept invitation
-- [ ] User can belong to multiple organizations
+- [ ] User can belong to multiple organizations (personal + shared)
+- [ ] Organization selector appears in navigation
+- [ ] Can switch between organizations quickly
+- [ ] Current organization context persists across sessions
+- [ ] Resources are filtered by current organization
+- [ ] Can view resources from all orgs (with "Show all" option)
+- [ ] New resources created in current organization context
 - [ ] Resources belong to organizations (never NULL)
 - [ ] Can access resources from personal org
 - [ ] Can access resources from shared orgs where user is member
@@ -880,12 +935,18 @@ This section outlines the detailed plan to implement the new general-purpose res
 **1.2) Backend - Tool Management API**
 - [ ] **Tool CRUD Endpoints**:
   - `GET /api/tools` - List user's tools (from all organizations where user is member)
-  - Filter by organization_id (optional query param)
-  - `POST /api/tools` - Create new tool
+  - Filter by organization_id (optional query param, defaults to current org context)
+  - `?organization_id=X` - Filter by specific org
+  - `?all=true` - Show tools from all orgs
+  - `POST /api/tools` - Create new tool (in current organization context, or specify `organization_id`)
   - `GET /api/tools/{id}` - Get tool details
   - `PUT /api/tools/{id}` - Update tool
   - `DELETE /api/tools/{id}` - Delete tool
   - `POST /api/tools/{id}/test` - Test tool connection
+- [ ] **Organization Context API**:
+  - `GET /api/auth/organizations` - List all organizations user belongs to
+  - `POST /api/auth/organizations/{id}/switch` - Switch active organization context
+  - `GET /api/auth/current-organization` - Get current organization context
 - [ ] **Tool Execution Engine**:
   - `ToolExecutor` class with methods per tool type
   - Database executor: Execute SQL queries safely
@@ -895,12 +956,13 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **1.3) Frontend - Tools Management UI**
 - [ ] **Tools List Page** (`/tools`):
-  - List all user's tools (from personal org + all shared orgs where user is member)
-  - Filter by organization (personal vs shared orgs)
+  - List user's tools (from current organization by default)
+  - Organization filter dropdown: "Current Org", "All Organizations", or specific org
   - Filter by type (Database, API, RAG)
   - Search functionality
-  - Show organization badge for each tool
-  - Actions: Create, Edit, Delete, Test, Duplicate
+  - Show organization badge/indicator for each tool
+  - Actions: Create (in current org), Edit, Delete, Test, Duplicate
+  - Quick organization switch from page header
 - [ ] **Create/Edit Tool Wizard**:
   - Step 1: Select tool type
   - Step 2: Configure tool (type-specific form)
@@ -979,10 +1041,12 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **2.4) Frontend - RAG Management UI**
 - [ ] **RAGs List Page** (`/rags`):
-  - List all user's RAGs (from personal org + all shared orgs where user is member)
-  - Show: Name, organization, document count, last updated
+  - List user's RAGs (from current organization by default)
+  - Organization filter dropdown: "Current Org", "All Organizations", or specific org
+  - Show: Name, organization badge, document count, last updated
   - Filter by organization (personal vs shared orgs)
-  - Actions: Create, Manage Documents, Query Test, Delete
+  - Actions: Create (in current org), Manage Documents, Query Test, Delete
+  - Quick organization switch from page header
 - [ ] **Create/Edit RAG Page**:
   - Basic info: Name, description, topic
   - Embedding model selection
