@@ -92,12 +92,7 @@ def upgrade() -> None:
     result = conn.execute(text("SELECT COUNT(*) FROM analysis_runs WHERE organization_id IS NULL"))
     null_count = result.scalar()
     
-    if null_count == 0:
-        # All runs have organization_id, we can make it NOT NULL
-        op.alter_column('analysis_runs', 'organization_id',
-                       existing_type=sa.Integer(),
-                       nullable=False)
-    else:
+    if null_count > 0:
         # Some runs still don't have organization_id - assign them to a default org
         conn.execute(text("""
             UPDATE analysis_runs
@@ -111,11 +106,33 @@ def upgrade() -> None:
             )
             WHERE organization_id IS NULL
         """))
-        
-        # Now make it NOT NULL
-        op.alter_column('analysis_runs', 'organization_id',
-                       existing_type=sa.Integer(),
-                       nullable=False)
+    
+    # Drop foreign key constraint before altering column (MySQL requirement)
+    # Check if constraint exists first
+    result = conn.execute(text("""
+        SELECT CONSTRAINT_NAME 
+        FROM information_schema.TABLE_CONSTRAINTS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'analysis_runs' 
+        AND CONSTRAINT_NAME = 'fk_analysis_runs_organization_id'
+    """))
+    constraint_exists = result.fetchone() is not None
+    
+    if constraint_exists:
+        op.drop_constraint('fk_analysis_runs_organization_id', 'analysis_runs', type_='foreignkey')
+    
+    # Now make it NOT NULL
+    op.alter_column('analysis_runs', 'organization_id',
+                   existing_type=sa.Integer(),
+                   nullable=False)
+    
+    # Recreate the foreign key constraint
+    if constraint_exists:
+        op.create_foreign_key(
+            'fk_analysis_runs_organization_id',
+            'analysis_runs', 'organizations',
+            ['organization_id'], ['id']
+        )
 
 
 def downgrade() -> None:
