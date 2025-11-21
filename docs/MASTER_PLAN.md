@@ -91,7 +91,9 @@ Constraints and preferences:
   - **Output Handlers**: Flexible output formats (Telegram, email, webhooks, file exports, etc.)
 
 - Data model (MySQL)
-  - `users`: id, email, hashed_password, full_name, is_active, is_admin, created_at, updated_at
+  - `users`: id, email, hashed_password, full_name, is_active, role (enum: admin/org_admin/org_user), created_at, updated_at
+  - `organizations`: id, name, slug, owner_id, is_personal (boolean), created_at, updated_at
+  - `organization_members`: id, organization_id, user_id, role (org_admin/org_user), invited_by, joined_at
   - `analysis_types`: id, user_id (nullable, for user-created vs system), name, display_name, description, version, config (JSON with steps configuration), is_active, is_system, created_at, updated_at
   - `analysis_runs`: id, trigger_type (manual/scheduled), analysis_type_id, status (queued/running/succeeded/failed/model_failure), input_params (JSON), created_at, finished_at, cost_est_total
   - `analysis_steps`: id, run_id, step_name, step_type (llm/data_transform/api_call/rag_query/etc), input_blob, output_blob, tool_id (nullable, links to user_tools), llm_model (nullable), tokens (nullable), cost_est, created_at
@@ -434,7 +436,8 @@ Users can create, edit, and manage their own custom analysis pipelines using the
 
 **Architecture:**
 - **Database Schema**: 
-  - `analysis_types` table includes `user_id` (nullable, FK to users) and `is_system` (boolean) columns
+  - `analysis_types` table includes `organization_id` (required, FK to organizations) and `is_system` (boolean) columns
+  - System analyses belong to a special system organization (or can be identified by `is_system=True`)
   - System pipelines (`is_system=true`, `user_id=NULL`) are predefined templates
   - User pipelines (`is_system=false`, `user_id=current_user.id`) are custom pipelines
 - **Step Configuration Structure**:
@@ -736,14 +739,23 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **0.1) User Roles & Authentication Enhancement**
 - [ ] **Roles System**:
-  - Current: Basic admin/user distinction
-  - New: `admin`, `user`, `org_admin` (organization admin), `org_user` (organization member)
-  - Database: Add `role` enum field to `users` table
-  - Migration: Update existing users, add role constraints
+  - Current: Basic admin/user distinction (`is_admin` boolean)
+  - New: `admin` (platform admin), `org_admin` (organization admin), `org_user` (organization member)
+  - Database: Add `role` enum field to `users` table (values: `admin`, `org_admin`, `org_user`)
+  - **Simplified Model**: Everyone is `org_admin` by default (manages their personal organization)
+  - Migration: 
+    - Update existing users: `is_admin=True` → `role='admin'`, `is_admin=False` → `role='org_admin'`
+    - Add role constraints
+- [ ] **Personal Organization Auto-Creation**:
+  - When user registers, automatically create a "Personal Organization" for them
+  - User becomes `org_admin` of their personal org
+  - All user's resources belong to their personal org (never NULL)
+  - Personal org name: "{User's Name} Personal" or "{User's Email} Personal"
 - [ ] **Registration Flow**:
   - Public registration endpoint (`POST /api/auth/register`)
   - Email verification (optional for MVP, can be added later)
-  - Default role: `user` (can be changed by admin)
+  - Default role: `org_admin` (can be changed by admin to `admin`)
+  - Auto-create personal organization on registration
   - Admin can enable/disable public registration
 - [ ] **Index Page (Pre-Login)**:
   - Landing page with product overview
@@ -758,7 +770,7 @@ This section outlines the detailed plan to implement the new general-purpose res
 - [ ] **Admin Settings Page** (`/admin/settings`):
   - Platform Configuration:
     - Enable/disable public registration
-    - Default user role for new registrations
+    - Default user role for new registrations (always `org_admin` for regular users, can be changed to `admin`)
     - Platform-wide feature flags
   - System Limits:
     - Max pipelines per user
@@ -768,21 +780,28 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **0.2) Organization & Multi-Tenancy**
 - [ ] **Organizations Table**:
-  - `organizations`: id, name, slug, owner_id, created_at, updated_at
+  - `organizations`: id, name, slug, owner_id, is_personal (boolean, default False), created_at, updated_at
   - `organization_members`: id, organization_id, user_id, role (org_admin/org_user), invited_by, joined_at
   - `organization_invitations`: id, organization_id, email, token, role, invited_by, expires_at, accepted_at
+- [ ] **Personal Organization**:
+  - Every user has exactly one personal organization (auto-created on registration)
+  - Personal org marked with `is_personal=True`
+  - User is `org_admin` of their personal org
+  - Personal org cannot be deleted (user deletion removes it)
 - [ ] **Organization Management**:
-  - Users can create organizations
+  - Users can create additional organizations (beyond their personal one)
   - Organization admins can invite users (email invitations)
   - Invited users can accept invitations
   - Organization admins can manage members (remove, change roles)
-  - Users can belong to multiple organizations
+  - Users can belong to multiple organizations (personal + any number of shared orgs)
 - [ ] **Resource Ownership**:
-  - Analyses, Tools, RAGs can belong to:
-    - User (personal)
-    - Organization (shared within org)
-  - Add `organization_id` (nullable) to relevant tables
-  - Access control: Users can access org resources if they're members
+  - **Simplified Model**: All resources belong to an organization (never NULL)
+  - Analyses, Tools, RAGs have `organization_id` (required, not nullable)
+  - Resources can belong to:
+    - Personal organization (private to user)
+    - Shared organization (accessible to all org members)
+  - Access control: Users can access resources from organizations where they're members
+  - Migration: Update existing resources to belong to user's personal org
 
 **0.3) Feature Enablement System**
 - [ ] **User Features Table**:
@@ -799,36 +818,45 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **0.4) Admin Dashboard - User Management**
 - [ ] **Users List Page** (`/admin/users`):
-  - Table with columns: Name, Email, Role, Organization, Status, Created, Actions
+  - Table with columns: Name, Email, Role, Personal Org, Other Orgs, Status, Created, Actions
   - Filters: Role, Organization, Status (active/inactive)
   - Search by name/email
-  - Actions: Edit, Disable/Enable, Delete, View Details
+  - Actions: Edit, Disable/Enable, Delete, View Details, Change Role
 - [ ] **User Details Page** (`/admin/users/{id}`):
-  - User Profile: Name, email, role, organization memberships
+  - User Profile: Name, email, role (admin/org_admin/org_user), personal organization, organization memberships
   - **Statistics**:
     - Tokens used (total, this month)
-    - Pipelines created (total, active)
+    - Pipelines created (total, active) - across all orgs
     - Runs executed (total, this month, succeeded/failed)
-    - Tools created (total, active)
-    - RAGs created (total, documents)
+    - Tools created (total, active) - across all orgs
+    - RAGs created (total, documents) - across all orgs
+    - Organizations: Personal org + shared orgs count
   - **Feature Management**: Enable/disable features, set expiration
   - **Activity Log**: Recent runs, pipeline creations, etc.
 - [ ] **Bulk Operations**:
   - Enable/disable features for multiple users
+  - Change roles for multiple users
   - Assign users to organizations
   - Export user statistics
 
 **Testing Checklist for Phase 0**:
 - [ ] Can register new user
+- [ ] Personal organization is auto-created on registration
+- [ ] User is org_admin of their personal org
 - [ ] Can login/logout
 - [ ] Index page shows without login
 - [ ] User settings page works
 - [ ] Admin can access admin settings
-- [ ] Can create organization
+- [ ] Can create additional organization (beyond personal)
 - [ ] Can invite user to organization
 - [ ] Invited user can accept invitation
+- [ ] User can belong to multiple organizations
+- [ ] Resources belong to organizations (never NULL)
+- [ ] Can access resources from personal org
+- [ ] Can access resources from shared orgs where user is member
 - [ ] Feature enablement works (can't access disabled features)
 - [ ] Admin can view user statistics
+- [ ] Admin can change user roles
 
 ---
 
@@ -838,8 +866,9 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **1.1) Database Schema**
 - [ ] **User Tools Table**:
-  - `user_tools`: id, user_id, organization_id (nullable), tool_type, name, display_name, config (JSON), is_active, created_at, updated_at
+  - `user_tools`: id, organization_id (required), tool_type, name, display_name, config (JSON), is_active, created_at, updated_at
   - Tool types: `database`, `api`, `rag` (RAG will be separate table, but linked as tool)
+  - Note: Tools belong to organizations (user's personal org or shared org)
 - [ ] **Tool Configuration Schema**:
   - Database tools: `{connection_string, host, port, database, username, password_encrypted, ssl_mode}`
   - API tools: `{base_url, auth_type, api_key, headers, timeout}`
@@ -851,7 +880,8 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **1.2) Backend - Tool Management API**
 - [ ] **Tool CRUD Endpoints**:
-  - `GET /api/tools` - List user's tools (filtered by user_id, organization_id)
+  - `GET /api/tools` - List user's tools (from all organizations where user is member)
+  - Filter by organization_id (optional query param)
   - `POST /api/tools` - Create new tool
   - `GET /api/tools/{id}` - Get tool details
   - `PUT /api/tools/{id}` - Update tool
@@ -866,9 +896,11 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **1.3) Frontend - Tools Management UI**
 - [ ] **Tools List Page** (`/tools`):
-  - List all user's tools (personal + organization)
+  - List all user's tools (from personal org + all shared orgs where user is member)
+  - Filter by organization (personal vs shared orgs)
   - Filter by type (Database, API, RAG)
   - Search functionality
+  - Show organization badge for each tool
   - Actions: Create, Edit, Delete, Test, Duplicate
 - [ ] **Create/Edit Tool Wizard**:
   - Step 1: Select tool type
@@ -906,7 +938,8 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **2.1) Database Schema**
 - [ ] **RAG Knowledge Bases Table**:
-  - `rag_knowledge_bases`: id, user_id, organization_id (nullable), name, description, vector_db_type, embedding_model, document_count, created_at, updated_at
+  - `rag_knowledge_bases`: id, organization_id (required), name, description, vector_db_type, embedding_model, document_count, created_at, updated_at
+  - Note: RAGs belong to organizations (user's personal org or shared org)
 - [ ] **RAG Documents Table**:
   - `rag_documents`: id, rag_id, title, content, file_path (nullable), metadata (JSON), embedding_status, created_at, updated_at
 - [ ] **Vector Storage**:
@@ -916,7 +949,8 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **2.2) Backend - RAG Management API**
 - [ ] **RAG CRUD Endpoints**:
-  - `GET /api/rags` - List user's RAGs
+  - `GET /api/rags` - List user's RAGs (from all organizations where user is member)
+  - Filter by organization_id (optional query param)
   - `POST /api/rags` - Create new RAG
   - `GET /api/rags/{id}` - Get RAG details
   - `PUT /api/rags/{id}` - Update RAG config
@@ -946,8 +980,9 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **2.4) Frontend - RAG Management UI**
 - [ ] **RAGs List Page** (`/rags`):
-  - List all user's RAGs
-  - Show: Name, document count, last updated
+  - List all user's RAGs (from personal org + all shared orgs where user is member)
+  - Show: Name, organization, document count, last updated
+  - Filter by organization (personal vs shared orgs)
   - Actions: Create, Manage Documents, Query Test, Delete
 - [ ] **Create/Edit RAG Page**:
   - Basic info: Name, description, topic
