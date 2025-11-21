@@ -1112,7 +1112,7 @@ for each feature:
   - Table with columns: Name, Email, Role, Personal Org, Other Orgs, Status, Created, Actions
   - Filters: Role, Organization, Status (active/inactive)
   - Search by name/email
-  - Actions: Edit, Disable/Enable, Delete, View Details, Change Role
+  - Actions: Edit, Disable/Enable, Delete, View Details, Change Role, **Impersonate**
 - [ ] **User Details Page** (`/admin/users/{id}`):
   - User Profile: Name, email, role (admin/org_admin/org_user), personal organization, organization memberships
   - **Statistics**:
@@ -1124,6 +1124,37 @@ for each feature:
     - Organizations: Personal org + shared orgs count
   - **Feature Management**: Enable/disable features, set expiration
   - **Activity Log**: Recent runs, pipeline creations, etc.
+  - **Impersonate Button**: "Login as this user" action
+- [ ] **User Impersonation**:
+  - **Backend API**: `POST /api/admin/users/{user_id}/impersonate`
+    - Only accessible to platform `admin` role
+    - Creates new session as the target user
+    - Preserves original admin identity in session metadata (for audit trail)
+    - Returns new session cookie
+    - **Security**: 
+      - Only platform admins can impersonate
+      - Cannot impersonate other admins (prevent privilege escalation)
+      - Session includes `impersonated_by` field (original admin user_id)
+      - All actions performed while impersonating are logged with impersonation flag
+  - **Frontend UI**:
+    - "Impersonate" button in users list (admin-only)
+    - "Login as this user" button in user details page
+    - Confirmation dialog: "You are about to log in as {user_email}. Continue?"
+    - After impersonation: Clear visual indicator (banner/header) showing "Impersonating: {user_email} | Exit Impersonation"
+    - Exit impersonation: `POST /api/admin/exit-impersonation` - restores original admin session
+    - Impersonation banner shows:
+      - Current impersonated user info
+      - Original admin user (who is impersonating)
+      - "Exit Impersonation" button
+  - **Session Management**:
+    - Impersonated session includes: `user_id` (target user), `impersonated_by` (admin user_id), `is_impersonated=True`
+    - Original admin session stored separately (for restoration)
+    - Exit impersonation restores original admin session
+    - Impersonated sessions expire normally (24 hours)
+  - **Audit Trail**:
+    - All actions during impersonation logged with `impersonated_by` field
+    - Log entries include: timestamp, admin user, target user, action performed
+    - Admin can view impersonation history in audit logs
 - [ ] **Bulk Operations**:
   - Enable/disable features for multiple users
   - Change roles for multiple users
@@ -1166,6 +1197,8 @@ for each feature:
 - [ ] Feature-based UI visibility (optional - will be added when features are implemented) - Phase 0.3
 - [ ] Admin can view user statistics - Phase 0.4
 - [ ] Admin can change user roles - Phase 0.4
+- [ ] Admin can impersonate users (for troubleshooting) - Phase 0.4
+- [ ] Impersonation audit trail (all actions logged) - Phase 0.4
 
 ---
 
