@@ -2,6 +2,7 @@
 User model for authentication.
 """
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -18,6 +19,8 @@ class User(Base):
     role = Column(String(50), nullable=False, default='org_admin')  # 'admin', 'org_admin', 'org_user'
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    features = relationship("UserFeature", back_populates="user", cascade="all, delete-orphan")
     
     def is_platform_admin(self) -> bool:
         """Check if user is platform admin."""

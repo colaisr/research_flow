@@ -21,6 +21,8 @@ class Organization(Base):
     # Relationships
     owner = relationship("User", foreign_keys=[owner_id])
     members = relationship("OrganizationMember", back_populates="organization", cascade="all, delete-orphan")
+    invitations = relationship("OrganizationInvitation", back_populates="organization", cascade="all, delete-orphan")
+    features = relationship("OrganizationFeature", back_populates="organization", cascade="all, delete-orphan")
 
 
 class OrganizationMember(Base):

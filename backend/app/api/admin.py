@@ -4,11 +4,13 @@ Admin settings API endpoints.
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, List
+from datetime import datetime
 from app.core.database import get_db
 from app.models.user import User
 from app.models.platform_settings import PlatformSettings
 from app.core.auth import get_current_admin_user_dependency
+from app.services.feature import FEATURES, get_user_features, get_organization_features, get_effective_features, set_user_feature, set_organization_feature
 
 router = APIRouter()
 
@@ -186,4 +188,141 @@ def mask_secret(value: str, visible_chars: int = 4) -> str:
     if not value or len(value) <= visible_chars:
         return "*" * len(value) if value else ""
     return "*" * (len(value) - visible_chars) + value[-visible_chars:]
+
+
+# Feature Management Endpoints
+
+class SetUserFeatureRequest(BaseModel):
+    enabled: bool
+    expires_at: Optional[datetime] = None
+
+
+class SetOrganizationFeatureRequest(BaseModel):
+    enabled: bool
+    expires_at: Optional[datetime] = None
+
+
+class UserFeatureResponse(BaseModel):
+    feature_name: str
+    enabled: bool
+    expires_at: Optional[datetime]
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/features", response_model=Dict[str, str])
+async def list_features(
+    current_user: User = Depends(get_current_admin_user_dependency)
+):
+    """List all available features."""
+    return FEATURES
+
+
+@router.get("/users/{user_id}/features", response_model=Dict[str, bool])
+async def get_user_features_endpoint(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Get all features for a user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    return get_user_features(db, user_id)
+
+
+@router.put("/users/{user_id}/features/{feature_name}", response_model=UserFeatureResponse)
+async def set_user_feature_endpoint(
+    user_id: int,
+    feature_name: str,
+    request: SetUserFeatureRequest,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Set a feature for a user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    if feature_name not in FEATURES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown feature: {feature_name}"
+        )
+    
+    feature = set_user_feature(db, user_id, feature_name, request.enabled, request.expires_at)
+    
+    return UserFeatureResponse(
+        feature_name=feature.feature_name,
+        enabled=feature.enabled,
+        expires_at=feature.expires_at,
+        created_at=feature.created_at,
+        updated_at=feature.updated_at
+    )
+
+
+@router.get("/organizations/{organization_id}/features", response_model=Dict[str, bool])
+async def get_organization_features_endpoint(
+    organization_id: int,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Get all features for an organization."""
+    from app.models.organization import Organization
+    
+    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+    
+    return get_organization_features(db, organization_id)
+
+
+@router.put("/organizations/{organization_id}/features/{feature_name}", response_model=dict)
+async def set_organization_feature_endpoint(
+    organization_id: int,
+    feature_name: str,
+    request: SetOrganizationFeatureRequest,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Set a feature for an organization (affects all members when they work in this org context)."""
+    from app.models.organization import Organization
+    
+    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+    
+    if feature_name not in FEATURES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown feature: {feature_name}"
+        )
+    
+    feature = set_organization_feature(db, organization_id, feature_name, request.enabled, request.expires_at)
+    
+    return {
+        "success": True,
+        "message": f"Feature '{feature_name}' set for organization '{organization.name}'",
+        "feature": {
+            "feature_name": feature.feature_name,
+            "enabled": feature.enabled,
+            "expires_at": feature.expires_at.isoformat() if feature.expires_at else None
+        }
+    }
 

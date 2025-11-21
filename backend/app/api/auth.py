@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.platform_settings import PlatformSettings
 from app.core.auth import create_session, delete_session, get_current_user_dependency, get_current_admin_user_dependency
+from app.services.organization import get_user_personal_organization
 from app.services.organization import create_personal_organization
 from datetime import datetime
 
@@ -80,7 +81,23 @@ async def login(
         )
     
     # Create session
-    session_token = create_session(user.id, user.email, user.is_admin, user.role)
+    # Get user's personal organization for default context
+    # If it doesn't exist (for existing users), create it
+    personal_org = get_user_personal_organization(db, user.id)
+    if not personal_org:
+        # Create personal organization for existing user
+        try:
+            personal_org = create_personal_organization(db, user.id, user.full_name, user.email)
+        except Exception as e:
+            # Log error but don't fail login
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to create personal organization for user {user.id}: {e}")
+            personal_org = None
+    
+    organization_id = personal_org.id if personal_org else None
+    
+    session_token = create_session(user.id, user.email, user.is_admin, user.role, organization_id)
     
     # Set cookie
     response.set_cookie(
@@ -198,7 +215,11 @@ async def register(
     db.refresh(new_user)
     
     # Auto-login after registration
-    session_token = create_session(new_user.id, new_user.email, new_user.is_admin, new_user.role)
+    # Get the personal organization that was just created
+    personal_org = get_user_personal_organization(db, new_user.id)
+    organization_id = personal_org.id if personal_org else None
+    
+    session_token = create_session(new_user.id, new_user.email, new_user.is_admin, new_user.role, organization_id)
     response.set_cookie(
         key="researchflow_session",
         value=session_token,

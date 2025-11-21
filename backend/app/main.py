@@ -3,7 +3,7 @@ FastAPI application entry point.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, runs, auth, instruments, analyses, settings, user_settings, admin
+from app.api import health, runs, auth, instruments, analyses, settings, user_settings, admin, organizations
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.services.telegram.bot_handler import start_bot_polling, stop_bot_polling
@@ -39,6 +39,7 @@ app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(user_settings.router, prefix="/api/user-settings", tags=["user-settings"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(organizations.router, prefix="/api", tags=["organizations"])
 
 
 def _acquire_polling_lock() -> tuple[bool, object]:

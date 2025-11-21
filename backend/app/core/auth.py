@@ -10,20 +10,21 @@ from app.core.config import SESSION_SECRET
 import hashlib
 import hmac
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Simple session storage (in-memory for MVP, can move to Redis/DB later)
 _sessions: dict[str, dict] = {}
 
 
-def create_session(user_id: int, email: str, is_admin: bool, role: str = 'org_admin') -> str:
+def create_session(user_id: int, email: str, is_admin: bool, role: str = 'org_admin', organization_id: Optional[int] = None) -> str:
     """Create a session token."""
     session_data = {
         'user_id': user_id,
         'email': email,
         'is_admin': is_admin,  # Keep for backward compatibility
         'role': role,
-        'created_at': datetime.utcnow().isoformat(),
+        'organization_id': organization_id,  # Current organization context
+        'created_at': datetime.now(timezone.utc).isoformat(),
     }
     
     # Create signed session token
@@ -69,8 +70,12 @@ def verify_session(session_token: str) -> Optional[dict]:
         
         # Check expiration (24 hours)
         created_at = datetime.fromisoformat(session_data['created_at'])
-        if datetime.utcnow() - created_at > timedelta(hours=24):
+        if datetime.now(timezone.utc) - created_at.replace(tzinfo=timezone.utc) > timedelta(hours=24):
             return None
+        
+        # Ensure organization_id exists in session data (for backward compatibility)
+        if 'organization_id' not in session_data:
+            session_data['organization_id'] = None
         
         # Cache it
         _sessions[session_token] = session_data
@@ -135,4 +140,109 @@ def get_current_org_admin_dependency(
             detail="Organization admin access required"
         )
     return current_user
+
+
+def require_feature(feature_name: str):
+    """
+    Dependency factory to require a specific feature.
+    Usage: Depends(require_feature('rag'))
+    Checks BOTH user features AND organization features (intersection).
+    """
+    def feature_checker(
+        current_user: User = Depends(get_current_user_dependency),
+        current_organization = Depends(get_current_organization_dependency),
+        db: Session = Depends(get_db)
+    ) -> User:
+        from app.services.feature import has_feature
+        
+        if not has_feature(db, current_user.id, current_organization.id, feature_name):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Feature '{feature_name}' is not enabled for your account in this organization. Please contact an administrator."
+            )
+        return current_user
+    
+    return feature_checker
+
+
+def get_current_organization_dependency(
+    researchflow_session: Optional[str] = Cookie(None),
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Dependency to get current organization context."""
+    from app.models.organization import Organization, OrganizationMember
+    from app.services.organization import get_user_personal_organization
+    
+    # Get organization_id from session
+    session_data = verify_session(researchflow_session) if researchflow_session else None
+    organization_id = None
+    
+    if session_data and 'organization_id' in session_data:
+        organization_id = session_data.get('organization_id')
+    
+    # If no organization_id in session, default to personal org
+    if not organization_id:
+        personal_org = get_user_personal_organization(db, current_user.id)
+        if not personal_org:
+            # Create personal organization if it doesn't exist (for existing users)
+            from app.services.organization import create_personal_organization
+            try:
+                personal_org = create_personal_organization(db, current_user.id, current_user.full_name, current_user.email)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to create personal organization for user {current_user.id}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Personal organization not found and could not be created"
+                )
+        organization_id = personal_org.id
+    
+    # Get organization
+    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    if not organization:
+        # Fallback to personal org
+        personal_org = get_user_personal_organization(db, current_user.id)
+        if not personal_org:
+            # Create personal organization if it doesn't exist
+            from app.services.organization import create_personal_organization
+            try:
+                personal_org = create_personal_organization(db, current_user.id, current_user.full_name, current_user.email)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to create personal organization for user {current_user.id}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Personal organization not found and could not be created"
+                )
+        organization = personal_org
+        organization_id = organization.id
+    
+    # Verify user is a member of this organization
+    member = db.query(OrganizationMember).filter(
+        OrganizationMember.organization_id == organization.id,
+        OrganizationMember.user_id == current_user.id
+    ).first()
+    
+    if not member:
+        # Fallback to personal org and ensure membership
+        personal_org = get_user_personal_organization(db, current_user.id)
+        if not personal_org:
+            # Create personal organization if it doesn't exist
+            from app.services.organization import create_personal_organization
+            try:
+                personal_org = create_personal_organization(db, current_user.id, current_user.full_name, current_user.email)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to create personal organization for user {current_user.id}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Personal organization not found and could not be created"
+                )
+        organization = personal_org
+    
+    return organization
 

@@ -3,8 +3,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import { useRequireAuth, useAuth } from '@/hooks/useAuth'
+import { useOrganizations } from '@/hooks/useOrganizations'
+import { useOrganizationContext } from '@/contexts/OrganizationContext'
 import { API_BASE_URL } from '@/lib/config'
 import apiClient from '@/lib/api'
+import { useRouter } from 'next/navigation'
 
 interface UserSettings {
   profile: {
@@ -79,9 +82,38 @@ async function updateApiKeys(openrouter_api_key: string | null) {
 export default function UserSettingsPage() {
   const { isLoading: authLoading } = useRequireAuth()
   const { user } = useAuth()
+  const router = useRouter()
   const queryClient = useQueryClient()
+  const { organizations, switchOrganization, isSwitching, createOrganization, leaveOrganization } = useOrganizations()
+  const { currentOrganizationId } = useOrganizationContext()
 
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'api-keys' | 'organizations'>('profile')
+  const [showCreateOrgForm, setShowCreateOrgForm] = useState(false)
+  const [newOrgName, setNewOrgName] = useState('')
+
+  const createOrgMutation = useMutation({
+    mutationFn: createOrganization,
+    onSuccess: () => {
+      setNewOrgName('')
+      setShowCreateOrgForm(false)
+      queryClient.invalidateQueries({ queryKey: ['organizations'] })
+      // Reload to show new organization
+      setTimeout(() => {
+        window.location.reload()
+      }, 500)
+    },
+  })
+
+  const leaveOrgMutation = useMutation({
+    mutationFn: leaveOrganization,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organizations'] })
+      // Reload to refresh organizations list
+      setTimeout(() => {
+        window.location.reload()
+      }, 500)
+    },
+  })
   
   // Profile form state
   const [fullName, setFullName] = useState('')
@@ -451,55 +483,249 @@ export default function UserSettingsPage() {
 
         {/* Organizations Tab */}
         {activeTab === 'organizations' && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
-              Организации
-            </h2>
+          <div className="space-y-6">
+            {/* Pending Invitations */}
+            <PendingInvitationsSection />
             
-            {settings?.organizations && settings.organizations.length > 0 ? (
+            {/* Organizations List */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+                  Организации
+                </h2>
+                <button
+                  onClick={() => setShowCreateOrgForm(!showCreateOrgForm)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  {showCreateOrgForm ? 'Отмена' : '+ Создать организацию'}
+                </button>
+              </div>
+
+              {/* Create Organization Form */}
+              {showCreateOrgForm && (
+                <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                        Название организации
+                      </label>
+                      <input
+                        type="text"
+                        value={newOrgName}
+                        onChange={(e) => setNewOrgName(e.target.value)}
+                        placeholder="Моя компания"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    {createOrgMutation.isError && (
+                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                        <p className="text-red-700 dark:text-red-400 text-sm">
+                          {(createOrgMutation.error as any)?.response?.data?.detail || 'Ошибка при создании организации'}
+                        </p>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (newOrgName.trim()) {
+                          createOrgMutation.mutate(newOrgName.trim())
+                        }
+                      }}
+                      disabled={!newOrgName.trim() || createOrgMutation.isPending}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                    >
+                      {createOrgMutation.isPending ? 'Создание...' : 'Создать организацию'}
+                    </button>
+                    {leaveOrgMutation.isError && (
+                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                        <p className="text-red-700 dark:text-red-400 text-sm">
+                          {(leaveOrgMutation.error as any)?.response?.data?.detail || 'Ошибка при выходе из организации'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {organizations && organizations.length > 0 ? (
               <div className="space-y-3">
-                {settings.organizations.map((org) => (
-                  <div
-                    key={org.id}
-                    className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {org.name}
-                        </h3>
-                        <div className="flex gap-2 mt-2">
-                          {org.is_personal && (
-                            <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-600 dark:text-blue-400">
-                              Личная
-                            </span>
-                          )}
-                          {org.role && (
+                {organizations.map((org) => {
+                  const isCurrent = org.id === currentOrganizationId
+                  return (
+                    <div
+                      key={org.id}
+                      className={`border rounded-lg p-4 ${
+                        isCurrent
+                          ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-gray-200 dark:border-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                              {org.name}
+                            </h3>
+                            {isCurrent && (
+                              <span className="text-xs px-2 py-1 bg-blue-600 dark:bg-blue-500 text-white rounded">
+                                Текущая
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            {org.is_personal && (
+                              <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-600 dark:text-blue-400">
+                                Личная
+                              </span>
+                            )}
+                            {org.role && (
+                              <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-400">
+                                {org.role === 'org_admin' ? 'Администратор' : 'Пользователь'}
+                              </span>
+                            )}
                             <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-400">
-                              {org.role === 'org_admin' ? 'Администратор' : 'Пользователь'}
+                              {org.member_count} {org.member_count === 1 ? 'участник' : 'участников'}
                             </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          {(org.role === 'org_admin' || user?.role === 'admin') && (
+                            <button
+                              onClick={() => router.push(`/organizations/${org.id}`)}
+                              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md text-sm font-medium transition-colors"
+                            >
+                              Управление
+                            </button>
+                          )}
+                          {!org.is_personal && org.role === 'org_user' && (
+                            <button
+                              onClick={() => {
+                                if (confirm(`Вы уверены, что хотите покинуть организацию "${org.name}"?`)) {
+                                  leaveOrgMutation.mutate(org.id)
+                                }
+                              }}
+                              disabled={leaveOrgMutation.isPending}
+                              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-md text-sm font-medium transition-colors"
+                            >
+                              {leaveOrgMutation.isPending ? 'Выход...' : 'Покинуть'}
+                            </button>
                           )}
                         </div>
                       </div>
-                      <button
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
-                        disabled
-                      >
-                        Переключиться
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
-            ) : (
-              <p className="text-gray-600 dark:text-gray-400">Нет организаций</p>
-            )}
-            
-            <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-              Управление организациями будет доступно в следующей версии.
-            </p>
+              ) : (
+                <p className="text-gray-600 dark:text-gray-400">Нет организаций</p>
+              )}
+            </div>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+interface PendingInvitation {
+  id: number
+  organization_id: number
+  organization_name: string
+  email: string
+  role: string
+  invited_by: number
+  expires_at: string
+  created_at: string
+}
+
+async function fetchPendingInvitations(): Promise<PendingInvitation[]> {
+  const { data } = await apiClient.get<PendingInvitation[]>(
+    `${API_BASE_URL}/api/organizations/invitations/pending`,
+    { withCredentials: true }
+  )
+  return data
+}
+
+async function acceptInvitationById(invitationId: number): Promise<Organization> {
+  const { data } = await apiClient.post<Organization>(
+    `${API_BASE_URL}/api/organizations/invitations/accept`,
+    { invitation_id: invitationId },
+    { withCredentials: true }
+  )
+  return data
+}
+
+function PendingInvitationsSection() {
+  const queryClient = useQueryClient()
+  const { refetch: refetchOrganizations } = useOrganizations()
+  
+  const { data: invitations = [], isLoading } = useQuery({
+    queryKey: ['pending-invitations'],
+    queryFn: fetchPendingInvitations,
+  })
+
+  const acceptMutation = useMutation({
+    mutationFn: acceptInvitationById,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pending-invitations'] })
+      refetchOrganizations()
+      // Reload to show new organization
+      setTimeout(() => {
+        window.location.reload()
+      }, 500)
+    },
+  })
+
+  if (isLoading) {
+    return null
+  }
+
+  if (invitations.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg shadow p-6">
+      <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+        Ожидающие приглашения ({invitations.length})
+      </h2>
+      
+      <div className="space-y-3">
+        {invitations.map((invitation) => (
+          <div
+            key={invitation.id}
+            className="border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 bg-white dark:bg-gray-800"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  Приглашение в: {invitation.organization_name}
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Роль: {invitation.role === 'org_admin' ? 'Администратор' : 'Пользователь'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                  Истекает: {new Date(invitation.expires_at).toLocaleDateString('ru-RU')}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  acceptMutation.mutate(invitation.id)
+                }}
+                disabled={acceptMutation.isPending}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                {acceptMutation.isPending ? 'Принятие...' : 'Принять'}
+              </button>
+            </div>
+            {acceptMutation.isError && (
+              <div className="mt-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2">
+                <p className="text-red-700 dark:text-red-400 text-xs">
+                  {(acceptMutation.error as any)?.response?.data?.detail || 'Ошибка при принятии приглашения'}
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )

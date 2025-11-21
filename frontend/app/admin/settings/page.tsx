@@ -201,7 +201,7 @@ export default function AdminSettingsPage() {
   const { isPlatformAdmin } = useAuth()
   const queryClient = useQueryClient()
 
-  const [activeTab, setActiveTab] = useState<'platform' | 'limits' | 'api-keys' | 'models' | 'data-sources' | 'credentials'>('platform')
+  const [activeTab, setActiveTab] = useState<'platform' | 'limits' | 'api-keys' | 'models' | 'data-sources' | 'credentials' | 'features'>('platform')
   
   // Platform config state
   const [allowPublicRegistration, setAllowPublicRegistration] = useState(true)
@@ -500,7 +500,7 @@ export default function AdminSettingsPage() {
         {/* Tabs */}
         <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
           <nav className="flex space-x-8 overflow-x-auto">
-            {(['platform', 'limits', 'api-keys', 'models', 'data-sources', 'credentials'] as const).map((tab) => (
+            {(['platform', 'limits', 'api-keys', 'models', 'data-sources', 'credentials', 'features'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -516,6 +516,7 @@ export default function AdminSettingsPage() {
                 {tab === 'models' && 'Модели и инструменты'}
                 {tab === 'data-sources' && 'Источники данных'}
                 {tab === 'credentials' && 'Учётные данные'}
+                {tab === 'features' && 'Управление функциями'}
               </button>
             ))}
           </nav>
@@ -1153,6 +1154,228 @@ export default function AdminSettingsPage() {
             </div>
           </div>
         )}
+
+        {/* Features Tab */}
+        {activeTab === 'features' && (
+          <FeaturesManagementTab />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Features Management Component
+function FeaturesManagementTab() {
+  const queryClient = useQueryClient()
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
+  const [selectedOrgId, setSelectedOrgId] = useState<number | null>(null)
+  const [searchEmail, setSearchEmail] = useState('')
+  const [searchOrgName, setSearchOrgName] = useState('')
+
+  // Fetch available features
+  const { data: features } = useQuery({
+    queryKey: ['admin', 'features'],
+    queryFn: async () => {
+      const { data } = await axios.get(`${API_BASE_URL}/api/admin/features`, { withCredentials: true })
+      return data
+    }
+  })
+
+  // Fetch organizations for search
+  const { data: organizations } = useQuery({
+    queryKey: ['admin', 'organizations'],
+    queryFn: async () => {
+      const { data } = await axios.get(`${API_BASE_URL}/api/organizations`, { withCredentials: true })
+      return data
+    }
+  })
+
+  // Fetch user features
+  const { data: userFeatures } = useQuery({
+    queryKey: ['admin', 'user-features', selectedUserId],
+    queryFn: async () => {
+      if (!selectedUserId) return null
+      const { data } = await axios.get(`${API_BASE_URL}/api/admin/users/${selectedUserId}/features`, { withCredentials: true })
+      return data
+    },
+    enabled: !!selectedUserId
+  })
+
+  // Fetch organization features
+  const { data: orgFeatures } = useQuery({
+    queryKey: ['admin', 'org-features', selectedOrgId],
+    queryFn: async () => {
+      if (!selectedOrgId) return null
+      const { data } = await axios.get(`${API_BASE_URL}/api/admin/organizations/${selectedOrgId}/features`, { withCredentials: true })
+      return data
+    },
+    enabled: !!selectedOrgId
+  })
+
+  const updateUserFeatureMutation = useMutation({
+    mutationFn: async ({ userId, featureName, enabled }: { userId: number, featureName: string, enabled: boolean }) => {
+      const { data } = await axios.put(
+        `${API_BASE_URL}/api/admin/users/${userId}/features/${featureName}`,
+        { enabled, expires_at: null },
+        { withCredentials: true }
+      )
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-features', selectedUserId] })
+    }
+  })
+
+  const updateOrgFeatureMutation = useMutation({
+    mutationFn: async ({ orgId, featureName, enabled }: { orgId: number, featureName: string, enabled: boolean }) => {
+      const { data } = await axios.put(
+        `${API_BASE_URL}/api/admin/organizations/${orgId}/features/${featureName}`,
+        { enabled, expires_at: null },
+        { withCredentials: true }
+      )
+      return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'organizations'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'org-features', selectedOrgId] })
+    }
+  })
+
+  // Search users by email (simplified - would need user search endpoint)
+  const filteredUsers = organizations?.flatMap((org: any) => org.members || []) || []
+  const uniqueUsers = Array.from(new Map(filteredUsers.map((u: any) => [u.user_id, u])).values())
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+          Управление функциями
+        </h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-6">
+          Включите или отключите функции для пользователей или организаций.
+        </p>
+
+        {/* User Features Section */}
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+            Функции пользователя
+          </h3>
+          
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Примечание: Для управления функциями пользователей используйте ID пользователя напрямую.
+            Полноценный поиск пользователей будет добавлен в Phase 0.4.
+          </p>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              ID пользователя
+            </label>
+            <input
+              type="number"
+              value={selectedUserId || ''}
+              onChange={(e) => setSelectedUserId(e.target.value ? parseInt(e.target.value) : null)}
+              placeholder="Введите ID пользователя"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            />
+          </div>
+
+          {/* User Features List */}
+          {selectedUserId && userFeatures && features && (
+            <div className="border border-gray-200 dark:border-gray-700 rounded-md p-4">
+              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">
+                Функции для пользователя ID: {selectedUserId}
+              </h4>
+              <div className="space-y-2">
+                {Object.entries(features).map(([featureName, displayName]) => (
+                  <div key={featureName} className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-700">
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-white">{displayName as string}</span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({featureName})</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userFeatures[featureName] ?? true}
+                        onChange={(e) => {
+                          updateUserFeatureMutation.mutate({
+                            userId: selectedUserId,
+                            featureName,
+                            enabled: e.target.checked
+                          })
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Organization Features Section */}
+        <div>
+          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+            Функции организации
+          </h3>
+          
+          {/* Organization Select */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Выберите организацию
+            </label>
+            <select
+              value={selectedOrgId || ''}
+              onChange={(e) => setSelectedOrgId(e.target.value ? parseInt(e.target.value) : null)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">-- Выберите организацию --</option>
+              {organizations?.map((org: any) => (
+                <option key={org.id} value={org.id}>
+                  {org.name} {org.is_personal && '(Личная)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Organization Features List */}
+          {selectedOrgId && features && orgFeatures && (
+            <div className="border border-gray-200 dark:border-gray-700 rounded-md p-4">
+              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">
+                Функции для организации ID: {selectedOrgId}
+              </h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Изменения применятся ко всем членам организации
+              </p>
+              <div className="space-y-2">
+                {Object.entries(features).map(([featureName, displayName]) => (
+                  <div key={featureName} className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-700">
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-white">{displayName as string}</span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({featureName})</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={orgFeatures[featureName] ?? true}
+                        onChange={(e) => {
+                          updateOrgFeatureMutation.mutate({
+                            orgId: selectedOrgId,
+                            featureName,
+                            enabled: e.target.checked
+                          })
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -838,8 +838,17 @@ This section outlines the detailed plan to implement the new general-purpose res
     - UI: Organization management page (`/organizations/{id}`)
     - View all members with roles and join dates
     - Change member roles (Admin ↔ User)
-    - Remove members (cannot remove yourself)
+    - Remove members (cannot remove yourself, cannot remove owner)
     - See member count
+    - Owner protection: Cannot remove or change role of organization owner
+    - Owner badge: Purple "Владелец" badge shown next to owner's name
+  - Transfer ownership (shared organizations only):
+    - UI: "Передать владение" button in organization management page (only visible to owner, hidden for personal orgs)
+    - Modal: Select new owner from organization members
+    - Backend: `POST /api/organizations/{id}/transfer-ownership`
+    - Validations: Only current owner can transfer, cannot transfer to yourself, new owner must be member
+    - Auto-promotes new owner to org_admin if needed
+    - Cannot transfer personal organization ownership (always belongs to creator)
   - Users can leave organizations (if org_user, cannot leave personal org)
     - UI: "Покинуть" button for org_user role in user settings
     - Confirmation dialog before leaving
@@ -888,18 +897,50 @@ This section outlines the detailed plan to implement the new general-purpose res
   - **Resource Creation**: New resources created in current organization context (cannot create in other orgs)
   - Migration: Updated existing resources to belong to user's personal org
 
-**0.3) Feature Enablement System**
-- [ ] **User Features Table**:
+**0.3) Feature Enablement System** ✅ **CORE COMPLETE**
+- [x] **User Features Table**:
   - `user_features`: id, user_id, feature_name, enabled, expires_at (nullable)
   - Features: `local_llm`, `openrouter`, `rag`, `api_tools`, `database_tools`, `scheduling`, `webhooks`
-- [ ] **Feature Checks**:
-  - Middleware/helpers to check if user has feature enabled
-  - UI: Show/hide features based on user's enabled features
-  - API: Return 403 if user tries to use disabled feature
-- [ ] **Admin Feature Management**:
-  - Admin can enable/disable features per user
-  - Admin can set feature expiration dates
-  - Admin can enable features for entire organization
+  - Unique constraint on (user_id, feature_name)
+  - Migration: `3d503719dc43_add_user_features_table`
+- [x] **Organization Features Table**:
+  - `organization_features`: id, organization_id, feature_name, enabled, expires_at (nullable)
+  - Features belong to organizations (not users directly)
+  - Unique constraint on (organization_id, feature_name)
+  - Migration: `0c3d8f320f1a_add_organization_features_table`
+- [x] **Feature Service Logic**:
+  - Organization-first model: Organization features = primary source (what's available in workspace)
+  - User features = restrictions/overrides (users can disable features even if org has them)
+  - Inheritance: If user hasn't set a feature → inherit from organization
+  - Effective features = intersection logic:
+    - If user has feature explicitly set → user feature AND org feature (user can restrict)
+    - If user hasn't set feature → inherit from org feature
+  - Functions: `get_user_features()`, `get_organization_features()`, `get_effective_features()`, `has_feature()`, `set_user_feature()`, `set_organization_feature()`
+- [x] **Feature Check Dependency**:
+  - `require_feature()` dependency factory in `auth.py`
+  - Checks effective features (user + org intersection)
+  - Requires organization context
+  - Usage: `Depends(require_feature('rag'))`
+- [x] **Admin Feature Management API**:
+  - `GET /api/admin/features` - List all available features
+  - `GET /api/admin/users/{user_id}/features` - Get user features (returns dict with feature states)
+  - `PUT /api/admin/users/{user_id}/features/{feature_name}` - Set user feature (restriction)
+  - `GET /api/admin/organizations/{org_id}/features` - Get organization features
+  - `PUT /api/admin/organizations/{org_id}/features/{feature_name}` - Set organization feature (purchase/enable)
+- [x] **User Feature API**:
+  - `GET /api/user-settings/features` - Get effective features for current user in current org
+- [x] **Admin Feature Management UI**:
+  - "Управление функциями" tab in `/admin/settings`
+  - User feature management: Enter user ID, see all features with toggle switches
+  - Organization feature management: Select organization from dropdown, see all features with toggle switches
+  - Shows actual feature state (fetches from API)
+  - Real-time updates when toggling features
+- [ ] **Feature Checks in Endpoints** (Optional - can be added when features are implemented):
+  - Add `require_feature()` to endpoints that use specific features (RAG, API Tools, etc.)
+  - Will be added in Phase 1+ when features are actually implemented
+- [ ] **Feature-Based UI Visibility** (Optional - can be added when features are implemented):
+  - Show/hide UI elements based on effective features
+  - Will be added in Phase 1+ when features are actually implemented
 
 **0.4) Admin Dashboard - User Management**
 - [ ] **Users List Page** (`/admin/users`):
@@ -949,7 +990,15 @@ This section outlines the detailed plan to implement the new general-purpose res
 - [x] Can access resources from shared orgs (when in that org's context)
 - [x] Backend enforces organization context filtering on all resource endpoints
 - [x] Can leave organization (if org_user, cannot leave personal org)
-- [ ] Feature enablement works (can't access disabled features) - Phase 0.3
+- [x] Owner protection: Cannot remove or change role of organization owner
+- [x] Transfer ownership: Owner can transfer shared organization ownership to another member
+- [x] Cannot transfer personal organization ownership (always belongs to creator)
+- [x] Feature enablement system: Organization-first model with user restrictions
+- [x] Admin can manage user features (by user ID)
+- [x] Admin can manage organization features (by organization)
+- [x] Effective features API: Get features for current user in current org
+- [ ] Feature checks in endpoints (optional - will be added when features are implemented) - Phase 0.3
+- [ ] Feature-based UI visibility (optional - will be added when features are implemented) - Phase 0.3
 - [ ] Admin can view user statistics - Phase 0.4
 - [ ] Admin can change user roles - Phase 0.4
 

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { useState } from 'react'
 import { useSidebar } from '@/contexts/SidebarContext'
+import { useOrganizations } from '@/hooks/useOrganizations'
+import { useOrganizationContext } from '@/contexts/OrganizationContext'
 
 const navigation = [
   { 
@@ -65,7 +67,10 @@ export default function Sidebar() {
   const { user, logout, isPlatformAdmin } = useAuth()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showEmailTooltip, setShowEmailTooltip] = useState(false)
+  const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false)
   const { isCollapsed, setIsCollapsed } = useSidebar()
+  const { organizations, isLoading: orgsLoading, switchOrganization, isSwitching } = useOrganizations()
+  const { currentOrganizationId, setCurrentOrganizationId } = useOrganizationContext()
 
   // Don't show sidebar on landing page, login, or register pages
   if (pathname === '/' || pathname === '/login' || pathname === '/register') {
@@ -79,6 +84,17 @@ export default function Sidebar() {
   const userInitials = user ? getInitials(user.full_name, user.email) : ''
   const displayEmail = user?.email || ''
   const truncatedEmail = displayEmail.length > 20 ? displayEmail.substring(0, 20) + '...' : displayEmail
+  
+  // Get current organization
+  const currentOrganization = organizations.find(org => org.id === currentOrganizationId) || organizations.find(org => org.is_personal) || organizations[0]
+  
+  const handleSwitchOrganization = (orgId: number) => {
+    switchOrganization(orgId)
+    setCurrentOrganizationId(orgId)
+    setIsOrgDropdownOpen(false)
+    // Reload page to refetch all data with new organization context
+    window.location.reload()
+  }
 
   return (
     <>
@@ -311,6 +327,68 @@ export default function Sidebar() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
                   </button>
+                </div>
+              )}
+              
+              {/* Organization Selector - Compact workspace switcher */}
+              {!isCollapsed && !orgsLoading && organizations.length > 0 && (
+                <div className="mt-2 relative">
+                  <button
+                    onClick={() => setIsOrgDropdownOpen(!isOrgDropdownOpen)}
+                    disabled={isSwitching}
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Переключить рабочее пространство"
+                  >
+                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    <span className="truncate flex-1 min-w-0 text-left">
+                      {currentOrganization?.name || 'Select'}
+                    </span>
+                    <svg 
+                      className={`w-3 h-3 flex-shrink-0 transition-transform ${isOrgDropdownOpen ? 'rotate-180' : ''}`}
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {/* Dropdown */}
+                  {isOrgDropdownOpen && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setIsOrgDropdownOpen(false)}
+                      />
+                      <div className="absolute bottom-full left-0 mb-1 w-full bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-64 overflow-y-auto">
+                        <div className="py-1">
+                          {organizations.map((org) => {
+                            const isSelected = org.id === currentOrganizationId
+                            return (
+                              <button
+                                key={org.id}
+                                onClick={() => handleSwitchOrganization(org.id)}
+                                className={`w-full text-left px-2 py-1.5 text-xs transition-colors flex items-center gap-2 ${
+                                  isSelected
+                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                <span className="truncate flex-1">{org.name}</span>
+                                {isSelected && (
+                                  <svg className="w-3 h-3 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

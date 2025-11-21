@@ -7,7 +7,8 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from app.core.database import get_db
 from app.models.user import User
-from app.core.auth import get_current_user_dependency
+from app.core.auth import get_current_user_dependency, get_current_organization_dependency
+from app.services.feature import get_effective_features
 from app.services.organization import get_user_organizations
 from passlib.context import CryptContext
 import bcrypt
@@ -60,6 +61,17 @@ def verify_password(password: str, hashed: str) -> bool:
         return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
     except Exception:
         return False
+
+
+@router.get("/features", response_model=dict)
+async def get_effective_features_endpoint(
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization = Depends(get_current_organization_dependency),
+    db: Session = Depends(get_db)
+):
+    """Get effective features for current user in current organization context."""
+    effective_features = get_effective_features(db, current_user.id, current_organization.id)
+    return effective_features
 
 
 @router.get("", response_model=UserSettingsResponse)

@@ -3,6 +3,43 @@
 import { usePathname } from 'next/navigation'
 import { useSidebar } from '@/contexts/SidebarContext'
 
+// Map pathnames to page titles
+const getPageTitle = (pathname: string): string => {
+  // Exact matches
+  const exactMatches: Record<string, string> = {
+    '/dashboard': 'Дашборд',
+    '/analyses': 'Анализы',
+    '/runs': 'Запуски',
+    '/schedules': 'Расписания',
+    '/user-settings': 'Настройки пользователя',
+    '/admin/settings': 'Настройки администратора',
+  }
+
+  if (exactMatches[pathname]) {
+    return exactMatches[pathname]
+  }
+
+  // Pattern matches
+  if (pathname.startsWith('/analyses/')) {
+    return 'Детали анализа'
+  }
+  if (pathname.startsWith('/runs/')) {
+    return 'Детали запуска'
+  }
+  if (pathname.startsWith('/pipelines/')) {
+    return 'Конвейер'
+  }
+  if (pathname.startsWith('/organizations/')) {
+    return 'Управление организацией'
+  }
+  if (pathname.startsWith('/settings')) {
+    return 'Настройки'
+  }
+
+  // Default
+  return 'Research Flow'
+}
+
 export default function TopBar() {
   const pathname = usePathname()
   const { isCollapsed } = useSidebar()
@@ -12,20 +49,16 @@ export default function TopBar() {
     return null
   }
 
-  // TODO: Add organization selector here when Phase 0.2 is implemented
-  // For now, just show a placeholder or user info
+  const pageTitle = getPageTitle(pathname)
 
   return (
     <header className={`fixed top-0 right-0 h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-30 transition-all duration-300 ${
       isCollapsed ? 'left-20' : 'left-72'
     }`}>
-      <div className="h-full px-6 flex items-center justify-between">
-        <div className="flex-1">
-          {/* Page title or breadcrumbs can go here */}
-        </div>
-        <div className="flex items-center gap-4">
-          {/* Organization selector placeholder - will be implemented in Phase 0.2 */}
-        </div>
+      <div className="h-full px-6 flex items-center">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+          {pageTitle}
+        </h1>
       </div>
     </header>
   )

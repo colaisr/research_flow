@@ -8,9 +8,12 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, timezone
 from app.core.database import get_db
+from app.core.auth import get_current_user_dependency, get_current_organization_dependency
 from app.models.analysis_run import AnalysisRun, RunStatus, TriggerType
 from app.models.instrument import Instrument
+from app.models.organization import Organization
 from app.models.settings import AppSettings
+from app.models.user import User
 from app.services.data.adapters import DataService
 from app.services.analysis.pipeline import AnalysisPipeline
 from app.services.telegram.publisher import publish_to_telegram
@@ -59,7 +62,9 @@ class RunResponse(BaseModel):
 async def create_run(
     request: CreateRunRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Create a new analysis run.
     
@@ -118,6 +123,7 @@ async def create_run(
         trigger_type=TriggerType.MANUAL,
         instrument_id=instrument.id,
         analysis_type_id=request.analysis_type_id,
+        organization_id=current_organization.id,  # Set to current organization
         timeframe=request.timeframe,
         status=RunStatus.QUEUED
     )
@@ -190,9 +196,16 @@ async def create_run(
 
 
 @router.get("/{run_id}", response_model=RunResponse)
-async def get_run(run_id: int, db: Session = Depends(get_db)):
-    """Get analysis run details."""
-    run = db.query(AnalysisRun).filter(AnalysisRun.id == run_id).first()
+async def get_run(
+    run_id: int,
+    db: Session = Depends(get_db),
+    current_organization: Organization = Depends(get_current_organization_dependency)
+):
+    """Get analysis run details (only from current organization)."""
+    run = db.query(AnalysisRun).filter(
+        AnalysisRun.id == run_id,
+        AnalysisRun.organization_id == current_organization.id
+    ).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
@@ -228,10 +241,11 @@ async def get_run(run_id: int, db: Session = Depends(get_db)):
 async def list_runs(
     analysis_type_id: Optional[int] = None,
     limit: int = 50,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
-    """List analysis runs, optionally filtered by analysis type."""
-    query = db.query(AnalysisRun)
+    """List analysis runs in current organization, optionally filtered by analysis type."""
+    query = db.query(AnalysisRun).filter(AnalysisRun.organization_id == current_organization.id)
     
     if analysis_type_id:
         query = query.filter(AnalysisRun.analysis_type_id == analysis_type_id)
@@ -259,9 +273,10 @@ async def list_runs(
 
 @router.post("/{run_id}/publish")
 async def publish_run(
-    run_id: int, 
+    run_id: int,
     step_name: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Publish run's final Telegram post to channel.
     
@@ -269,7 +284,10 @@ async def publish_run(
         run_id: Analysis run ID
         step_name: Optional step name to publish (if not provided, finds publishable step)
     """
-    run = db.query(AnalysisRun).filter(AnalysisRun.id == run_id).first()
+    run = db.query(AnalysisRun).filter(
+        AnalysisRun.id == run_id,
+        AnalysisRun.organization_id == current_organization.id
+    ).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     

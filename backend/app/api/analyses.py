@@ -8,8 +8,9 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from app.core.database import get_db
 from app.models.analysis_type import AnalysisType
-from app.core.auth import get_current_admin_user_dependency, get_current_user_dependency, verify_session
+from app.core.auth import get_current_admin_user_dependency, get_current_user_dependency, verify_session, get_current_organization_dependency
 from app.models.user import User
+from app.models.organization import Organization
 
 router = APIRouter()
 
@@ -35,24 +36,24 @@ async def list_analysis_types(
     db: Session = Depends(get_db),
     user_id: Optional[int] = Query(None, description="Filter by user ID"),
     system: Optional[bool] = Query(None, description="Filter by system pipelines (true) or user pipelines (false)"),
-    researchflow_session: Optional[str] = Cookie(None)
+    researchflow_session: Optional[str] = Cookie(None),
+    current_organization: Optional[Organization] = Depends(get_current_organization_dependency)
 ):
     """List analysis types with optional filtering.
     
-    - If authenticated: shows user's pipelines + system pipelines
-    - If not authenticated: shows only system pipelines
+    - Shows organization's pipelines + system pipelines (organization_id IS NULL)
     - Query params: user_id, system (true/false)
     """
-    # Get current user (optional)
-    current_user = None
-    if researchflow_session:
-        session_data = verify_session(researchflow_session)
-        if session_data:
-            current_user = db.query(User).filter(User.id == session_data['user_id']).first()
-            if current_user and not current_user.is_active:
-                current_user = None
-    
     query = db.query(AnalysisType).filter(AnalysisType.is_active == 1)
+    
+    # Filter by organization context: show system pipelines (NULL org_id) + current org's pipelines
+    if current_organization:
+        query = query.filter(
+            (AnalysisType.organization_id == current_organization.id) | (AnalysisType.organization_id.is_(None))
+        )
+    else:
+        # Not authenticated - only show system pipelines
+        query = query.filter(AnalysisType.organization_id.is_(None), AnalysisType.is_system == True)
     
     # Apply filters
     if user_id is not None:
@@ -61,15 +62,6 @@ async def list_analysis_types(
     if system is not None:
         query = query.filter(AnalysisType.is_system == system)
     
-    # If not authenticated, only show system pipelines
-    if current_user is None:
-        query = query.filter(AnalysisType.is_system == True)
-    # If authenticated but no filters, show user's pipelines + system pipelines
-    elif user_id is None and system is None:
-        query = query.filter(
-            (AnalysisType.is_system == True) | (AnalysisType.user_id == current_user.id)
-        )
-    
     analysis_types = query.all()
     return analysis_types
 
@@ -77,11 +69,13 @@ async def list_analysis_types(
 @router.get("/my", response_model=List[AnalysisTypeResponse])
 async def list_my_analysis_types(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency)
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
-    """List current user's own analysis types."""
+    """List current user's own analysis types in current organization."""
     analysis_types = db.query(AnalysisType).filter(
         AnalysisType.user_id == current_user.id,
+        AnalysisType.organization_id == current_organization.id,
         AnalysisType.is_active == 1
     ).all()
     return analysis_types
@@ -143,13 +137,17 @@ class UpdateAnalysisTypeRequest(BaseModel):
 async def create_analysis_type(
     request: CreateAnalysisTypeRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency)
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
-    """Create a new analysis type (user pipeline)."""
-    # Check if name already exists
-    existing = db.query(AnalysisType).filter(AnalysisType.name == request.name).first()
+    """Create a new analysis type (user pipeline) in current organization."""
+    # Check if name already exists in this organization
+    existing = db.query(AnalysisType).filter(
+        AnalysisType.name == request.name,
+        AnalysisType.organization_id == current_organization.id
+    ).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Analysis type with this name already exists")
+        raise HTTPException(status_code=400, detail="Analysis type with this name already exists in this organization")
     
     # Validate config structure
     if "steps" not in request.config:
@@ -164,7 +162,8 @@ async def create_analysis_type(
         config=request.config,
         is_active=request.is_active,
         user_id=current_user.id,  # Set to current user
-        is_system=False  # User-created pipeline
+        is_system=False,  # User-created pipeline
+        organization_id=current_organization.id  # Set to current organization
     )
     
     db.add(analysis_type)
@@ -179,23 +178,31 @@ async def update_analysis_type(
     analysis_type_id: int,
     request: UpdateAnalysisTypeRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency)
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
-    """Update analysis type (user's own or admin for system pipelines)."""
+    """Update analysis type (user's own in current organization or admin for system pipelines)."""
     analysis_type = db.query(AnalysisType).filter(AnalysisType.id == analysis_type_id).first()
     if not analysis_type:
         raise HTTPException(status_code=404, detail="Analysis type not found")
     
+    # Check organization context - can only edit pipelines in current organization
+    if analysis_type.organization_id != current_organization.id and analysis_type.organization_id is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only edit pipelines in your current organization context"
+        )
+    
     # Check permissions
-    # User can edit their own pipelines
+    # User can edit their own pipelines in their organization
     # Admin can edit any pipeline
     # Non-admin cannot edit system pipelines
     if analysis_type.user_id != current_user.id:
         if analysis_type.is_system:
-            if not current_user.is_admin:
+            if not current_user.is_platform_admin():
                 raise HTTPException(
                     status_code=403,
-                    detail="Only admins can edit system pipelines"
+                    detail="Only platform admins can edit system pipelines"
                 )
         else:
             # User trying to edit another user's pipeline

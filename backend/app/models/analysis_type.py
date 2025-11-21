@@ -52,6 +52,7 @@ class AnalysisType(Base):
     # Pipeline Editor fields
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # NULL = system pipeline, set = user-created
     is_system = Column(Boolean, nullable=False, default=True)  # True = system pipeline, False = user-created
+    organization_id = Column(Integer, ForeignKey('organizations.id'), nullable=True, index=True)  # NULL = system-wide, set = org-specific
     
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -61,4 +62,5 @@ class AnalysisType(Base):
     # Relationships
     runs = relationship("AnalysisRun", back_populates="analysis_type")
     user = relationship("User", foreign_keys=[user_id])
+    organization = relationship("Organization", foreign_keys=[organization_id])
 
