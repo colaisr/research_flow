@@ -438,8 +438,7 @@ Users can create, edit, and manage their own custom analysis pipelines using the
 - **Database Schema**: 
   - `analysis_types` table includes `organization_id` (required, FK to organizations) and `is_system` (boolean) columns
   - System analyses belong to a special system organization (or can be identified by `is_system=True`)
-  - System pipelines (`is_system=true`, `user_id=NULL`) are predefined templates
-  - User pipelines (`is_system=false`, `user_id=current_user.id`) are custom pipelines
+  - User pipelines (`is_system=false`) belong to user's personal organization or shared organizations
 - **Step Configuration Structure**:
   - Each step has: `step_name`, `order`, `step_type`, `system_prompt`, `user_prompt_template`, `model`, `temperature`, `max_tokens`, `tool_id`, `include_context`, `is_summary` (marks step that produces final summary)
   - Steps are stored as JSON array in `analysis_types.config.steps`
