@@ -10,7 +10,9 @@ from passlib.context import CryptContext
 import bcrypt
 from app.core.database import get_db
 from app.models.user import User
+from app.models.platform_settings import PlatformSettings
 from app.core.auth import create_session, delete_session, get_current_user_dependency, get_current_admin_user_dependency
+from app.services.organization import create_personal_organization
 from datetime import datetime
 
 router = APIRouter()
@@ -47,7 +49,8 @@ class UserResponse(BaseModel):
     id: int
     email: str
     full_name: str | None
-    is_admin: bool
+    is_admin: bool  # Deprecated, use role instead
+    role: str
     created_at: datetime
     
     class Config:
@@ -77,7 +80,7 @@ async def login(
         )
     
     # Create session
-    session_token = create_session(user.id, user.email, user.is_admin)
+    session_token = create_session(user.id, user.email, user.is_admin, user.role)
     
     # Set cookie
     response.set_cookie(
@@ -97,6 +100,7 @@ async def login(
             email=user.email,
             full_name=user.full_name,
             is_admin=user.is_admin,
+            role=user.role,
             created_at=user.created_at
         )
     }
@@ -128,6 +132,7 @@ async def get_me(current_user: User = Depends(get_current_user_dependency)):
         email=current_user.email,
         full_name=current_user.full_name,
         is_admin=current_user.is_admin,
+        role=current_user.role,
         created_at=current_user.created_at
     )
 
@@ -135,15 +140,25 @@ async def get_me(current_user: User = Depends(get_current_user_dependency)):
 @router.post("/register", response_model=UserResponse)
 async def register(
     request: RegisterRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user_dependency)
+    response: Response,
+    db: Session = Depends(get_db)
 ):
-    """Register a new user (admin only)."""
-    # Only admins can register new users
-    if not current_user.is_admin:
+    """Register a new user (public endpoint, can be disabled by admin)."""
+    # Check if public registration is enabled
+    registration_setting = db.query(PlatformSettings).filter(
+        PlatformSettings.key == 'allow_public_registration'
+    ).first()
+    
+    if registration_setting:
+        allow_registration = registration_setting.value.lower() == 'true'
+    else:
+        # Default to True if setting doesn't exist
+        allow_registration = True
+    
+    if not allow_registration:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
+            detail="Public registration is currently disabled. Please contact an administrator."
         )
     
     # Check if user already exists
@@ -154,24 +169,51 @@ async def register(
             detail="User with this email already exists"
         )
     
-    # Create new user
+    # Create new user with default role 'org_admin'
     hashed_password = hash_password(request.password)
     new_user = User(
         email=request.email,
         hashed_password=hashed_password,
         full_name=request.full_name,
         is_active=True,
-        is_admin=False  # New users are not admins by default
+        is_admin=False,  # Deprecated, use role instead
+        role='org_admin'  # Default role
     )
     
     db.add(new_user)
+    db.flush()  # Flush to get the user ID
+    
+    # Auto-create personal organization
+    try:
+        create_personal_organization(db, new_user.id, new_user.full_name, new_user.email)
+    except Exception as e:
+        # If org creation fails, rollback user creation
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create personal organization: {str(e)}"
+        )
+    
     db.commit()
     db.refresh(new_user)
+    
+    # Auto-login after registration
+    session_token = create_session(new_user.id, new_user.email, new_user.is_admin, new_user.role)
+    response.set_cookie(
+        key="researchflow_session",
+        value=session_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=86400,  # 24 hours
+        path="/",
+    )
     
     return UserResponse(
         id=new_user.id,
         email=new_user.email,
         full_name=new_user.full_name,
         is_admin=new_user.is_admin,
+        role=new_user.role,
         created_at=new_user.created_at
     )

@@ -39,6 +39,12 @@ export default function LandingPage() {
             </div>
             <div className="flex items-center space-x-4">
               <Link
+                href="/register"
+                className="px-5 py-2.5 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-sm font-medium rounded-lg transition-all"
+              >
+                Регистрация
+              </Link>
+              <Link
                 href="/login"
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm hover:shadow-md"
               >
@@ -283,7 +289,13 @@ export default function LandingPage() {
             <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
               Начните создавать процессы прямо сейчас или войдите в систему, если у вас уже есть аккаунт.
             </p>
-            <div className="flex justify-center">
+            <div className="flex justify-center gap-4">
+              <Link
+                href="/register"
+                className="px-8 py-4 bg-white hover:bg-gray-50 text-gray-900 font-semibold rounded-lg transition-all shadow-lg hover:shadow-xl hover:scale-105 transform duration-200 border border-gray-200"
+              >
+                Создать аккаунт
+              </Link>
               <Link
                 href="/login"
                 className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-xl hover:scale-105 transform duration-200"

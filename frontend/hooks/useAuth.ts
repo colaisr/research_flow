@@ -13,7 +13,8 @@ interface User {
   id: number
   email: string
   full_name: string | null
-  is_admin: boolean
+  is_admin: boolean  // Deprecated, use role instead
+  role: string  // 'admin', 'org_admin', 'org_user'
   created_at: string
 }
 
@@ -73,7 +74,10 @@ export function useAuth() {
     user: user || null,
     isLoading,
     isAuthenticated: !!user,
-    isAdmin: user?.is_admin || false,
+    isAdmin: user?.is_admin || user?.role === 'admin' || false,
+    isPlatformAdmin: user?.role === 'admin' || false,
+    isOrgAdmin: user?.role === 'admin' || user?.role === 'org_admin' || false,
+    role: user?.role || null,
     logout: () => logoutMutation.mutate(),
   }
 }

@@ -16,12 +16,13 @@ from datetime import datetime, timedelta
 _sessions: dict[str, dict] = {}
 
 
-def create_session(user_id: int, email: str, is_admin: bool) -> str:
+def create_session(user_id: int, email: str, is_admin: bool, role: str = 'org_admin') -> str:
     """Create a session token."""
     session_data = {
         'user_id': user_id,
         'email': email,
-        'is_admin': is_admin,
+        'is_admin': is_admin,  # Keep for backward compatibility
+        'role': role,
         'created_at': datetime.utcnow().isoformat(),
     }
     
@@ -115,11 +116,23 @@ def get_current_user_dependency(
 def get_current_admin_user_dependency(
     current_user: User = Depends(get_current_user_dependency)
 ) -> User:
-    """Dependency to get current admin user."""
-    if not current_user.is_admin:
+    """Dependency to get current platform admin user."""
+    if not current_user.is_platform_admin():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
+        )
+    return current_user
+
+
+def get_current_org_admin_dependency(
+    current_user: User = Depends(get_current_user_dependency)
+) -> User:
+    """Dependency to get current org admin user (platform admin or org admin)."""
+    if not current_user.is_org_admin():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization admin access required"
         )
     return current_user
 

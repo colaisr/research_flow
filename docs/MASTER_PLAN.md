@@ -745,8 +745,8 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **Goal**: Set up user management, roles, and admin capabilities before building the core research features.
 
-**0.1) User Roles & Authentication Enhancement**
-- [ ] **Roles System**:
+**0.1) User Roles & Authentication Enhancement** ✅ **COMPLETE**
+- [x] **Roles System**:
   - Current: Basic admin/user distinction (`is_admin` boolean)
   - New: `admin` (platform admin), `org_admin` (organization admin), `org_user` (organization member)
   - Database: Add `role` enum field to `users` table (values: `admin`, `org_admin`, `org_user`)
@@ -754,23 +754,23 @@ This section outlines the detailed plan to implement the new general-purpose res
   - Migration: 
     - Update existing users: `is_admin=True` → `role='admin'`, `is_admin=False` → `role='org_admin'`
     - Add role constraints
-- [ ] **Personal Organization Auto-Creation**:
+- [x] **Personal Organization Auto-Creation**:
   - When user registers, automatically create a "Personal Organization" for them
   - User becomes `org_admin` of their personal org
   - All user's resources belong to their personal org (never NULL)
   - Personal org name: "{User's Name} Personal" or "{User's Email} Personal"
-- [ ] **Registration Flow**:
+- [x] **Registration Flow**:
   - Public registration endpoint (`POST /api/auth/register`)
   - Email verification (optional for MVP, can be added later)
   - Default role: `org_admin` (can be changed by admin to `admin`)
   - Auto-create personal organization on registration
   - Admin can enable/disable public registration
-- [ ] **Index Page (Pre-Login)**:
+- [x] **Index Page (Pre-Login)**:
   - Landing page with product overview
   - "Sign Up" and "Sign In" buttons
   - Public information about platform capabilities
   - No authentication required
-- [ ] **User Settings Page** (`/settings`):
+- [x] **User Settings Page** (`/user-settings`):
   - Profile: Name, email, password change
   - Preferences: Theme, language, timezone, notifications
   - API Keys: OpenRouter API key (user-specific)
@@ -778,10 +778,10 @@ This section outlines the detailed plan to implement the new general-purpose res
   - **Organizations Section**:
     - List all organizations user belongs to
     - Show role in each organization (org_admin/org_user)
-    - Quick switch to any organization
-    - Leave organization (if org_user)
-    - Create new organization
-- [ ] **Admin Settings Page** (`/admin/settings`):
+    - Quick switch to any organization (placeholder for Phase 0.2)
+    - Leave organization (if org_user) (placeholder for Phase 0.2)
+    - Create new organization (placeholder for Phase 0.2)
+- [x] **Admin Settings Page** (`/admin/settings`):
   - Platform Configuration:
     - Enable/disable public registration
     - Default user role for new registrations (always `org_admin` for regular users, can be changed to `admin`)

@@ -165,9 +165,6 @@ export default function DashboardPage() {
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8 text-gray-900 dark:text-white">
-          <span className="text-gray-900 dark:text-white">Max Sig</span><span className="text-5xl text-blue-600 dark:text-blue-400 font-bold">N</span><span className="text-gray-900 dark:text-white">al bot</span>
-        </h1>
 
         {/* Run Analysis Form */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">

@@ -2,42 +2,56 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import apiClient from '@/lib/api'
 import { API_BASE_URL } from '@/lib/config'
 import Link from 'next/link'
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter()
-  const queryClient = useQueryClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const loginMutation = useMutation({
-    mutationFn: async (credentials: { email: string; password: string }) => {
-      const { data } = await apiClient.post(
-        `${API_BASE_URL}/api/auth/login`,
-        credentials,
+  const registerMutation = useMutation({
+    mutationFn: async (data: { email: string; password: string; full_name?: string }) => {
+      const { data: response } = await apiClient.post(
+        `${API_BASE_URL}/api/auth/register`,
+        data,
         { withCredentials: true }
       )
-      return data
+      return response
     },
     onSuccess: (data) => {
-      // Set user data in cache (cookie is already set by backend)
-      queryClient.setQueryData(['auth', 'me'], data.user)
+      // User is auto-logged in after registration
       // Redirect to dashboard
       router.push('/dashboard')
     },
     onError: (err: any) => {
-      setError(err.response?.data?.detail || 'Login failed')
+      setError(err.response?.data?.detail || 'Registration failed')
     },
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    loginMutation.mutate({ email, password })
+    
+    if (!email || !password) {
+      setError('Email and password are required')
+      return
+    }
+    
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long')
+      return
+    }
+    
+    registerMutation.mutate({ 
+      email, 
+      password, 
+      full_name: fullName || undefined 
+    })
   }
 
   return (
@@ -60,16 +74,32 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {/* Login Form */}
+        {/* Register Form */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-8">
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white mb-1 text-center">
-            Добро пожаловать
+            Создать аккаунт
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 text-center">
-            Войдите в систему для управления исследованиями
+            Зарегистрируйтесь для начала работы
           </p>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
+            <div>
+              <label htmlFor="full-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Полное имя <span className="text-gray-400 dark:text-gray-500 text-xs">(необязательно)</span>
+              </label>
+              <input
+                id="full-name"
+                name="full-name"
+                type="text"
+                autoComplete="name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                placeholder="Иван Иванов"
+              />
+            </div>
+
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Email
@@ -95,12 +125,12 @@ export default function LoginPage() {
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
-                placeholder="••••••••"
+                placeholder="Минимум 8 символов"
               />
             </div>
 
@@ -112,18 +142,18 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loginMutation.isPending}
+              disabled={registerMutation.isPending}
               className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
-              {loginMutation.isPending ? 'Вход...' : 'Войти'}
+              {registerMutation.isPending ? 'Создание аккаунта...' : 'Создать аккаунт'}
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Нет аккаунта?{' '}
-              <Link href="/register" className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">
-                Зарегистрироваться
+              Уже есть аккаунт?{' '}
+              <Link href="/login" className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">
+                Войти
               </Link>
             </p>
           </div>
@@ -145,3 +175,4 @@ export default function LoginPage() {
     </div>
   )
 }
+

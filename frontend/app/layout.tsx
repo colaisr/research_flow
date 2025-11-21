@@ -1,5 +1,5 @@
 import Providers from './providers'
-import Navigation from '@/components/Navigation'
+import LayoutWrapper from '@/components/LayoutWrapper'
 import './globals.css'
 
 export default function RootLayout({
@@ -14,10 +14,9 @@ export default function RootLayout({
       </head>
       <body>
         <Providers>
-          <div className="min-h-screen bg-white dark:bg-gray-950">
-            <Navigation />
-            <main>{children}</main>
-          </div>
+          <LayoutWrapper>
+            {children}
+          </LayoutWrapper>
         </Providers>
       </body>
     </html>

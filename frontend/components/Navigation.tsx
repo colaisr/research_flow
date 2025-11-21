@@ -12,6 +12,20 @@ const navigation = [
   { name: 'Settings', href: '/settings' },
 ]
 
+const getRoleLabel = (role: string | null | undefined) => {
+  if (!role) return null
+  switch (role) {
+    case 'admin':
+      return 'Admin'
+    case 'org_admin':
+      return 'Org Admin'
+    case 'org_user':
+      return 'User'
+    default:
+      return role
+  }
+}
+
 export default function Navigation() {
   // Don't show navigation on landing page
   if (typeof window !== 'undefined' && window.location.pathname === '/') {
@@ -25,7 +39,7 @@ export default function Navigation() {
   }
 
   // Only load auth state when navigation is visible
-  const { user, logout, isAuthenticated } = useAuth()
+  const { user, logout, isAuthenticated, role, isPlatformAdmin } = useAuth()
 
   return (
     <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
@@ -60,14 +74,31 @@ export default function Navigation() {
           </div>
           {isAuthenticated && user && (
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-700 dark:text-gray-300">
+              <Link
+                href="/user-settings"
+                className="text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+              >
                 {user.email}
-                {user.is_admin && (
-                  <span className="ml-2 px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded">
-                    Admin
+                {role && (
+                  <span className={`ml-2 px-2 py-1 text-xs rounded ${
+                    role === 'admin' 
+                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300'
+                      : role === 'org_admin'
+                      ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                  }`}>
+                    {getRoleLabel(role)}
                   </span>
                 )}
-              </span>
+              </Link>
+              {isPlatformAdmin && (
+                <Link
+                  href="/admin/settings"
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                >
+                  Admin Settings
+                </Link>
+              )}
               <button
                 onClick={() => logout()}
                 className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
