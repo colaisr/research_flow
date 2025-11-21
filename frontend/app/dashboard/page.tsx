@@ -133,17 +133,17 @@ export default function DashboardPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'succeeded':
-        return 'text-green-600 dark:text-green-400'
+        return 'text-green-600'
       case 'failed':
-        return 'text-red-600 dark:text-red-400'
+        return 'text-red-600'
       case 'model_failure':
-        return 'text-orange-600 dark:text-orange-400'
+        return 'text-orange-600'
       case 'running':
-        return 'text-blue-600 dark:text-blue-400'
+        return 'text-blue-600'
       case 'queued':
-        return 'text-yellow-600 dark:text-yellow-400'
+        return 'text-yellow-600'
       default:
-        return 'text-gray-600 dark:text-gray-400'
+        return 'text-gray-600'
     }
   }
 
@@ -156,7 +156,7 @@ export default function DashboardPage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+          <p className="text-gray-600">Loading...</p>
         </div>
       </div>
     )
@@ -167,20 +167,20 @@ export default function DashboardPage() {
       <div className="max-w-7xl mx-auto">
 
         {/* Run Analysis Form */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
-          <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-2xl font-semibold mb-4 text-gray-900">
             Run Analysis
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium mb-2 text-gray-700">
                 Тип анализа
               </label>
               <select
                 value={selectedAnalysisType || ''}
                 onChange={(e) => handleAnalysisTypeChange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
                 disabled={analysisTypesLoading}
               >
                 <option value="">Выберите тип анализа...</option>
@@ -197,13 +197,13 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium mb-2 text-gray-700">
                 Инструмент
               </label>
               <select
                 value={selectedInstrument}
                 onChange={(e) => setSelectedInstrument(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
                 disabled={instrumentsLoading || !selectedAnalysisType}
               >
                 <option value="">Выберите инструмент...</option>
@@ -220,25 +220,25 @@ export default function DashboardPage() {
                 )}
               </select>
               {selectedAnalysisType && (
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 text-xs text-gray-500">
                   Показаны только инструменты, подходящие для данного типа анализа
                 </p>
               )}
               {instrumentsError && (
-                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                <p className="mt-1 text-xs text-red-600">
                   Ошибка загрузки инструментов
                 </p>
               )}
             </div>
 
             <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium mb-2 text-gray-700">
                 Таймфрейм
               </label>
               <select
                 value={selectedTimeframe}
                 onChange={(e) => setSelectedTimeframe(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
               >
                 {timeframes.map((tf) => (
                   <option key={tf.value} value={tf.value}>
@@ -250,7 +250,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300 opacity-0">
+              <label className="block text-sm font-medium mb-2 text-gray-700 opacity-0">
                 Действие
               </label>
               <button
@@ -266,7 +266,7 @@ export default function DashboardPage() {
           <div className="mt-4">
             <Link
               href="/analyses"
-              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
+              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
             >
               → Or choose from available analysis types
             </Link>
@@ -274,49 +274,49 @@ export default function DashboardPage() {
         </div>
 
         {/* Recent Runs */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-2xl font-semibold mb-4 text-gray-900">
             Recent Runs
           </h2>
 
           {runsLoading ? (
-            <p className="text-gray-600 dark:text-gray-400">Loading runs...</p>
+            <p className="text-gray-600">Loading runs...</p>
           ) : runs.length === 0 ? (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-600">
               No runs yet. Start your first analysis above!
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead className="bg-gray-50 dark:bg-gray-700">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Instrument
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Timeframe
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Created
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Cost
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                <tbody className="bg-white divide-y divide-gray-200">
                   {runs.map((run) => (
                     <tr key={run.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {run.instrument}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {run.timeframe}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -324,16 +324,16 @@ export default function DashboardPage() {
                           {getStatusDisplayName(run.status)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(run.created_at).toLocaleString()}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         ${run.cost_est_total.toFixed(3)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <Link
                           href={`/runs/${run.id}`}
-                          className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                          className="text-blue-600 hover:text-blue-900"
                         >
                           View →
                         </Link>

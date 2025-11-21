@@ -52,11 +52,11 @@ export default function TopBar() {
   const pageTitle = getPageTitle(pathname)
 
   return (
-    <header className={`fixed top-0 right-0 h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-30 transition-all duration-300 ${
+    <header className={`fixed top-0 right-0 h-16 bg-white border-b border-gray-200 z-30 transition-all duration-300 ${
       isCollapsed ? 'left-20' : 'left-72'
     }`}>
       <div className="h-full px-6 flex items-center">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+        <h1 className="text-xl font-semibold text-gray-900">
           {pageTitle}
         </h1>
       </div>

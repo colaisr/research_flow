@@ -102,7 +102,7 @@ export default function Sidebar() {
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <button
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="p-2 rounded-md text-gray-600 hover:bg-gray-100"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -120,7 +120,7 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-40 h-screen bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transition-all duration-300 ${
+        className={`fixed top-0 left-0 z-40 h-screen bg-white border-r border-gray-200 transition-all duration-300 ${
           isCollapsed ? 'w-20' : 'w-72'
         } ${
           isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
@@ -128,7 +128,7 @@ export default function Sidebar() {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className={`flex items-center h-16 border-b border-gray-200 dark:border-gray-800 ${
+          <div className={`flex items-center h-16 border-b border-gray-200 ${
             isCollapsed ? 'px-4 justify-center' : 'px-6'
           }`}>
             <button
@@ -136,15 +136,15 @@ export default function Sidebar() {
               className="flex items-center w-full"
               title={isCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
             >
-              <div className="w-8 h-8 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center flex-shrink-0">
+              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
                 <img src="/rf_logo.png" alt="Research Flow" className="h-6 w-auto" />
               </div>
               {!isCollapsed && (
                 <div className="ml-3">
-                  <div className="text-base font-semibold text-gray-900 dark:text-white leading-tight">
-                    Research <span className="text-blue-600 dark:text-blue-400">Flow</span>
+                  <div className="text-base font-semibold text-gray-900 leading-tight">
+                    Research <span className="text-blue-600">Flow</span>
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 leading-tight">
+                  <div className="text-xs text-gray-500 leading-tight">
                     Research Platform
                   </div>
                 </div>
@@ -152,7 +152,7 @@ export default function Sidebar() {
             </button>
             <button
               onClick={() => setIsMobileMenuOpen(false)}
-              className="lg:hidden ml-auto p-1 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="lg:hidden ml-auto p-1 rounded-md text-gray-600 hover:bg-gray-100"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -175,20 +175,20 @@ export default function Sidebar() {
                     isCollapsed ? 'px-3 py-3 justify-center' : 'px-4 py-3'
                   } ${
                     isActive
-                      ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'bg-blue-50 text-blue-600'
+                      : 'text-gray-700 hover:bg-gray-50'
                   }`}
                   title={isCollapsed ? item.name : undefined}
                 >
-                  {item.icon(`w-6 h-6 flex-shrink-0 ${isCollapsed ? '' : 'mr-3'} ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`)}
+                  {item.icon(`w-6 h-6 flex-shrink-0 ${isCollapsed ? '' : 'mr-3'} ${isActive ? 'text-blue-600' : 'text-gray-500'}`)}
                   {!isCollapsed && (
                     <span className="text-base font-medium">{item.name}</span>
                   )}
                   {/* Tooltip for collapsed state */}
                   {isCollapsed && (
-                    <div className="absolute left-full ml-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-sm rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50">
+                    <div className="absolute left-full ml-2 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50">
                       {item.name}
-                      <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-900 dark:border-r-gray-700"></div>
+                      <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-gray-900"></div>
                     </div>
                   )}
                 </Link>
@@ -198,13 +198,13 @@ export default function Sidebar() {
 
           {/* User Card */}
           {user && (
-            <div className={`border-t border-gray-200 dark:border-gray-800 ${
+            <div className={`border-t border-gray-200 ${
               isCollapsed ? 'p-2' : 'p-4'
             }`}>
               {isCollapsed ? (
                 <div className="flex flex-col items-center gap-2">
                   {/* Avatar Circle */}
-                  <div className="w-10 h-10 bg-blue-600 dark:bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                     <span className="text-sm font-semibold text-white">
                       {userInitials}
                     </span>
@@ -218,7 +218,7 @@ export default function Sidebar() {
                         setIsMobileMenuOpen(false)
                         router.push('/user-settings')
                       }}
-                      className="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative group"
+                      className="p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors relative group"
                       title="Настройки"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -234,7 +234,7 @@ export default function Sidebar() {
                           setIsMobileMenuOpen(false)
                           router.push('/admin/settings')
                         }}
-                        className="p-2 rounded-md text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                        className="p-2 rounded-md text-blue-600 hover:text-blue-700 hover:bg-blue-50 transition-colors"
                         title="Настройки администратора"
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -249,7 +249,7 @@ export default function Sidebar() {
                         setIsMobileMenuOpen(false)
                         logout()
                       }}
-                      className="p-2 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      className="p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                       title="Выйти"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -259,9 +259,9 @@ export default function Sidebar() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group">
+                <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-gray-50 transition-colors group">
                   {/* Avatar Circle */}
-                  <div className="w-10 h-10 bg-blue-600 dark:bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
                     <span className="text-sm font-semibold text-white">
                       {userInitials}
                     </span>
@@ -270,14 +270,14 @@ export default function Sidebar() {
                   {/* Email with tooltip */}
                   <div className="flex-1 min-w-0 relative">
                     <div
-                      className="text-sm font-medium text-gray-900 dark:text-white truncate cursor-default"
+                      className="text-sm font-medium text-gray-900 truncate cursor-default"
                       onMouseEnter={() => setShowEmailTooltip(true)}
                       onMouseLeave={() => setShowEmailTooltip(false)}
                     >
                       {truncatedEmail}
                     </div>
                     {showEmailTooltip && displayEmail.length > 20 && (
-                      <div className="absolute bottom-full left-0 mb-2 px-2 py-1 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded shadow-lg z-50 whitespace-nowrap">
+                      <div className="absolute bottom-full left-0 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded shadow-lg z-50 whitespace-nowrap">
                         {displayEmail}
                       </div>
                     )}
@@ -289,7 +289,7 @@ export default function Sidebar() {
                       setIsMobileMenuOpen(false)
                       router.push('/user-settings')
                     }}
-                    className="p-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+                    className="p-1.5 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
                     title="Настройки"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -305,7 +305,7 @@ export default function Sidebar() {
                         setIsMobileMenuOpen(false)
                         router.push('/admin/settings')
                       }}
-                      className="p-1.5 rounded-md text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex-shrink-0"
+                      className="p-1.5 rounded-md text-blue-600 hover:text-blue-700 hover:bg-blue-50 transition-colors flex-shrink-0"
                       title="Настройки администратора"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -320,7 +320,7 @@ export default function Sidebar() {
                       setIsMobileMenuOpen(false)
                       logout()
                     }}
-                    className="p-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+                    className="p-1.5 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
                     title="Выйти"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -336,7 +336,7 @@ export default function Sidebar() {
                   <button
                     onClick={() => setIsOrgDropdownOpen(!isOrgDropdownOpen)}
                     disabled={isSwitching}
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Переключить рабочее пространство"
                   >
                     <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -362,7 +362,7 @@ export default function Sidebar() {
                         className="fixed inset-0 z-40" 
                         onClick={() => setIsOrgDropdownOpen(false)}
                       />
-                      <div className="absolute bottom-full left-0 mb-1 w-full bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-64 overflow-y-auto">
+                      <div className="absolute bottom-full left-0 mb-1 w-full bg-white rounded-md shadow-lg border border-gray-200 z-50 max-h-64 overflow-y-auto">
                         <div className="py-1">
                           {organizations.map((org) => {
                             const isSelected = org.id === currentOrganizationId
@@ -372,18 +372,18 @@ export default function Sidebar() {
                                 onClick={() => handleSwitchOrganization(org.id)}
                                 className={`w-full text-left px-2 py-1.5 text-xs transition-colors flex items-center gap-2 ${
                                   isSelected
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                    ? 'bg-blue-50 text-blue-600'
+                                    : 'text-gray-700 hover:bg-gray-50'
                                 }`}
                               >
                                 <span className="truncate flex-1">{org.name}</span>
                                 {org.is_personal && (
-                                  <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-600 dark:text-blue-400 flex-shrink-0">
+                                  <span className="text-xs px-1.5 py-0.5 bg-blue-100 rounded text-blue-600 flex-shrink-0">
                                     Личная
                                   </span>
                                 )}
                                 {isSelected && (
-                                  <svg className="w-3 h-3 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                  <svg className="w-3 h-3 text-blue-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                   </svg>
                                 )}

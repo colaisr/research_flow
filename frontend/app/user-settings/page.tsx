@@ -61,15 +61,6 @@ async function changePassword(current_password: string, new_password: string) {
   return data
 }
 
-async function updatePreferences(preferences: Partial<UserSettings['preferences']>) {
-  const { data } = await apiClient.put(
-    `${API_BASE_URL}/api/user-settings/preferences`,
-    preferences,
-    { withCredentials: true }
-  )
-  return data
-}
-
 async function updateApiKeys(openrouter_api_key: string | null) {
   const { data } = await apiClient.put(
     `${API_BASE_URL}/api/user-settings/api-keys`,
@@ -87,7 +78,7 @@ export default function UserSettingsPage() {
   const { organizations, switchOrganization, isSwitching, createOrganization, leaveOrganization } = useOrganizations()
   const { currentOrganizationId } = useOrganizationContext()
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'api-keys' | 'organizations'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'api-keys' | 'organizations'>('profile')
   const [showCreateOrgForm, setShowCreateOrgForm] = useState(false)
   const [newOrgName, setNewOrgName] = useState('')
 
@@ -125,12 +116,6 @@ export default function UserSettingsPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   
-  // Preferences form state
-  const [theme, setTheme] = useState('system')
-  const [language, setLanguage] = useState('ru')
-  const [timezone, setTimezone] = useState('UTC')
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true)
-  
   // API keys form state
   const [openRouterKey, setOpenRouterKey] = useState('')
   const [showOpenRouterKey, setShowOpenRouterKey] = useState(false)
@@ -146,10 +131,6 @@ export default function UserSettingsPage() {
     if (settings) {
       setFullName(settings.profile.full_name || '')
       setEmail(settings.profile.email)
-      setTheme(settings.preferences.theme)
-      setLanguage(settings.preferences.language)
-      setTimezone(settings.preferences.timezone)
-      setNotificationsEnabled(settings.preferences.notifications_enabled)
       setOpenRouterKey(settings.api_keys.openrouter_api_key || '')
     }
   }, [settings])
@@ -179,16 +160,6 @@ export default function UserSettingsPage() {
     },
   })
 
-  const updatePreferencesMutation = useMutation({
-    mutationFn: () => updatePreferences({ theme, language, timezone, notifications_enabled: notificationsEnabled }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-settings'] })
-      alert('Настройки обновлены')
-    },
-    onError: (err: any) => {
-      alert(err.response?.data?.detail || 'Ошибка при обновлении настроек')
-    },
-  })
 
   const updateApiKeysMutation = useMutation({
     mutationFn: () => updateApiKeys(openRouterKey || null),
@@ -218,7 +189,7 @@ export default function UserSettingsPage() {
     return (
       <div className="p-8">
         <div className="max-w-4xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Загрузка...</p>
+          <p className="text-gray-600">Загрузка...</p>
         </div>
       </div>
     )
@@ -227,25 +198,24 @@ export default function UserSettingsPage() {
   return (
     <div className="p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8 text-gray-900 dark:text-white">
+        <h1 className="text-4xl font-bold mb-8 text-gray-900">
           Настройки пользователя
         </h1>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
+        <div className="border-b border-gray-200 mb-6">
           <nav className="flex space-x-8">
-            {(['profile', 'preferences', 'api-keys', 'organizations'] as const).map((tab) => (
+            {(['profile', 'api-keys', 'organizations'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 {tab === 'profile' && 'Профиль'}
-                {tab === 'preferences' && 'Предпочтения'}
                 {tab === 'api-keys' && 'API Ключи'}
                 {tab === 'organizations' && 'Организации'}
               </button>
@@ -255,46 +225,46 @@ export default function UserSettingsPage() {
 
         {/* Profile Tab */}
         {activeTab === 'profile' && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 space-y-6">
+          <div className="bg-white rounded-lg shadow p-6 space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+              <h2 className="text-2xl font-semibold mb-4 text-gray-900">
                 Профиль
               </h2>
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
                     Полное имя
                   </label>
                   <input
                     type="text"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
                     Email
                   </label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
                     Роль
                   </label>
                   <input
                     type="text"
                     value={settings?.profile.role || ''}
                     disabled
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-600 cursor-not-allowed"
                   />
                 </div>
 
@@ -308,14 +278,14 @@ export default function UserSettingsPage() {
               </div>
             </div>
 
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-              <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+            <div className="border-t border-gray-200 pt-6">
+              <h3 className="text-xl font-semibold mb-4 text-gray-900">
                 Изменить пароль
               </h3>
               
               <form onSubmit={handlePasswordSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
                     Текущий пароль
                   </label>
                   <input
@@ -323,12 +293,12 @@ export default function UserSettingsPage() {
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
                     Новый пароль
                   </label>
                   <input
@@ -337,12 +307,12 @@ export default function UserSettingsPage() {
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
                     minLength={8}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  <label className="block text-sm font-medium mb-2 text-gray-700">
                     Подтвердите новый пароль
                   </label>
                   <input
@@ -351,7 +321,7 @@ export default function UserSettingsPage() {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
                     minLength={8}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
                   />
                 </div>
 
@@ -367,90 +337,16 @@ export default function UserSettingsPage() {
           </div>
         )}
 
-        {/* Preferences Tab */}
-        {activeTab === 'preferences' && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
-              Предпочтения
-            </h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                  Тема
-                </label>
-                <select
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="system">Системная</option>
-                  <option value="light">Светлая</option>
-                  <option value="dark">Тёмная</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                  Язык
-                </label>
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="ru">Русский</option>
-                  <option value="en">English</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                  Часовой пояс
-                </label>
-                <input
-                  type="text"
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                  placeholder="UTC"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-              </div>
-
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="notifications"
-                  checked={notificationsEnabled}
-                  onChange={(e) => setNotificationsEnabled(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <label htmlFor="notifications" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                  Включить уведомления
-                </label>
-              </div>
-
-              <button
-                onClick={() => updatePreferencesMutation.mutate()}
-                disabled={updatePreferencesMutation.isPending}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md font-medium transition-colors"
-              >
-                {updatePreferencesMutation.isPending ? 'Сохранение...' : 'Сохранить настройки'}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* API Keys Tab */}
         {activeTab === 'api-keys' && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-2xl font-semibold mb-4 text-gray-900">
               API Ключи
             </h2>
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                <label className="block text-sm font-medium mb-2 text-gray-700">
                   OpenRouter API Key
                 </label>
                 <div className="relative">
@@ -459,12 +355,12 @@ export default function UserSettingsPage() {
                     value={openRouterKey}
                     onChange={(e) => setOpenRouterKey(e.target.value)}
                     placeholder="Получите на https://openrouter.ai"
-                    className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md bg-white text-gray-900"
                   />
                   <button
                     type="button"
                     onClick={() => setShowOpenRouterKey(!showOpenRouterKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                   >
                     {showOpenRouterKey ? '👁️' : '👁️‍🗨️'}
                   </button>
@@ -489,9 +385,9 @@ export default function UserSettingsPage() {
             <PendingInvitationsSection />
             
             {/* Organizations List */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+                <h2 className="text-2xl font-semibold text-gray-900">
                   Организации
                 </h2>
                 <button
@@ -504,10 +400,10 @@ export default function UserSettingsPage() {
 
               {/* Create Organization Form */}
               {showCreateOrgForm && (
-                <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50">
+                <div className="mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                      <label className="block text-sm font-medium mb-2 text-gray-700">
                         Название организации
                       </label>
                       <input
@@ -515,7 +411,7 @@ export default function UserSettingsPage() {
                         value={newOrgName}
                         onChange={(e) => setNewOrgName(e.target.value)}
                         placeholder="Моя компания"
-                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <button
@@ -526,8 +422,8 @@ export default function UserSettingsPage() {
                       Создать организацию
                     </button>
                     {leaveOrgMutation.isError && (
-                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                        <p className="text-red-700 dark:text-red-400 text-sm">
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <p className="text-red-700 text-sm">
                           {(leaveOrgMutation.error as any)?.response?.data?.detail || 'Ошибка при выходе из организации'}
                         </p>
                       </div>
@@ -545,34 +441,34 @@ export default function UserSettingsPage() {
                       key={org.id}
                       className={`border rounded-lg p-4 ${
                         isCurrent
-                          ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
-                          : 'border-gray-200 dark:border-gray-700'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
-                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            <h3 className="text-lg font-semibold text-gray-900">
                               {org.name}
                             </h3>
                             {isCurrent && (
-                              <span className="text-xs px-2 py-1 bg-blue-600 dark:bg-blue-500 text-white rounded">
+                              <span className="text-xs px-2 py-1 bg-blue-600 text-white rounded">
                                 Текущая
                               </span>
                             )}
                           </div>
                           <div className="flex gap-2">
                             {org.is_personal && (
-                              <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-600 dark:text-blue-400">
+                              <span className="text-xs px-2 py-1 bg-blue-100 rounded text-blue-600">
                                 Личная
                               </span>
                             )}
                             {org.role && (
-                              <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-400">
+                              <span className="text-xs px-2 py-1 bg-gray-100 rounded text-gray-600">
                                 {org.role === 'org_admin' ? 'Администратор' : 'Пользователь'}
                               </span>
                             )}
-                            <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-400">
+                            <span className="text-xs px-2 py-1 bg-gray-100 rounded text-gray-600">
                               {org.member_count} {org.member_count === 1 ? 'участник' : 'участников'}
                             </span>
                           </div>
@@ -606,7 +502,7 @@ export default function UserSettingsPage() {
                 })}
               </div>
               ) : (
-                <p className="text-gray-600 dark:text-gray-400">Нет организаций</p>
+                <p className="text-gray-600">Нет организаций</p>
               )}
             </div>
           </div>
@@ -674,8 +570,8 @@ function PendingInvitationsSection() {
   }
 
   return (
-    <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg shadow p-6">
-      <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+    <div className="bg-yellow-50 border border-yellow-200 rounded-lg shadow p-6">
+      <h2 className="text-xl font-semibold mb-4 text-gray-900">
         Ожидающие приглашения ({invitations.length})
       </h2>
       
@@ -683,17 +579,17 @@ function PendingInvitationsSection() {
         {invitations.map((invitation) => (
           <div
             key={invitation.id}
-            className="border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 bg-white dark:bg-gray-800"
+            className="border border-yellow-200 rounded-lg p-4 bg-white"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium text-gray-900 dark:text-white">
+                <p className="font-medium text-gray-900">
                   Приглашение в: {invitation.organization_name}
                 </p>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                <p className="text-sm text-gray-600 mt-1">
                   Роль: {invitation.role === 'org_admin' ? 'Администратор' : 'Пользователь'}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   Истекает: {new Date(invitation.expires_at).toLocaleDateString('ru-RU')}
                 </p>
               </div>
@@ -708,8 +604,8 @@ function PendingInvitationsSection() {
               </button>
             </div>
             {acceptMutation.isError && (
-              <div className="mt-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2">
-                <p className="text-red-700 dark:text-red-400 text-xs">
+              <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-2">
+                <p className="text-red-700 text-xs">
                   {(acceptMutation.error as any)?.response?.data?.detail || 'Ошибка при принятии приглашения'}
                 </p>
               </div>

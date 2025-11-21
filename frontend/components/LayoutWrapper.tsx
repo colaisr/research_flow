@@ -26,13 +26,13 @@ export default function LayoutWrapper({
   const hasBanner = user?.is_impersonated
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-white">
       <div className="fixed top-0 left-0 right-0 z-50">
         <ImpersonationBanner />
       </div>
       <Sidebar />
       <TopBar />
-      <main className={`transition-all duration-300 ${
+      <main className={`transition-all duration-300 bg-white ${
         hasBanner ? 'pt-24' : 'pt-16'
       } ${isCollapsed ? 'lg:ml-20' : 'lg:ml-72'}`}>
         {children}

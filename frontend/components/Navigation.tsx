@@ -40,13 +40,13 @@ export default function Navigation() {
   const { user, logout, isAuthenticated, role, isPlatformAdmin } = useAuth()
 
   return (
-    <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+    <nav className="bg-white border-b border-gray-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
-              <Link href="/dashboard" className="text-xl font-bold text-gray-900 dark:text-white">
-                <span className="text-gray-900 dark:text-white">Max Sig</span><span className="text-2xl text-blue-600 dark:text-blue-400 font-bold">N</span><span className="text-gray-900 dark:text-white">al bot</span>
+              <Link href="/dashboard" className="text-xl font-bold text-gray-900">
+                <span className="text-gray-900">Max Sig</span><span className="text-2xl text-blue-600 font-bold">N</span><span className="text-gray-900">al bot</span>
               </Link>
             </div>
             {isAuthenticated && (
@@ -59,8 +59,8 @@ export default function Navigation() {
                       href={item.href}
                       className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
                         isActive
-                          ? 'border-blue-500 text-gray-900 dark:text-white'
-                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                          ? 'border-blue-500 text-gray-900'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                       }`}
                     >
                       {item.name}
@@ -74,14 +74,14 @@ export default function Navigation() {
             <div className="flex items-center gap-4">
               <Link
                 href="/user-settings"
-                className="text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                className="text-sm text-gray-700 hover:text-gray-900"
               >
                 {user.email}
                 {role && (
                   <span className={`ml-2 px-2 py-1 text-xs rounded ${
                     role === 'admin' 
-                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
+                      ? 'bg-blue-100 text-blue-800'
+                      : 'bg-gray-100 text-gray-800'
                   }`}>
                     {getRoleLabel(role)}
                   </span>
@@ -90,14 +90,14 @@ export default function Navigation() {
               {isPlatformAdmin && (
                 <Link
                   href="/admin/settings"
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                  className="text-sm text-blue-600 hover:text-blue-700"
                 >
                   Admin Settings
                 </Link>
               )}
               <button
                 onClick={() => logout()}
-                className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                className="text-sm text-gray-500 hover:text-gray-700"
               >
                 Logout
               </button>
