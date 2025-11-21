@@ -681,14 +681,44 @@ Users can create any flow they need - the platform is domain-agnostic.
 
 ### 10a) Authentication and User Accounts
 
-- Requirements
-  - Email/password login; roles: `admin` (platform admin), `org_admin` (organization admin), `org_user` (organization member).
-  - Session cookie (HttpOnly, secure in prod), server-side validation; no tokens stored in frontend.
-  - Endpoints: `/api/auth/login`, `/api/auth/logout`, `/api/auth/me` (profile), `/api/auth/register` (public, can be disabled by admin).
-  - Passwords hashed with bcrypt; rate limiting on login.
-  - Protected routes: All authenticated routes require valid session.
-  - Tables: `users` (id, email, hashed_password, role, is_active, created_at, updated_at), session management via cookies.
-  - Organization context: User selects active organization; all resources filtered by organization context.
+**User Roles:**
+- `admin`: Platform administrator with full system access
+- `org_admin`: Organization administrator, manages their organization(s)
+- `org_user`: Regular organization member with limited permissions
+
+**Authentication Flow:**
+- Email/password login with bcrypt password hashing
+- Session cookie (`researchflow_session`) stored as HttpOnly cookie (secure in prod)
+- Server-side session validation; no tokens stored in frontend
+- Session includes: `user_id`, `email`, `is_admin`, `role`, `organization_id`
+- Endpoints: 
+  - `POST /api/auth/login` - Authenticate and create session
+  - `POST /api/auth/logout` - Destroy session
+  - `GET /api/auth/me` - Get current user profile
+  - `POST /api/auth/register` - Public registration (can be disabled by admin)
+
+**Organization Context:**
+- Each user session has a current `organization_id` stored in session cookie
+- All resource queries filtered by current organization context
+- User can switch organization context via `POST /api/organizations/switch`
+- Switching organization updates session cookie and reloads page/refetches data
+- Default: User's personal organization on first login
+- Fallback: If session org invalid, automatically falls back to personal org
+
+**Personal Organization:**
+- Auto-created on user registration
+- Marked with `is_personal=True` in database
+- User is always `org_admin` of their personal org
+- Cannot be deleted or transferred
+- Cannot leave personal organization
+- Always exists (created on-demand if missing for existing users)
+
+**Session Management:**
+- Session token created via `create_session()` function
+- Includes user info and current organization context
+- Cookie settings: `httponly=True`, `secure=False` (dev) / `secure=True` (prod), `samesite="lax"`
+- Session expires after 24 hours (configurable)
+- Protected routes require valid session via `get_current_user_dependency`
 
 - Frontend
   - Login page; guard protected pages; show current user, role, and current organization.
@@ -755,10 +785,20 @@ This section outlines the detailed plan to implement the new general-purpose res
     - Update existing users: `is_admin=True` → `role='admin'`, `is_admin=False` → `role='org_admin'`
     - Add role constraints
 - [x] **Personal Organization Auto-Creation**:
-  - When user registers, automatically create a "Personal Organization" for them
-  - User becomes `org_admin` of their personal org
-  - All user's resources belong to their personal org (never NULL)
-  - Personal org name: "{User's Name} Personal" or "{User's Email} Personal"
+  - **Trigger**: Automatically created on user registration
+  - **Fallback**: Also created on-demand if missing (for existing users during migration)
+  - **Properties**:
+    - Name: "{User's Name} Personal" or "{User's Email} Personal"
+    - `is_personal=True` (database flag)
+    - `owner_id=user.id` (always belongs to creator)
+    - User automatically added as `org_admin` member
+  - **Behavior**:
+    - User is always `org_admin` of their personal org
+    - All user's resources belong to their personal org (never NULL)
+    - Cannot be deleted (deleted when user is deleted)
+    - Cannot be transferred (ownership always belongs to creator)
+    - Cannot be left (user always member of their personal org)
+  - **Implementation**: `create_personal_organization()` function in `app/services/organization.py`
 - [x] **Registration Flow**:
   - Public registration endpoint (`POST /api/auth/register`)
   - Email verification (optional for MVP, can be added later)
@@ -834,21 +874,45 @@ This section outlines the detailed plan to implement the new general-purpose res
     - Yellow banner displays pending invitations with organization name
     - One-click accept button
     - Auto-refreshes organizations list after acceptance
-  - Organization admins can manage members (remove, change roles)
+  - Organization admins can manage members (remove, change roles):
     - UI: Organization management page (`/organizations/{id}`)
     - View all members with roles and join dates
     - Change member roles (Admin ↔ User)
     - Remove members (cannot remove yourself, cannot remove owner)
     - See member count
-    - Owner protection: Cannot remove or change role of organization owner
-    - Owner badge: Purple "Владелец" badge shown next to owner's name
+    - **Owner Protection Logic**:
+      - Organization owner (`organizations.owner_id`) cannot be removed
+      - Organization owner's role cannot be changed
+      - Owner badge: Purple "Владелец" badge shown next to owner's name
+      - Owner's edit/remove buttons are hidden in UI
+      - Backend validates: `if organization.owner_id == member.user_id: raise 403`
+      - **Rationale**: Prevents invited `org_admin` from removing/demoting the actual owner
+    - **Role Management**:
+      - `org_admin`: Can invite users, manage members, change roles (except owner)
+      - `org_user`: Regular member, cannot manage organization
+      - Platform `admin`: Can manage any organization
   - Transfer ownership (shared organizations only):
-    - UI: "Передать владение" button in organization management page (only visible to owner, hidden for personal orgs)
-    - Modal: Select new owner from organization members
-    - Backend: `POST /api/organizations/{id}/transfer-ownership`
-    - Validations: Only current owner can transfer, cannot transfer to yourself, new owner must be member
-    - Auto-promotes new owner to org_admin if needed
-    - Cannot transfer personal organization ownership (always belongs to creator)
+    - **UI**: "Передать владение" button in organization management page
+      - Only visible to current owner (`organization.owner_id == current_user.id`)
+      - Hidden for personal organizations (`organization.is_personal == True`)
+      - Opens modal with dropdown of organization members
+    - **Backend**: `POST /api/organizations/{id}/transfer-ownership`
+      - Body: `{new_owner_user_id: int}`
+      - **Validations**:
+        1. Only current owner can transfer (`organization.owner_id == current_user.id`)
+        2. Cannot transfer to yourself (`new_owner_user_id != current_user.id`)
+        3. New owner must be member of organization (query `OrganizationMember`)
+        4. Cannot transfer personal organization (`organization.is_personal == False`)
+      - **Process**:
+        1. Verify new owner is member (raise 404 if not)
+        2. Auto-promote new owner to `org_admin` if currently `org_user`
+        3. Update `organization.owner_id = new_owner_user_id`
+        4. Commit changes
+      - **Use Case**: When organization owner leaves company, transfers ownership to another member
+    - **Personal Organization Protection**:
+      - Personal organizations (`is_personal=True`) cannot have ownership transferred
+      - Always belongs to creator (`owner_id` set on creation, never changes)
+      - Backend validation: `if organization.is_personal: raise 400`
   - Users can leave organizations (if org_user, cannot leave personal org)
     - UI: "Покинуть" button for org_user role in user settings
     - Confirmation dialog before leaving
@@ -863,26 +927,42 @@ This section outlines the detailed plan to implement the new general-purpose res
     - Add-user endpoint: Checks if user exists, handles existing users gracefully
     - Both endpoints: Allow multiple invitations from different organizations
 - [x] **Organization Context & Switching**:
-  - **Current Organization Context**: User selects active organization (stored in session/localStorage)
-  - **Complete Separation**: When working in an organization context, user sees ONLY that organization's resources
+  - **Current Organization Context**: 
+    - Stored in session cookie (`organization_id` in session data)
+    - User selects active organization to work within
+    - All API requests filtered by current organization context
+    - Backend dependency: `get_current_organization_dependency()` extracts `organization_id` from session
+    - Fallback logic: If session org invalid/missing → fallback to user's personal org
+  
+  - **Complete Separation Logic**:
+    - When working in organization A context, user sees ONLY organization A's resources
     - No visibility of resources from other organizations (even if user is member)
-    - Complete context switch when switching organizations
+    - Complete context switch when switching organizations (different resources, different data)
     - Different companies = different contexts (no mixing)
+    - **Backend Filtering**: All resource queries include `WHERE organization_id = :current_org_id`
+    - **Example**: Analyst working for Company A cannot see Company B's analyses (even if member of both)
+  
   - **Organization Selector UI**: 
-    - Compact workspace switcher in sidebar (under user card)
-    - Only visible when sidebar is expanded (needs space for dropdown)
-    - Small, minimal design: workspace icon + organization name + dropdown arrow
+    - Location: Compact workspace switcher in sidebar (under user card)
+    - Visibility: Only visible when sidebar is expanded (needs space for dropdown)
+    - Design: Small, minimal - workspace icon + organization name + dropdown arrow
     - Text size: `text-xs` for compact appearance
-    - Lists all organizations user belongs to (personal + shared)
-    - Visual indicator: Personal org badge vs Shared orgs
-    - Dropdown shows organization name, role, and member count
-    - Checkmark indicates current organization
-    - Quick switch (reloads page/refetches data to show new org's resources)
+    - Content: Lists all organizations user belongs to (personal + shared)
+    - Visual indicators: 
+      - Personal org badge (e.g., "Личное")
+      - Shared orgs show organization name
+      - Checkmark indicates current organization
+    - Dropdown shows: Organization name, user's role, member count
+    - Action: Click to switch → calls `POST /api/organizations/switch` → updates session → reloads page
     - **UX Design**: Designed as utility control, not prominent feature - appropriate for workspace switcher
+  
   - **Context Persistence**: 
-    - Remember selected org across sessions (localStorage)
-    - Default to personal org on first login
-    - Backend filters all resources by current organization context (from session)
+    - **Session Storage**: `organization_id` stored in session cookie (server-side)
+    - **Frontend Storage**: Also stored in localStorage for UI state
+    - **Default**: Personal org on first login (or if session org invalid)
+    - **Switching**: `POST /api/organizations/switch` updates session cookie, frontend reloads/refetches
+    - **Backend Filtering**: All resource endpoints filter by `current_organization.id` from session
+    - **Validation**: Backend verifies user is member of requested org before switching
 - [x] **Resource Ownership**:
   - **Simplified Model**: All resources belong to an organization (never NULL)
   - `analysis_types` and `analysis_runs` have `organization_id` (required, not nullable)
@@ -898,49 +978,134 @@ This section outlines the detailed plan to implement the new general-purpose res
   - Migration: Updated existing resources to belong to user's personal org
 
 **0.3) Feature Enablement System** ✅ **CORE COMPLETE**
-- [x] **User Features Table**:
-  - `user_features`: id, user_id, feature_name, enabled, expires_at (nullable)
-  - Features: `local_llm`, `openrouter`, `rag`, `api_tools`, `database_tools`, `scheduling`, `webhooks`
-  - Unique constraint on (user_id, feature_name)
-  - Migration: `3d503719dc43_add_user_features_table`
-- [x] **Organization Features Table**:
-  - `organization_features`: id, organization_id, feature_name, enabled, expires_at (nullable)
-  - Features belong to organizations (not users directly)
-  - Unique constraint on (organization_id, feature_name)
-  - Migration: `0c3d8f320f1a_add_organization_features_table`
-- [x] **Feature Service Logic**:
-  - Organization-first model: Organization features = primary source (what's available in workspace)
-  - User features = restrictions/overrides (users can disable features even if org has them)
-  - Inheritance: If user hasn't set a feature → inherit from organization
-  - Effective features = intersection logic:
-    - If user has feature explicitly set → user feature AND org feature (user can restrict)
-    - If user hasn't set feature → inherit from org feature
-  - Functions: `get_user_features()`, `get_organization_features()`, `get_effective_features()`, `has_feature()`, `set_user_feature()`, `set_organization_feature()`
-- [x] **Feature Check Dependency**:
-  - `require_feature()` dependency factory in `auth.py`
-  - Checks effective features (user + org intersection)
-  - Requires organization context
-  - Usage: `Depends(require_feature('rag'))`
-- [x] **Admin Feature Management API**:
-  - `GET /api/admin/features` - List all available features
-  - `GET /api/admin/users/{user_id}/features` - Get user features (returns dict with feature states)
-  - `PUT /api/admin/users/{user_id}/features/{feature_name}` - Set user feature (restriction)
-  - `GET /api/admin/organizations/{org_id}/features` - Get organization features
-  - `PUT /api/admin/organizations/{org_id}/features/{feature_name}` - Set organization feature (purchase/enable)
-- [x] **User Feature API**:
-  - `GET /api/user-settings/features` - Get effective features for current user in current org
-- [x] **Admin Feature Management UI**:
-  - "Управление функциями" tab in `/admin/settings`
-  - User feature management: Enter user ID, see all features with toggle switches
-  - Organization feature management: Select organization from dropdown, see all features with toggle switches
-  - Shows actual feature state (fetches from API)
-  - Real-time updates when toggling features
-- [ ] **Feature Checks in Endpoints** (Optional - can be added when features are implemented):
-  - Add `require_feature()` to endpoints that use specific features (RAG, API Tools, etc.)
-  - Will be added in Phase 1+ when features are actually implemented
-- [ ] **Feature-Based UI Visibility** (Optional - can be added when features are implemented):
-  - Show/hide UI elements based on effective features
-  - Will be added in Phase 1+ when features are actually implemented
+
+**Feature Model: Organization-First with User Restrictions**
+
+The feature enablement system uses a two-tier model where organization features are the primary source, and user features act as restrictions or overrides.
+
+**Available Features:**
+- `local_llm`: Local LLM model support
+- `openrouter`: OpenRouter API integration
+- `rag`: RAG Knowledge Bases
+- `api_tools`: API Tools system
+- `database_tools`: Database Tools system
+- `scheduling`: Scheduled analysis runs
+- `webhooks`: Webhook output handlers
+
+**Database Schema:**
+
+**User Features Table** (`user_features`):
+- `id`: Primary key
+- `user_id`: Foreign key to `users.id`
+- `feature_name`: String (50 chars), one of the available features
+- `enabled`: Boolean (True = enabled, False = disabled)
+- `expires_at`: DateTime (nullable) - Optional expiration date
+- `created_at`, `updated_at`: Timestamps
+- Unique constraint: `(user_id, feature_name)` - One record per user per feature
+- **Semantics**: `None` (not set) = inherit from organization, `True/False` = explicit user setting
+
+**Organization Features Table** (`organization_features`):
+- `id`: Primary key
+- `organization_id`: Foreign key to `organizations.id`
+- `feature_name`: String (50 chars), one of the available features
+- `enabled`: Boolean (True = enabled, False = disabled)
+- `expires_at`: DateTime (nullable) - Optional expiration date
+- `created_at`, `updated_at`: Timestamps
+- Unique constraint: `(organization_id, feature_name)` - One record per org per feature
+- **Semantics**: Defaults to `True` if not explicitly set (organizations get all features by default)
+
+**Feature Logic:**
+
+**1. Organization Features (Primary Source):**
+- Organizations have features enabled by default (`True`) if not explicitly set
+- Admin can enable/disable features for entire organizations
+- When Tom purchases features for his organization, all members get access (unless restricted)
+- Example: Organization "Acme Corp" has `rag=True`, `api_tools=True`, `scheduling=False`
+
+**2. User Features (Restrictions/Overrides):**
+- Users can have explicit feature settings (`enabled=True/False`) or no setting (`None`)
+- `None` = inherit from organization (user hasn't set this feature)
+- `True` = user wants feature enabled (but still requires org to have it)
+- `False` = user restriction (cannot use feature even if org has it)
+- Example: User Jerry has `rag=None` (inherit), `api_tools=False` (restricted), `scheduling=None` (inherit)
+
+**3. Effective Features (Final Result):**
+The `get_effective_features()` function computes the final feature set:
+
+```python
+for each feature:
+    if user_setting is None:
+        effective = org_setting  # Inherit from organization
+    else:
+        effective = user_setting AND org_setting  # Intersection (user can restrict)
+```
+
+**Example Scenarios:**
+
+**Scenario 1: User inherits from organization**
+- Organization: `rag=True`, `api_tools=True`
+- User: `rag=None`, `api_tools=None` (not set)
+- Effective: `rag=True`, `api_tools=True` ✅
+- **Use Case**: Jerry invited to Tom's workspace gets all Tom's features
+
+**Scenario 2: User restricts feature**
+- Organization: `rag=True`, `api_tools=True`
+- User: `rag=None`, `api_tools=False` (explicitly disabled)
+- Effective: `rag=True`, `api_tools=False` ❌
+- **Use Case**: User doesn't want API tools even if org has them
+
+**Scenario 3: User enables but org doesn't have**
+- Organization: `rag=False`, `api_tools=False`
+- User: `rag=True`, `api_tools=True`
+- Effective: `rag=False`, `api_tools=False` ❌
+- **Use Case**: User can't enable features org doesn't have (user can only restrict, not enable)
+
+**4. Feature Expiration:**
+- Both user and organization features can have `expires_at` dates
+- Expired features are automatically treated as `False`
+- Expiration checked in `get_user_features()` and `get_organization_features()`
+
+**API Endpoints:**
+
+**Admin Feature Management:**
+- `GET /api/admin/features` - List all available features (returns `FEATURES` dict)
+- `GET /api/admin/users/{user_id}/features` - Get user's explicit features (returns `dict[str, bool | None]`)
+- `PUT /api/admin/users/{user_id}/features/{feature_name}` - Set user feature (body: `{enabled: bool, expires_at?: datetime}`)
+- `GET /api/admin/organizations/{org_id}/features` - Get organization features (returns `dict[str, bool]`)
+- `PUT /api/admin/organizations/{org_id}/features/{feature_name}` - Set organization feature (body: `{enabled: bool, expires_at?: datetime}`)
+
+**User Feature API:**
+- `GET /api/user-settings/features` - Get effective features for current user in current organization context (returns `dict[str, bool]`)
+
+**Feature Check Dependency:**
+- `require_feature(feature_name: str)` - FastAPI dependency factory
+- Usage: `Depends(require_feature('rag'))` in endpoint
+- Checks `has_feature(db, user_id, organization_id, feature_name)`
+- Returns 403 Forbidden if feature not enabled
+- Requires organization context (uses `get_current_organization_dependency`)
+
+**UI Components:**
+
+**Admin Settings - Features Tab:**
+- User Feature Management:
+  - Enter user ID input field
+  - Fetch user features via `GET /api/admin/users/{id}/features`
+  - Display all features with toggle switches
+  - Show actual state (checked/unchecked based on API response)
+  - Update via `PUT /api/admin/users/{id}/features/{name}`
+  
+- Organization Feature Management:
+  - Organization dropdown selector
+  - Fetch org features via `GET /api/admin/organizations/{id}/features`
+  - Display all features with toggle switches
+  - Show actual state (defaults to checked if not explicitly set)
+  - Update via `PUT /api/admin/organizations/{id}/features/{name}`
+
+**Future Enhancements (Phase 1+):**
+- Add `require_feature()` checks to endpoints that use specific features
+- Add feature-based UI visibility (show/hide features in UI)
+- Feature usage analytics
+- Bulk feature management
 
 **0.4) Admin Dashboard - User Management**
 - [ ] **Users List Page** (`/admin/users`):
