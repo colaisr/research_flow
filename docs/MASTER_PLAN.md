@@ -792,7 +792,7 @@ This section outlines the detailed plan to implement the new general-purpose res
     - Max tokens per user
   - Global API Keys: Fallback OpenRouter key (if user doesn't have one)
 
-**0.2) Organization & Multi-Tenancy**
+**0.2) Organization & Multi-Tenancy** ✅ **COMPLETE**
 
 **Key Concept**: Users can belong to multiple organizations simultaneously, but work in ONE context at a time:
 - **Personal Organization**: Auto-created, always exists, user is `org_admin`
@@ -803,43 +803,80 @@ This section outlines the detailed plan to implement the new general-purpose res
   - Different companies = different contexts (complete isolation)
   - Example: Analyst working for Company A cannot see Company B's resources (even if member of both)
 - **Context Switching**: Switching organizations = complete context switch (different resources, different data)
-- [ ] **Organizations Table**:
+- [x] **Organizations Table**:
   - `organizations`: id, name, slug, owner_id, is_personal (boolean, default False), created_at, updated_at
   - `organization_members`: id, organization_id, user_id, role (org_admin/org_user), invited_by, joined_at
   - `organization_invitations`: id, organization_id, email, token, role, invited_by, expires_at, accepted_at
-- [ ] **Personal Organization**:
+- [x] **Personal Organization**:
   - Every user has exactly one personal organization (auto-created on registration)
   - Personal org marked with `is_personal=True`
   - User is `org_admin` of their personal org
   - Personal org cannot be deleted (user deletion removes it)
-- [ ] **Organization Management**:
+- [x] **Organization Management**:
   - Users can create additional organizations (beyond their personal one)
+    - UI: "Создать организацию" button in user settings → Organizations tab
+    - Form with organization name input
+    - Auto-creates user as `org_admin` of the new organization
   - Organization admins can invite users (email invitations)
+    - Validation: Checks if user already exists and is member
+    - Validation: Prevents duplicate invitations for same organization
+    - Validation: Allows multiple invitations from different organizations
+    - Invitation expires in 7 days
+    - Users can accept invitations by invitation ID (from pending invitations list)
+  - Organization admins can add users directly (temporary, for testing without email)
+    - UI: "Добавить пользователя" button in organization management page
+    - Form: Email, password, full name (optional), role
+    - If user exists: Adds them to organization (removes pending invitation if exists)
+    - If user doesn't exist: Creates new user account + personal org + adds to organization
+    - **Note**: This feature will be removed when email invitations are properly implemented
   - Invited users can accept invitations
+    - UI: Pending invitations shown in user settings → Organizations tab
+    - Yellow banner displays pending invitations with organization name
+    - One-click accept button
+    - Auto-refreshes organizations list after acceptance
   - Organization admins can manage members (remove, change roles)
+    - UI: Organization management page (`/organizations/{id}`)
+    - View all members with roles and join dates
+    - Change member roles (Admin ↔ User)
+    - Remove members (cannot remove yourself)
+    - See member count
+  - Users can leave organizations (if org_user, cannot leave personal org)
+    - UI: "Покинуть" button for org_user role in user settings
+    - Confirmation dialog before leaving
+    - Auto-switches to personal org after leaving
+    - Backend prevents leaving personal organization
   - Users can belong to multiple organizations (personal + any number of shared orgs)
   - **Multi-Organization Support**: Same email/user can have:
     - Personal organization (auto-created, always exists)
     - Multiple shared organizations (invited as org_admin or org_user)
-- [ ] **Organization Context & Switching**:
+  - **Validation**:
+    - Invite endpoint: Checks if user already member, prevents duplicate invitations
+    - Add-user endpoint: Checks if user exists, handles existing users gracefully
+    - Both endpoints: Allow multiple invitations from different organizations
+- [x] **Organization Context & Switching**:
   - **Current Organization Context**: User selects active organization (stored in session/localStorage)
   - **Complete Separation**: When working in an organization context, user sees ONLY that organization's resources
     - No visibility of resources from other organizations (even if user is member)
     - Complete context switch when switching organizations
     - Different companies = different contexts (no mixing)
   - **Organization Selector UI**: 
-    - Dropdown in navigation bar showing current org
+    - Compact workspace switcher in sidebar (under user card)
+    - Only visible when sidebar is expanded (needs space for dropdown)
+    - Small, minimal design: workspace icon + organization name + dropdown arrow
+    - Text size: `text-xs` for compact appearance
     - Lists all organizations user belongs to (personal + shared)
-    - Visual indicator: Personal org vs Shared orgs
+    - Visual indicator: Personal org badge vs Shared orgs
+    - Dropdown shows organization name, role, and member count
+    - Checkmark indicates current organization
     - Quick switch (reloads page/refetches data to show new org's resources)
+    - **UX Design**: Designed as utility control, not prominent feature - appropriate for workspace switcher
   - **Context Persistence**: 
     - Remember selected org across sessions (localStorage)
     - Default to personal org on first login
-    - API requests include `X-Organization-Id` header or query param
-    - Backend filters all resources by current organization context
-- [ ] **Resource Ownership**:
+    - Backend filters all resources by current organization context (from session)
+- [x] **Resource Ownership**:
   - **Simplified Model**: All resources belong to an organization (never NULL)
-  - Analyses, Tools, RAGs have `organization_id` (required, not nullable)
+  - `analysis_types` and `analysis_runs` have `organization_id` (required, not nullable)
   - Resources can belong to:
     - Personal organization (private to user)
     - Shared organization (accessible to all org members when in that org's context)
@@ -849,7 +886,7 @@ This section outlines the detailed plan to implement the new general-purpose res
     - Switching organizations = complete context switch (different resources, different data)
   - Access control: Users can access resources from organizations where they're members, but ONLY when in that organization's context
   - **Resource Creation**: New resources created in current organization context (cannot create in other orgs)
-  - Migration: Update existing resources to belong to user's personal org
+  - Migration: Updated existing resources to belong to user's personal org
 
 **0.3) Feature Enablement System**
 - [ ] **User Features Table**:
@@ -888,31 +925,33 @@ This section outlines the detailed plan to implement the new general-purpose res
   - Export user statistics
 
 **Testing Checklist for Phase 0**:
-- [ ] Can register new user
-- [ ] Personal organization is auto-created on registration
-- [ ] User is org_admin of their personal org
-- [ ] Can login/logout
-- [ ] Index page shows without login
-- [ ] User settings page works
-- [ ] Admin can access admin settings
-- [ ] Can create additional organization (beyond personal)
-- [ ] Can invite user to organization
-- [ ] Invited user can accept invitation
-- [ ] User can belong to multiple organizations (personal + shared)
-- [ ] Organization selector appears in navigation
-- [ ] Can switch between organizations (complete context switch)
-- [ ] Current organization context persists across sessions
-- [ ] Complete separation: When in org A context, only see org A resources
-- [ ] Cannot see resources from other organizations (even if member)
-- [ ] Switching organizations reloads page/refetches data
-- [ ] New resources created in current organization context ONLY
-- [ ] Resources belong to organizations (never NULL)
-- [ ] Can access resources from personal org (when in personal org context)
-- [ ] Can access resources from shared orgs (when in that org's context)
-- [ ] Backend enforces organization context filtering on all resource endpoints
-- [ ] Feature enablement works (can't access disabled features)
-- [ ] Admin can view user statistics
-- [ ] Admin can change user roles
+- [x] Can register new user
+- [x] Personal organization is auto-created on registration
+- [x] User is org_admin of their personal org
+- [x] Can login/logout
+- [x] Index page shows without login
+- [x] User settings page works
+- [x] Admin can access admin settings
+- [x] Can create additional organization (beyond personal)
+- [x] Can invite user to organization
+- [x] Can add user directly (temporary, for testing)
+- [x] Invited user can accept invitation
+- [x] User can belong to multiple organizations (personal + shared)
+- [x] Organization selector appears in sidebar (compact workspace switcher)
+- [x] Can switch between organizations (complete context switch)
+- [x] Current organization context persists across sessions
+- [x] Complete separation: When in org A context, only see org A resources
+- [x] Cannot see resources from other organizations (even if member)
+- [x] Switching organizations reloads page/refetches data
+- [x] New resources created in current organization context ONLY
+- [x] Resources belong to organizations (never NULL)
+- [x] Can access resources from personal org (when in personal org context)
+- [x] Can access resources from shared orgs (when in that org's context)
+- [x] Backend enforces organization context filtering on all resource endpoints
+- [x] Can leave organization (if org_user, cannot leave personal org)
+- [ ] Feature enablement works (can't access disabled features) - Phase 0.3
+- [ ] Admin can view user statistics - Phase 0.4
+- [ ] Admin can change user roles - Phase 0.4
 
 ---
 
