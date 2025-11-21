@@ -14,6 +14,7 @@ from app.models.platform_settings import PlatformSettings
 from app.core.auth import create_session, delete_session, get_current_user_dependency, get_current_admin_user_dependency
 from app.services.organization import get_user_personal_organization
 from app.services.organization import create_personal_organization
+from app.services.feature import FEATURES, set_user_feature
 from datetime import datetime
 
 router = APIRouter()
@@ -53,6 +54,9 @@ class UserResponse(BaseModel):
     is_admin: bool  # Deprecated, use role instead
     role: str
     created_at: datetime
+    is_impersonated: bool = False
+    impersonated_by: Optional[int] = None
+    impersonated_by_email: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -142,15 +146,38 @@ async def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user_dependency)):
+async def get_me(
+    researchflow_session: Optional[str] = Cookie(None),
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db)
+):
     """Get current user info."""
+    from app.core.auth import verify_session
+    
+    is_impersonated = False
+    impersonated_by = None
+    impersonated_by_email = None
+    
+    # Check if impersonating
+    if researchflow_session:
+        session_data = verify_session(researchflow_session)
+        if session_data and session_data.get('is_impersonated') and session_data.get('impersonated_by'):
+            is_impersonated = True
+            impersonated_by = session_data.get('impersonated_by')
+            admin_user = db.query(User).filter(User.id == impersonated_by).first()
+            if admin_user:
+                impersonated_by_email = admin_user.email
+    
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
         is_admin=current_user.is_admin,
         role=current_user.role,
-        created_at=current_user.created_at
+        created_at=current_user.created_at,
+        is_impersonated=is_impersonated,
+        impersonated_by=impersonated_by,
+        impersonated_by_email=impersonated_by_email
     )
 
 
@@ -186,7 +213,7 @@ async def register(
             detail="User with this email already exists"
         )
     
-    # Create new user with default role 'org_admin'
+    # Create new user with default role 'user' (platform-level)
     hashed_password = hash_password(request.password)
     new_user = User(
         email=request.email,
@@ -194,7 +221,7 @@ async def register(
         full_name=request.full_name,
         is_active=True,
         is_admin=False,  # Deprecated, use role instead
-        role='org_admin'  # Default role
+        role='user'  # Default platform role (regular user)
     )
     
     db.add(new_user)
@@ -210,6 +237,16 @@ async def register(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create personal organization: {str(e)}"
         )
+    
+    # Enable all features for new user (until payment is implemented)
+    try:
+        for feature_name in FEATURES.keys():
+            set_user_feature(db, new_user.id, feature_name, True)
+    except Exception as e:
+        # Log error but don't fail registration
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to enable features for user {new_user.id}: {e}")
     
     db.commit()
     db.refresh(new_user)

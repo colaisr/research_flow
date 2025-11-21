@@ -16,10 +16,8 @@ const getRoleLabel = (role: string | null | undefined) => {
   if (!role) return null
   switch (role) {
     case 'admin':
-      return 'Admin'
-    case 'org_admin':
-      return 'Org Admin'
-    case 'org_user':
+      return 'Platform Admin'
+    case 'user':
       return 'User'
     default:
       return role
@@ -83,8 +81,6 @@ export default function Navigation() {
                   <span className={`ml-2 px-2 py-1 text-xs rounded ${
                     role === 'admin' 
                       ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300'
-                      : role === 'org_admin'
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300'
                   }`}>
                     {getRoleLabel(role)}

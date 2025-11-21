@@ -26,6 +26,23 @@ interface OrganizationInvitation {
   created_at: string
 }
 
+interface OrganizationDetails {
+  id: number
+  name: string
+  slug: string | null
+  owner_id: number | null
+  is_personal: boolean
+  created_at: string
+}
+
+async function fetchOrganizationDetails(organizationId: number): Promise<OrganizationDetails> {
+  const { data } = await apiClient.get<OrganizationDetails>(
+    `${API_BASE_URL}/api/organizations/${organizationId}`,
+    { withCredentials: true }
+  )
+  return data
+}
+
 async function fetchOrganizationMembers(organizationId: number): Promise<OrganizationMember[]> {
   const { data } = await apiClient.get<OrganizationMember[]>(
     `${API_BASE_URL}/api/organizations/${organizationId}/members`,
@@ -80,11 +97,20 @@ export default function OrganizationManagementPage() {
   const params = useParams()
   const { isLoading: authLoading } = useRequireAuth()
   const { user, isOrgAdmin } = useAuth()
-  const { organizations } = useOrganizations()
+  const { organizations, isLoading: organizationsLoading } = useOrganizations()
   const queryClient = useQueryClient()
   
   const organizationId = parseInt(params.id as string, 10)
-  const organization = organizations.find(org => org.id === organizationId)
+  
+  // Fetch full organization details (includes owner_id) - this is the source of truth
+  const { data: organizationDetails, isLoading: orgDetailsLoading } = useQuery({
+    queryKey: ['organization-details', organizationId],
+    queryFn: () => fetchOrganizationDetails(organizationId),
+    enabled: !!organizationId && !authLoading,
+  })
+  
+  // Use organizationDetails if available, otherwise fallback to organizations list
+  const organization = organizationDetails || organizations.find(org => org.id === organizationId)
   
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'org_admin' | 'org_user'>('org_user')
@@ -156,7 +182,8 @@ export default function OrganizationManagementPage() {
     },
   })
 
-  if (authLoading) {
+  // Wait for all data to load
+  if (authLoading || orgDetailsLoading || membersLoading || organizationsLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-gray-600">Loading...</p>
@@ -180,12 +207,31 @@ export default function OrganizationManagementPage() {
     )
   }
 
+  // Check if current user is the owner
+  // Prefer organizationDetails (from API) as it's guaranteed to have owner_id
+  // Fallback to organization from list if details not loaded yet
+  const ownerId = organizationDetails?.owner_id ?? organization?.owner_id ?? null
+  const isOwner = ownerId !== null && ownerId === user?.id
+  
   // Check if user is org_admin of this organization
   const userMember = members.find(m => m.user_id === user?.id)
-  const canManage = userMember?.role === 'org_admin' || user?.role === 'admin'
   
-  // Check if current user is the owner
-  const isOwner = organization?.owner_id === user?.id
+  // Owner can always manage (even if not in members list yet), org_admin can manage, platform admin can manage
+  // Note: Owner should always be in members list, but check ownership first as fallback
+  const canManage = isOwner || userMember?.role === 'org_admin' || user?.role === 'admin'
+  
+  // Debug: Log permission check (remove in production)
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.log('Permission check:', {
+      organizationId,
+      ownerId,
+      userId: user?.id,
+      isOwner,
+      userMemberRole: userMember?.role,
+      userPlatformRole: user?.role,
+      canManage
+    })
+  }
 
   if (!canManage) {
     return (

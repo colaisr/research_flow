@@ -39,7 +39,7 @@ def upgrade() -> None:
     # Seed initial settings (only if they don't exist)
     initial_settings = [
         ('allow_public_registration', 'true'),
-        ('default_user_role', 'org_admin'),
+        ('default_user_role', 'user'),
     ]
     
     for key, value in initial_settings:

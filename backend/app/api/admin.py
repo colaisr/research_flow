@@ -1,23 +1,25 @@
 """
 Admin settings API endpoints.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
 from sqlalchemy.orm import Session
+from sqlalchemy import func, and_, or_
 from pydantic import BaseModel
 from typing import Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from app.core.database import get_db
 from app.models.user import User
 from app.models.platform_settings import PlatformSettings
-from app.core.auth import get_current_admin_user_dependency
+from app.core.auth import get_current_admin_user_dependency, create_session, verify_session, delete_session
 from app.services.feature import FEATURES, get_user_features, get_organization_features, get_effective_features, set_user_feature, set_organization_feature
+from app.services.organization import get_user_organizations
 
 router = APIRouter()
 
 
 class PlatformConfigRequest(BaseModel):
     allow_public_registration: Optional[bool] = None
-    default_user_role: Optional[str] = None  # 'admin' or 'org_admin'
+    default_user_role: Optional[str] = None  # 'admin' or 'user' (platform-level only)
 
 
 class SystemLimitsRequest(BaseModel):
@@ -81,7 +83,7 @@ async def get_admin_settings(
     """Get platform settings (admin only)."""
     platform_config = {
         "allow_public_registration": get_setting_value(db, "allow_public_registration", True),
-        "default_user_role": get_setting_value(db, "default_user_role", "org_admin"),
+        "default_user_role": get_setting_value(db, "default_user_role", "user"),
     }
     
     system_limits = {
@@ -118,10 +120,10 @@ async def update_platform_config(
         set_setting_value(db, "allow_public_registration", request.allow_public_registration)
     
     if request.default_user_role is not None:
-        if request.default_user_role not in ('admin', 'org_admin'):
+        if request.default_user_role not in ('admin', 'user'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="default_user_role must be 'admin' or 'org_admin'"
+                detail="default_user_role must be 'admin' or 'user'"
             )
         set_setting_value(db, "default_user_role", request.default_user_role)
     
@@ -298,7 +300,11 @@ async def set_organization_feature_endpoint(
     current_user: User = Depends(get_current_admin_user_dependency),
     db: Session = Depends(get_db)
 ):
-    """Set a feature for an organization (affects all members when they work in this org context)."""
+    """
+    DEPRECATED: Organization features are now derived from owner's features.
+    This endpoint sets the feature on the organization owner instead.
+    Use /users/{owner_id}/features/{feature_name} instead.
+    """
     from app.models.organization import Organization
     
     organization = db.query(Organization).filter(Organization.id == organization_id).first()
@@ -323,6 +329,530 @@ async def set_organization_feature_endpoint(
             "feature_name": feature.feature_name,
             "enabled": feature.enabled,
             "expires_at": feature.expires_at.isoformat() if feature.expires_at else None
+        }
+    }
+
+
+# User Management Endpoints
+
+class UpdateUserRequest(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None  # 'admin' or 'user' (platform-level only)
+    is_active: Optional[bool] = None
+
+
+class UserListItemResponse(BaseModel):
+    id: int
+    email: str
+    full_name: Optional[str]
+    role: str
+    is_active: bool
+    personal_org_id: Optional[int]
+    personal_org_name: Optional[str]
+    other_orgs_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserStatisticsResponse(BaseModel):
+    tokens_used_total: int
+    tokens_used_this_month: int
+    pipelines_created_total: int
+    pipelines_active: int
+    runs_executed_total: int
+    runs_executed_this_month: int
+    runs_succeeded: int
+    runs_failed: int
+    tools_created_total: int  # Placeholder for Phase 1
+    tools_active: int  # Placeholder for Phase 1
+    rags_created_total: int  # Placeholder for Phase 2
+    rags_documents_total: int  # Placeholder for Phase 2
+    organizations_count: int
+
+
+class UserDetailsResponse(BaseModel):
+    id: int
+    email: str
+    full_name: Optional[str]
+    role: str
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime]
+    personal_organization: Optional[Dict]
+    organizations: List[Dict]
+    statistics: UserStatisticsResponse
+
+
+@router.get("/users", response_model=List[UserListItemResponse])
+async def list_users(
+    role: Optional[str] = None,
+    organization_id: Optional[int] = None,
+    status: Optional[str] = None,  # 'active', 'inactive'
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """List all users with filters (admin only)."""
+    query = db.query(User)
+    
+    # Filters
+    if role:
+        query = query.filter(User.role == role)
+    
+    if status == 'active':
+        query = query.filter(User.is_active == True)
+    elif status == 'inactive':
+        query = query.filter(User.is_active == False)
+    
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                User.email.ilike(search_term),
+                User.full_name.ilike(search_term)
+            )
+        )
+    
+    # Organization filter
+    if organization_id:
+        from app.models.organization import OrganizationMember
+        user_ids = db.query(OrganizationMember.user_id).filter(
+            OrganizationMember.organization_id == organization_id
+        ).subquery()
+        query = query.filter(User.id.in_(user_ids))
+    
+    # Get users
+    users = query.order_by(User.created_at.desc()).offset(offset).limit(limit).all()
+    
+    result = []
+    for user in users:
+        # Get personal organization
+        from app.models.organization import Organization
+        personal_org = db.query(Organization).filter(
+            Organization.owner_id == user.id,
+            Organization.is_personal == True
+        ).first()
+        
+        # Get other organizations count
+        from app.models.organization import OrganizationMember
+        other_orgs_count = db.query(OrganizationMember).filter(
+            OrganizationMember.user_id == user.id
+        ).count()
+        if personal_org:
+            other_orgs_count -= 1  # Exclude personal org
+        
+        result.append(UserListItemResponse(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role,
+            is_active=user.is_active,
+            personal_org_id=personal_org.id if personal_org else None,
+            personal_org_name=personal_org.name if personal_org else None,
+            other_orgs_count=max(0, other_orgs_count),
+            created_at=user.created_at
+        ))
+    
+    return result
+
+
+@router.get("/users/{user_id}", response_model=UserDetailsResponse)
+async def get_user_details(
+    user_id: int,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Get user details with statistics (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Get user's organizations
+    organizations = get_user_organizations(db, user_id)
+    org_ids = [org.id for org in organizations]
+    
+    # Get personal organization
+    from app.models.organization import Organization
+    personal_org = db.query(Organization).filter(
+        Organization.owner_id == user_id,
+        Organization.is_personal == True
+    ).first()
+    
+    # Get organization memberships
+    from app.models.organization import OrganizationMember
+    memberships = db.query(OrganizationMember).filter(
+        OrganizationMember.user_id == user_id
+    ).all()
+    
+    orgs_data = []
+    for membership in memberships:
+        org = db.query(Organization).filter(Organization.id == membership.organization_id).first()
+        if org:
+            orgs_data.append({
+                "id": org.id,
+                "name": org.name,
+                "slug": org.slug,
+                "is_personal": org.is_personal,
+                "role": membership.role,
+                "joined_at": membership.joined_at.isoformat() if membership.joined_at else None
+            })
+    
+    # Calculate statistics
+    from app.models.analysis_run import AnalysisRun
+    from app.models.analysis_type import AnalysisType
+    from app.models.analysis_step import AnalysisStep
+    
+    # Tokens used (from analysis_steps)
+    now = datetime.now(timezone.utc)
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    tokens_total = db.query(func.sum(AnalysisStep.tokens_used)).join(
+        AnalysisRun, AnalysisStep.run_id == AnalysisRun.id
+    ).filter(
+        AnalysisRun.organization_id.in_(org_ids)
+    ).scalar() or 0
+    
+    tokens_this_month = db.query(func.sum(AnalysisStep.tokens_used)).join(
+        AnalysisRun, AnalysisStep.run_id == AnalysisRun.id
+    ).filter(
+        and_(
+            AnalysisRun.organization_id.in_(org_ids),
+            AnalysisRun.created_at >= start_of_month
+        )
+    ).scalar() or 0
+    
+    # Pipelines created
+    pipelines_total = db.query(func.count(AnalysisType.id)).filter(
+        AnalysisType.organization_id.in_(org_ids)
+    ).scalar() or 0
+    
+    pipelines_active = db.query(func.count(AnalysisType.id)).filter(
+        and_(
+            AnalysisType.organization_id.in_(org_ids),
+            AnalysisType.is_active == 1
+        )
+    ).scalar() or 0
+    
+    # Runs executed
+    runs_total = db.query(func.count(AnalysisRun.id)).filter(
+        AnalysisRun.organization_id.in_(org_ids)
+    ).scalar() or 0
+    
+    runs_this_month = db.query(func.count(AnalysisRun.id)).filter(
+        and_(
+            AnalysisRun.organization_id.in_(org_ids),
+            AnalysisRun.created_at >= start_of_month
+        )
+    ).scalar() or 0
+    
+    from app.models.analysis_run import RunStatus
+    runs_succeeded = db.query(func.count(AnalysisRun.id)).filter(
+        and_(
+            AnalysisRun.organization_id.in_(org_ids),
+            AnalysisRun.status == RunStatus.SUCCEEDED.value
+        )
+    ).scalar() or 0
+    
+    runs_failed = db.query(func.count(AnalysisRun.id)).filter(
+        and_(
+            AnalysisRun.organization_id.in_(org_ids),
+            AnalysisRun.status.in_([RunStatus.FAILED.value, RunStatus.MODEL_FAILURE.value])
+        )
+    ).scalar() or 0
+    
+    # Tools and RAGs (placeholders for Phase 1/2)
+    tools_created_total = 0
+    tools_active = 0
+    rags_created_total = 0
+    rags_documents_total = 0
+    
+    statistics = UserStatisticsResponse(
+        tokens_used_total=int(tokens_total),
+        tokens_used_this_month=int(tokens_this_month),
+        pipelines_created_total=int(pipelines_total),
+        pipelines_active=int(pipelines_active),
+        runs_executed_total=int(runs_total),
+        runs_executed_this_month=int(runs_this_month),
+        runs_succeeded=int(runs_succeeded),
+        runs_failed=int(runs_failed),
+        tools_created_total=tools_created_total,
+        tools_active=tools_active,
+        rags_created_total=rags_created_total,
+        rags_documents_total=rags_documents_total,
+        organizations_count=len(organizations)
+    )
+    
+    return UserDetailsResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+        is_active=user.is_active,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        personal_organization={
+            "id": personal_org.id,
+            "name": personal_org.name,
+            "slug": personal_org.slug,
+            "is_personal": personal_org.is_personal
+        } if personal_org else None,
+        organizations=orgs_data,
+        statistics=statistics
+    )
+
+
+@router.put("/users/{user_id}", response_model=dict)
+async def update_user(
+    user_id: int,
+    request: UpdateUserRequest,
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Update user (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Cannot modify yourself (prevent lockout)
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot modify your own account"
+        )
+    
+    # Cannot change role of other admins
+    if user.role == 'admin' and request.role and request.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot change role of platform admin"
+        )
+    
+    if request.full_name is not None:
+        user.full_name = request.full_name
+    
+    if request.email is not None and request.email != user.email:
+        # Check if email is already taken
+        existing_user = db.query(User).filter(
+            User.email == request.email,
+            User.id != user_id
+        ).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use"
+            )
+        user.email = request.email
+    
+    if request.role is not None:
+        if request.role not in ('admin', 'user'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Role must be 'admin' (platform admin) or 'user' (regular user). Organization-specific roles are managed per-organization."
+            )
+        user.role = request.role
+    
+    if request.is_active is not None:
+        user.is_active = request.is_active
+    
+    db.commit()
+    db.refresh(user)
+    
+    return {
+        "success": True,
+        "message": "User updated successfully",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active
+        }
+    }
+
+
+# Impersonation Endpoints
+
+@router.post("/users/{user_id}/impersonate", response_model=dict)
+async def impersonate_user(
+    user_id: int,
+    response: Response,
+    researchflow_session: Optional[str] = Cookie(None),
+    current_user: User = Depends(get_current_admin_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Impersonate a user (admin only)."""
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Cannot impersonate other admins
+    if target_user.role == 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot impersonate platform admin"
+        )
+    
+    # Get current session to preserve admin identity
+    session_data = verify_session(researchflow_session) if researchflow_session else None
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session"
+        )
+    
+    # Get target user's personal organization for context
+    from app.models.organization import Organization
+    personal_org = db.query(Organization).filter(
+        Organization.owner_id == target_user.id,
+        Organization.is_personal == True
+    ).first()
+    
+    if not personal_org:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Target user's personal organization not found"
+        )
+    
+    # Create impersonated session
+    impersonated_session_data = {
+        'user_id': target_user.id,
+        'email': target_user.email,
+        'is_admin': False,  # Impersonated user is not admin
+        'role': target_user.role,
+        'organization_id': personal_org.id,
+        'impersonated_by': current_user.id,  # Original admin
+        'is_impersonated': True,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+    }
+    
+    # Create session token (reuse create_session logic but with custom data)
+    from app.core.config import SESSION_SECRET
+    import hashlib
+    import hmac
+    import json
+    
+    session_json = json.dumps(impersonated_session_data, sort_keys=True)
+    signature = hmac.new(
+        SESSION_SECRET.encode() if SESSION_SECRET else b'default-secret-change-in-prod',
+        session_json.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    session_token = f"{session_json}.{signature}"
+    
+    # Store in session cache
+    import app.core.auth as auth_module
+    auth_module._sessions[session_token] = impersonated_session_data
+    
+    # Set new cookie
+    response.set_cookie(
+        key="researchflow_session",
+        value=session_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=86400,  # 24 hours
+        path="/",
+    )
+    
+    return {
+        "success": True,
+        "message": f"Impersonating user {target_user.email}",
+        "impersonated_user": {
+            "id": target_user.id,
+            "email": target_user.email,
+            "full_name": target_user.full_name
+        },
+        "admin_user": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "full_name": current_user.full_name
+        }
+    }
+
+
+@router.post("/exit-impersonation", response_model=dict)
+async def exit_impersonation(
+    response: Response,
+    researchflow_session: Optional[str] = Cookie(None),
+    db: Session = Depends(get_db)
+):
+    """Exit impersonation and restore original admin session."""
+    session_data = verify_session(researchflow_session) if researchflow_session else None
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session"
+        )
+    
+    # Check if currently impersonating
+    if not session_data.get('is_impersonated') or not session_data.get('impersonated_by'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Not currently impersonating"
+        )
+    
+    # Get original admin user
+    admin_user_id = session_data.get('impersonated_by')
+    admin_user = db.query(User).filter(User.id == admin_user_id).first()
+    if not admin_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Original admin user not found"
+        )
+    
+    # Get admin's personal organization
+    from app.models.organization import Organization
+    admin_personal_org = db.query(Organization).filter(
+        Organization.owner_id == admin_user.id,
+        Organization.is_personal == True
+    ).first()
+    
+    # Create new admin session
+    admin_session_token = create_session(
+        admin_user.id,
+        admin_user.email,
+        admin_user.is_platform_admin(),
+        admin_user.role,
+        admin_personal_org.id if admin_personal_org else None
+    )
+    
+    # Set new cookie
+    response.set_cookie(
+        key="researchflow_session",
+        value=admin_session_token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax",
+        max_age=86400,  # 24 hours
+        path="/",
+    )
+    
+    # Delete impersonated session
+    if researchflow_session:
+        delete_session(researchflow_session)
+    
+    return {
+        "success": True,
+        "message": "Exited impersonation",
+        "admin_user": {
+            "id": admin_user.id,
+            "email": admin_user.email,
+            "full_name": admin_user.full_name
         }
     }
 

@@ -682,9 +682,20 @@ Users can create any flow they need - the platform is domain-agnostic.
 ### 10a) Authentication and User Accounts
 
 **User Roles:**
+
+**Platform-Level Roles** (`users.role`):
 - `admin`: Platform administrator with full system access
-- `org_admin`: Organization administrator, manages their organization(s)
+- `user`: Regular platform user (default for all non-admin users)
+
+**Organization-Level Roles** (`organization_members.role`):
+- `org_admin`: Organization administrator, can manage organization members and settings
 - `org_user`: Regular organization member with limited permissions
+
+**Key Concept**: 
+- Platform admins (`users.role = 'admin'`) have full system access and can manage all users and organizations
+- Regular users (`users.role = 'user'`) have organization-specific permissions defined in `organization_members.role`
+- A user can have different roles in different organizations (e.g., `org_admin` in their personal org, `org_user` in a shared org)
+- Organization-specific roles are managed per-organization, not at the platform level
 
 **Authentication Flow:**
 - Email/password login with bcrypt password hashing
@@ -778,12 +789,19 @@ This section outlines the detailed plan to implement the new general-purpose res
 **0.1) User Roles & Authentication Enhancement** ✅ **COMPLETE**
 - [x] **Roles System**:
   - Current: Basic admin/user distinction (`is_admin` boolean)
-  - New: `admin` (platform admin), `org_admin` (organization admin), `org_user` (organization member)
-  - Database: Add `role` enum field to `users` table (values: `admin`, `org_admin`, `org_user`)
-  - **Simplified Model**: Everyone is `org_admin` by default (manages their personal organization)
+  - New: Two-level role system:
+    - **Platform-level** (`users.role`): `admin` (platform admin) or `user` (regular user)
+    - **Organization-level** (`organization_members.role`): `org_admin` (organization admin) or `org_user` (organization member)
+  - Database: 
+    - `users.role`: `admin` or `user` (platform-level permissions)
+    - `organization_members.role`: `org_admin` or `org_user` (organization-specific permissions)
+  - **Key Concept**: 
+    - Platform admins can manage all users and organizations
+    - Regular users have organization-specific roles that vary per organization
+    - A user can be `org_admin` in one org and `org_user` in another org
   - Migration: 
-    - Update existing users: `is_admin=True` → `role='admin'`, `is_admin=False` → `role='org_admin'`
-    - Add role constraints
+    - Update existing users: `is_admin=True` → `role='admin'`, `is_admin=False` → `role='user'`
+    - Organization roles stored in `organization_members.role` (not in `users.role`)
 - [x] **Personal Organization Auto-Creation**:
   - **Trigger**: Automatically created on user registration
   - **Fallback**: Also created on-demand if missing (for existing users during migration)
@@ -887,6 +905,13 @@ This section outlines the detailed plan to implement the new general-purpose res
       - Owner's edit/remove buttons are hidden in UI
       - Backend validates: `if organization.owner_id == member.user_id: raise 403`
       - **Rationale**: Prevents invited `org_admin` from removing/demoting the actual owner
+    - **Owner Management Access**:
+      - Organization owners can always manage their own organizations (even if not explicitly `org_admin` member)
+      - Backend `check_org_admin()` function prioritizes ownership check: owners can manage regardless of `organization_members.role`
+      - Frontend permission check includes `isOwner` flag: `canManage = isOwner || userMember?.role === 'org_admin' || user?.role === 'admin'`
+      - **Backend Endpoint**: `GET /api/organizations/{organization_id}` - Returns organization details with `owner_id` for permission checks
+      - **Frontend**: Fetches organization details separately to ensure `owner_id` is available before checking permissions
+      - **Loading States**: Frontend waits for organization details, members list, and organizations list to load before rendering permission checks
     - **Role Management**:
       - `org_admin`: Can invite users, manage members, change roles (except owner)
       - `org_user`: Regular member, cannot manage organization
@@ -944,17 +969,18 @@ This section outlines the detailed plan to implement the new general-purpose res
   
   - **Organization Selector UI**: 
     - Location: Compact workspace switcher in sidebar (under user card)
-    - Visibility: Only visible when sidebar is expanded (needs space for dropdown)
+    - Visibility: Only visible when sidebar is expanded (`!isCollapsed`) - needs space for dropdown
     - Design: Small, minimal - workspace icon + organization name + dropdown arrow
     - Text size: `text-xs` for compact appearance
     - Content: Lists all organizations user belongs to (personal + shared)
     - Visual indicators: 
-      - Personal org badge (e.g., "Личное")
+      - Personal org badge ("Личная") shown in dropdown items
       - Shared orgs show organization name
       - Checkmark indicates current organization
-    - Dropdown shows: Organization name, user's role, member count
+    - Dropdown shows: Organization name, "Личная" badge for personal orgs, checkmark for current org
     - Action: Click to switch → calls `POST /api/organizations/switch` → updates session → reloads page
     - **UX Design**: Designed as utility control, not prominent feature - appropriate for workspace switcher
+    - **Note**: If sidebar is collapsed, switcher is hidden (user must expand sidebar to switch organizations)
   
   - **Context Persistence**: 
     - **Session Storage**: `organization_id` stored in session cookie (server-side)
@@ -979,9 +1005,9 @@ This section outlines the detailed plan to implement the new general-purpose res
 
 **0.3) Feature Enablement System** ✅ **CORE COMPLETE**
 
-**Feature Model: Organization-First with User Restrictions**
+**Feature Model: User-First (Simplified)**
 
-The feature enablement system uses a two-tier model where organization features are the primary source, and user features act as restrictions or overrides.
+The feature enablement system uses a simplified model where features are enabled per user only. Organizations automatically inherit features from their owners.
 
 **Available Features:**
 - `local_llm`: Local LLM model support
@@ -1029,36 +1055,36 @@ The feature enablement system uses a two-tier model where organization features 
 - `False` = user restriction (cannot use feature even if org has it)
 - Example: User Jerry has `rag=None` (inherit), `api_tools=False` (restricted), `scheduling=None` (inherit)
 
-**3. Effective Features (Final Result):**
-The `get_effective_features()` function computes the final feature set:
+**3. Effective Features (What Users Get):**
+The `get_effective_features()` function returns organization owner's features:
 
 ```python
-for each feature:
-    if user_setting is None:
-        effective = org_setting  # Inherit from organization
-    else:
-        effective = user_setting AND org_setting  # Intersection (user can restrict)
+effective_features = get_organization_features(org_id)
+# Which internally does:
+owner_features = get_user_features(org.owner_id)
+sync_organization_features_from_owner(org_id, owner_id)  # Cache sync
+return owner_features
 ```
 
 **Example Scenarios:**
 
-**Scenario 1: User inherits from organization**
-- Organization: `rag=True`, `api_tools=True`
-- User: `rag=None`, `api_tools=None` (not set)
-- Effective: `rag=True`, `api_tools=True` ✅
+**Scenario 1: User works in organization owned by Tom**
+- Tom (owner) has: `rag=True`, `api_tools=True`, `scheduling=False`
+- Organization "Acme Corp" (owned by Tom) has: `rag=True`, `api_tools=True`, `scheduling=False` (synced from Tom)
+- Jerry (member) working in Acme Corp gets: `rag=True`, `api_tools=True`, `scheduling=False` ✅
 - **Use Case**: Jerry invited to Tom's workspace gets all Tom's features
 
-**Scenario 2: User restricts feature**
-- Organization: `rag=True`, `api_tools=True`
-- User: `rag=None`, `api_tools=False` (explicitly disabled)
-- Effective: `rag=True`, `api_tools=False` ❌
-- **Use Case**: User doesn't want API tools even if org has them
+**Scenario 2: User works in their personal organization**
+- Jerry has: `rag=False`, `api_tools=False`, `scheduling=False` (all disabled)
+- Jerry's personal org (owned by Jerry) has: `rag=False`, `api_tools=False`, `scheduling=False` (synced from Jerry)
+- Jerry working in his personal org gets: `rag=False`, `api_tools=False`, `scheduling=False` ❌
+- **Use Case**: User gets their own features in their personal workspace
 
-**Scenario 3: User enables but org doesn't have**
-- Organization: `rag=False`, `api_tools=False`
-- User: `rag=True`, `api_tools=True`
-- Effective: `rag=False`, `api_tools=False` ❌
-- **Use Case**: User can't enable features org doesn't have (user can only restrict, not enable)
+**Scenario 3: Organization ownership transfer**
+- Tom transfers "Acme Corp" ownership to Jerry
+- Organization features automatically sync from Jerry's features
+- All members now get Jerry's features when working in Acme Corp
+- **Use Case**: Ownership transfer automatically updates organization features
 
 **4. Feature Expiration:**
 - Both user and organization features can have `expires_at` dates
@@ -1069,10 +1095,11 @@ for each feature:
 
 **Admin Feature Management:**
 - `GET /api/admin/features` - List all available features (returns `FEATURES` dict)
-- `GET /api/admin/users/{user_id}/features` - Get user's explicit features (returns `dict[str, bool | None]`)
+- `GET /api/admin/users/{user_id}/features` - Get user's features (returns `dict[str, bool]`, defaults to `False` if not set)
 - `PUT /api/admin/users/{user_id}/features/{feature_name}` - Set user feature (body: `{enabled: bool, expires_at?: datetime}`)
-- `GET /api/admin/organizations/{org_id}/features` - Get organization features (returns `dict[str, bool]`)
-- `PUT /api/admin/organizations/{org_id}/features/{feature_name}` - Set organization feature (body: `{enabled: bool, expires_at?: datetime}`)
+  - Automatically syncs to all organizations owned by this user
+- `GET /api/admin/organizations/{org_id}/features` - Get organization features (returns `dict[str, bool]`, derived from owner)
+- `PUT /api/admin/organizations/{org_id}/features/{feature_name}` - DEPRECATED: Sets feature on organization owner instead
 
 **User Feature API:**
 - `GET /api/user-settings/features` - Get effective features for current user in current organization context (returns `dict[str, bool]`)
@@ -1109,12 +1136,14 @@ for each feature:
 
 **0.4) Admin Dashboard - User Management**
 - [ ] **Users List Page** (`/admin/users`):
-  - Table with columns: Name, Email, Role, Personal Org, Other Orgs, Status, Created, Actions
-  - Filters: Role, Organization, Status (active/inactive)
+  - Table with columns: Name, Email, Platform Role (admin/user), Personal Org, Other Orgs, Status, Created, Actions
+  - Filters: Platform Role (admin/user), Organization, Status (active/inactive)
   - Search by name/email
-  - Actions: Edit, Disable/Enable, Delete, View Details, Change Role, **Impersonate**
+  - Actions: Edit, Disable/Enable, Delete, View Details, Change Platform Role (admin ↔ user), **Impersonate**
+  - **Note**: Organization-specific roles (`org_admin`/`org_user`) are managed per-organization, not at platform level
 - [ ] **User Details Page** (`/admin/users/{id}`):
-  - User Profile: Name, email, role (admin/org_admin/org_user), personal organization, organization memberships
+  - User Profile: Name, email, platform role (admin/user), personal organization, organization memberships
+  - Organization Roles: Show user's role in each organization (`org_admin`/`org_user` per organization)
   - **Statistics**:
     - Tokens used (total, this month)
     - Pipelines created (total, active) - across all orgs
@@ -1189,14 +1218,19 @@ for each feature:
 - [x] Owner protection: Cannot remove or change role of organization owner
 - [x] Transfer ownership: Owner can transfer shared organization ownership to another member
 - [x] Cannot transfer personal organization ownership (always belongs to creator)
-- [x] Feature enablement system: Organization-first model with user restrictions
+- [x] Feature enablement system: User-centric model (organizations inherit from owner)
 - [x] Admin can manage user features (by user ID)
-- [x] Admin can manage organization features (by organization)
+- [x] Admin can view organization features (derived from owner)
 - [x] Effective features API: Get features for current user in current org
+- [x] Organization owner can manage their own organization (permission fix)
+- [x] Backend endpoint: `GET /api/organizations/{organization_id}` for organization details
+- [x] Frontend: Organization switcher shows "Личная" badge for personal orgs
+- [x] Frontend: Proper loading states for organization permission checks
 - [ ] Feature checks in endpoints (optional - will be added when features are implemented) - Phase 0.3
 - [ ] Feature-based UI visibility (optional - will be added when features are implemented) - Phase 0.3
 - [ ] Admin can view user statistics - Phase 0.4
-- [ ] Admin can change user roles - Phase 0.4
+- [ ] Admin can change user platform roles (admin ↔ user) - Phase 0.4
+- [ ] Admin can view user's organization-specific roles (per organization) - Phase 0.4
 - [ ] Admin can impersonate users (for troubleshooting) - Phase 0.4
 - [ ] Impersonation audit trail (all actions logged) - Phase 0.4
 

@@ -15,8 +15,11 @@ from datetime import datetime, timedelta, timezone
 # Simple session storage (in-memory for MVP, can move to Redis/DB later)
 _sessions: dict[str, dict] = {}
 
+# Export _sessions for impersonation
+__all__ = ['create_session', 'verify_session', 'delete_session', 'get_current_user_dependency', 'get_current_admin_user_dependency', 'get_current_organization_dependency', 'require_feature', '_sessions']
 
-def create_session(user_id: int, email: str, is_admin: bool, role: str = 'org_admin', organization_id: Optional[int] = None) -> str:
+
+def create_session(user_id: int, email: str, is_admin: bool, role: str = 'user', organization_id: Optional[int] = None) -> str:
     """Create a session token."""
     session_data = {
         'user_id': user_id,
@@ -115,6 +118,11 @@ def get_current_user_dependency(
             detail="User not found or inactive"
         )
     
+    # Attach impersonation info to user object if present
+    if session_data.get('is_impersonated') and session_data.get('impersonated_by'):
+        user._impersonated_by = session_data.get('impersonated_by')
+        user._is_impersonated = True
+    
     return user
 
 
@@ -126,18 +134,6 @@ def get_current_admin_user_dependency(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
-        )
-    return current_user
-
-
-def get_current_org_admin_dependency(
-    current_user: User = Depends(get_current_user_dependency)
-) -> User:
-    """Dependency to get current org admin user (platform admin or org admin)."""
-    if not current_user.is_org_admin():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization admin access required"
         )
     return current_user
 
@@ -245,4 +241,18 @@ def get_current_organization_dependency(
         organization = personal_org
     
     return organization
+
+
+def get_current_org_admin_dependency(
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization = Depends(get_current_organization_dependency),
+    db: Session = Depends(get_db)
+) -> User:
+    """Dependency to get current org admin user (platform admin or org admin in current organization)."""
+    if not current_user.is_org_admin(db, current_organization.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization admin access required"
+        )
+    return current_user
 

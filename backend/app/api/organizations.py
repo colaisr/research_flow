@@ -13,6 +13,7 @@ from app.models.organization import Organization, OrganizationMember
 from app.models.organization_invitation import OrganizationInvitation
 from app.core.auth import get_current_user_dependency, verify_session, create_session
 from app.services.organization import get_user_organizations, get_user_personal_organization, create_personal_organization
+from app.services.feature import sync_organization_features_from_owner, FEATURES, set_user_feature
 from app.api.auth import hash_password
 import re
 
@@ -89,7 +90,30 @@ class OrganizationInvitationResponse(BaseModel):
 
 
 def check_org_admin(db: Session, user: User, organization_id: int) -> OrganizationMember:
-    """Check if user is org_admin of the organization."""
+    """Check if user is org_admin of the organization or the owner."""
+    # Get organization to check ownership
+    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+    
+    # Owner can always manage
+    if organization.owner_id == user.id:
+        # Ensure owner is a member (should always be true, but check anyway)
+        member = db.query(OrganizationMember).filter(
+            OrganizationMember.organization_id == organization_id,
+            OrganizationMember.user_id == user.id
+        ).first()
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Organization owner is not a member. This should not happen."
+            )
+        return member
+    
+    # Check if user is a member
     member = db.query(OrganizationMember).filter(
         OrganizationMember.organization_id == organization_id,
         OrganizationMember.user_id == user.id
@@ -101,7 +125,8 @@ def check_org_admin(db: Session, user: User, organization_id: int) -> Organizati
             detail="You are not a member of this organization"
         )
     
-    if member.role != 'org_admin' and user.role != 'admin':
+    # Check if user is org_admin or platform admin
+    if member.role != 'org_admin' and not user.is_platform_admin():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only organization admins can perform this action"
@@ -182,6 +207,9 @@ async def create_organization(
     db.add(member)
     db.commit()
     db.refresh(organization)
+    
+    # Sync organization features from owner
+    sync_organization_features_from_owner(db, organization.id, current_user.id)
     
     return OrganizationResponse(
         id=organization.id,
@@ -368,7 +396,7 @@ async def add_user(
         hashed_password=hashed_password,
         full_name=request.full_name,
         is_active=True,
-        role='org_user'  # Default role, will be overridden by organization role
+        role='user'  # Default platform role (regular user). Organization role is set separately in organization_members
     )
     db.add(new_user)
     db.flush()  # Flush to get user ID
@@ -382,6 +410,16 @@ async def add_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create personal organization: {str(e)}"
         )
+    
+    # Enable all features for new user (until payment is implemented)
+    try:
+        for feature_name in FEATURES.keys():
+            set_user_feature(db, new_user.id, feature_name, True)
+    except Exception as e:
+        # Log error but don't fail user creation
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to enable features for user {new_user.id}: {e}")
     
     # Add user to the organization
     new_member = OrganizationMember(
@@ -525,6 +563,49 @@ async def accept_invitation(
         member_count=db.query(OrganizationMember).filter(
             OrganizationMember.organization_id == organization.id
         ).count(),
+        created_at=organization.created_at
+    )
+
+
+@router.get("/organizations/{organization_id}", response_model=OrganizationResponse)
+async def get_organization(
+    organization_id: int,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db)
+):
+    """Get organization details by ID."""
+    organization = db.query(Organization).filter(Organization.id == organization_id).first()
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+    
+    # Check if user is a member
+    member = db.query(OrganizationMember).filter(
+        OrganizationMember.organization_id == organization_id,
+        OrganizationMember.user_id == current_user.id
+    ).first()
+    
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a member of this organization"
+        )
+    
+    # Get member count
+    member_count = db.query(OrganizationMember).filter(
+        OrganizationMember.organization_id == organization_id
+    ).count()
+    
+    return OrganizationResponse(
+        id=organization.id,
+        name=organization.name,
+        slug=organization.slug,
+        is_personal=organization.is_personal,
+        role=member.role,
+        owner_id=organization.owner_id,
+        member_count=member_count,
         created_at=organization.created_at
     )
 

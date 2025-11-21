@@ -25,6 +25,320 @@ interface PlatformSettings {
   }
 }
 
+// Users Management Tab Component
+interface UserListItem {
+  id: number
+  email: string
+  full_name: string | null
+  role: string
+  is_active: boolean
+  personal_org_id: number | null
+  personal_org_name: string | null
+  other_orgs_count: number
+  created_at: string
+}
+
+async function fetchUsers(params: { role?: string; status?: string; search?: string } = {}) {
+  const queryParams = new URLSearchParams()
+  if (params.role) queryParams.append('role', params.role)
+  if (params.status) queryParams.append('status', params.status)
+  if (params.search) queryParams.append('search', params.search)
+  queryParams.append('limit', '100')
+  queryParams.append('offset', '0')
+
+  const { data } = await apiClient.get<UserListItem[]>(
+    `${API_BASE_URL}/api/admin/users?${queryParams.toString()}`,
+    { withCredentials: true }
+  )
+  return data
+}
+
+async function updateUser(userId: number, updates: { role?: string; is_active?: boolean }) {
+  const { data } = await apiClient.put(
+    `${API_BASE_URL}/api/admin/users/${userId}`,
+    updates,
+    { withCredentials: true }
+  )
+  return data
+}
+
+async function impersonateUser(userId: number) {
+  const { data } = await apiClient.post(
+    `${API_BASE_URL}/api/admin/users/${userId}/impersonate`,
+    {},
+    { withCredentials: true }
+  )
+  return data
+}
+
+function UsersManagementTab({ router, queryClient }: { router: any; queryClient: any }) {
+  const [roleFilter, setRoleFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState<string>('')
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('')
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['admin', 'users', roleFilter, statusFilter, debouncedSearch],
+    queryFn: () => fetchUsers({
+      role: roleFilter || undefined,
+      status: statusFilter || undefined,
+      search: debouncedSearch || undefined
+    })
+  })
+
+  const updateUserMutation = useMutation({
+    mutationFn: ({ userId, updates }: { userId: number; updates: any }) => updateUser(userId, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    }
+  })
+
+  const impersonateMutation = useMutation({
+    mutationFn: impersonateUser,
+    onSuccess: () => {
+      // Invalidate auth query and redirect
+      queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      router.push('/dashboard')
+      router.refresh()
+    }
+  })
+
+  const handleToggleActive = (user: UserListItem) => {
+    if (confirm(`Are you sure you want to ${user.is_active ? 'deactivate' : 'activate'} user ${user.email}?`)) {
+      updateUserMutation.mutate({
+        userId: user.id,
+        updates: { is_active: !user.is_active }
+      })
+    }
+  }
+
+  const handleChangeRole = (user: UserListItem, newRole: string) => {
+    const roleLabel = newRole === 'admin' ? 'Platform Admin' : 'User'
+    if (confirm(`Change platform role of ${user.email} to ${roleLabel}?`)) {
+      updateUserMutation.mutate({
+        userId: user.id,
+        updates: { role: newRole }
+      })
+    }
+  }
+
+  const handleImpersonate = (user: UserListItem) => {
+    if (confirm(`You are about to log in as ${user.email}. Continue?`)) {
+      impersonateMutation.mutate(user.id)
+    }
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+      case 'user':
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+    }
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
+        Управление пользователями
+      </h2>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">
+        Просмотр и управление всеми пользователями платформы
+      </p>
+
+      {/* Filters */}
+      <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Поиск
+            </label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Email или имя..."
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Роль
+            </label>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">Все роли</option>
+              <option value="admin">Platform Admin</option>
+              <option value="user">User</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Статус
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">Все статусы</option>
+              <option value="active">Активные</option>
+              <option value="inactive">Неактивные</option>
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                setRoleFilter('')
+                setStatusFilter('')
+                setSearchQuery('')
+              }}
+              className="w-full px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
+            >
+              Сбросить фильтры
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Users Table */}
+      <div className="overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Загрузка...</div>
+        ) : users.length === 0 ? (
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Пользователи не найдены</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-900">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Пользователь
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Роль
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Организации
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Статус
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Создан
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Действия
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {users.map((user) => (
+                  <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {user.full_name || user.email}
+                        </div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{user.email}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
+                        {user.role === 'admin' ? 'Platform Admin' : 'User'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                      <div>
+                        {user.personal_org_name && (
+                          <div className="text-xs">
+                            Личная: {user.personal_org_name}
+                          </div>
+                        )}
+                        {user.other_orgs_count > 0 && (
+                          <div className="text-xs">
+                            Других: {user.other_orgs_count}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        user.is_active
+                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                          : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                      }`}>
+                        {user.is_active ? 'Активен' : 'Неактивен'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                      {new Date(user.created_at).toLocaleDateString('ru-RU')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => router.push(`/admin/users/${user.id}`)}
+                          className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                          title="Просмотр деталей"
+                        >
+                          Просмотр
+                        </button>
+                        <button
+                          onClick={() => handleToggleActive(user)}
+                          className={`${
+                            user.is_active
+                              ? 'text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300'
+                              : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300'
+                          }`}
+                          title={user.is_active ? 'Деактивировать' : 'Активировать'}
+                        >
+                          {user.is_active ? 'Деактивировать' : 'Активировать'}
+                        </button>
+                        <select
+                          value={user.role}
+                          onChange={(e) => handleChangeRole(user, e.target.value)}
+                          className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 dark:bg-gray-700 dark:text-white"
+                          title="Изменить платформенную роль"
+                        >
+                          <option value="user">User</option>
+                          <option value="admin">Platform Admin</option>
+                        </select>
+                        <button
+                          onClick={() => handleImpersonate(user)}
+                          className="text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300"
+                          title="Войти как пользователь"
+                        >
+                          Войти как
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 interface Model {
   id: number
   name: string
@@ -198,14 +512,14 @@ async function updateTinkoffSettings(api_token: string | null) {
 export default function AdminSettingsPage() {
   const router = useRouter()
   const { isLoading: authLoading } = useRequireAuth()
-  const { isPlatformAdmin } = useAuth()
+  const { isPlatformAdmin, isLoading: authUserLoading } = useAuth()
   const queryClient = useQueryClient()
 
-  const [activeTab, setActiveTab] = useState<'platform' | 'limits' | 'api-keys' | 'models' | 'data-sources' | 'credentials' | 'features'>('platform')
+  const [activeTab, setActiveTab] = useState<'users' | 'platform' | 'limits' | 'api-keys' | 'models' | 'data-sources' | 'credentials' | 'features'>('users')
   
   // Platform config state
   const [allowPublicRegistration, setAllowPublicRegistration] = useState(true)
-  const [defaultUserRole, setDefaultUserRole] = useState('org_admin')
+  const [defaultUserRole, setDefaultUserRole] = useState('user')
   
   // System limits state
   const [maxPipelines, setMaxPipelines] = useState<number | null>(null)
@@ -236,49 +550,57 @@ export default function AdminSettingsPage() {
   const openRouterInitialized = useRef(false)
   const tinkoffInitialized = useRef(false)
 
+  // Only load data for active tab to improve initial load performance
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['admin-settings'],
     queryFn: fetchAdminSettings,
-    enabled: !authLoading && isPlatformAdmin,
+    enabled: !authLoading && isPlatformAdmin && (activeTab === 'platform' || activeTab === 'limits' || activeTab === 'api-keys'),
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
 
-  // Models & Instruments queries
+  // Models & Instruments queries - only load when models tab is active
   const { data: models = [], isLoading: modelsLoading } = useQuery({
     queryKey: ['settings', 'models'],
     queryFn: fetchModels,
-    enabled: !authLoading && isPlatformAdmin,
+    enabled: !authLoading && isPlatformAdmin && activeTab === 'models',
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: allInstruments = [], isLoading: instrumentsLoading } = useQuery({
     queryKey: ['instruments', 'all'],
     queryFn: fetchAllInstruments,
-    enabled: !authLoading && isPlatformAdmin,
+    enabled: !authLoading && isPlatformAdmin && activeTab === 'models',
+    staleTime: 5 * 60 * 1000,
   })
 
-  // Data Sources queries
+  // Data Sources queries - only load when data-sources tab is active
   const { data: dataSources = [], isLoading: dataSourcesLoading } = useQuery({
     queryKey: ['settings', 'data-sources'],
     queryFn: fetchDataSources,
-    enabled: !authLoading && isPlatformAdmin,
+    enabled: !authLoading && isPlatformAdmin && activeTab === 'data-sources',
+    staleTime: 5 * 60 * 1000,
   })
 
-  // Credentials queries
+  // Credentials queries - only load when credentials tab is active
   const { data: telegramSettings } = useQuery({
     queryKey: ['settings', 'telegram'],
     queryFn: fetchTelegramSettings,
-    enabled: !authLoading && isPlatformAdmin,
+    enabled: !authLoading && isPlatformAdmin && activeTab === 'credentials',
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: openRouterSettings } = useQuery({
     queryKey: ['settings', 'openrouter'],
     queryFn: fetchOpenRouterSettings,
-    enabled: !authLoading && isPlatformAdmin,
+    enabled: !authLoading && isPlatformAdmin && activeTab === 'credentials',
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: tinkoffSettings } = useQuery({
     queryKey: ['settings', 'tinkoff'],
     queryFn: fetchTinkoffSettings,
-    enabled: !authLoading && isPlatformAdmin,
+    enabled: !authLoading && isPlatformAdmin && activeTab === 'credentials',
+    staleTime: 5 * 60 * 1000,
   })
 
   // Redirect if not admin
@@ -466,7 +788,9 @@ export default function AdminSettingsPage() {
 
   const uniqueProviders = Array.from(new Set(models.map(m => m.provider))).sort()
 
-  if (authLoading || settingsLoading) {
+  // Show loading only if auth is loading
+  // Don't block on tab-specific data loading (show tabs immediately, load data per tab)
+  if (authLoading || authUserLoading) {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
@@ -475,19 +799,10 @@ export default function AdminSettingsPage() {
       </div>
     )
   }
-
+  
+  // If auth loaded but user is not admin, show nothing (redirect will happen)
   if (!isPlatformAdmin) {
-    return (
-      <div className="p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 rounded p-4">
-            <p className="text-red-700 dark:text-red-400">
-              Требуется доступ администратора платформы.
-            </p>
-          </div>
-        </div>
-      </div>
-    )
+    return null
   }
 
   return (
@@ -500,7 +815,7 @@ export default function AdminSettingsPage() {
         {/* Tabs */}
         <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
           <nav className="flex space-x-8 overflow-x-auto">
-            {(['platform', 'limits', 'api-keys', 'models', 'data-sources', 'credentials', 'features'] as const).map((tab) => (
+            {(['users', 'platform', 'limits', 'api-keys', 'models', 'data-sources', 'credentials', 'features'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -510,6 +825,7 @@ export default function AdminSettingsPage() {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
                 }`}
               >
+                {tab === 'users' && 'Пользователи'}
                 {tab === 'platform' && 'Конфигурация платформы'}
                 {tab === 'limits' && 'Лимиты системы'}
                 {tab === 'api-keys' && 'Глобальные API ключи'}
@@ -521,6 +837,9 @@ export default function AdminSettingsPage() {
             ))}
           </nav>
         </div>
+
+        {/* Users Tab */}
+        {activeTab === 'users' && <UsersManagementTab router={router} queryClient={queryClient} />}
 
         {/* Platform Config Tab */}
         {activeTab === 'platform' && (
@@ -552,7 +871,7 @@ export default function AdminSettingsPage() {
                   onChange={(e) => setDefaultUserRole(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
-                  <option value="org_admin">Организационный администратор</option>
+                  <option value="user">Пользователь</option>
                   <option value="admin">Администратор платформы</option>
                 </select>
               </div>
@@ -1252,7 +1571,8 @@ function FeaturesManagementTab() {
           Управление функциями
         </h2>
         <p className="text-gray-600 dark:text-gray-400 mb-6">
-          Включите или отключите функции для пользователей или организаций.
+          Управление функциями пользователей. Функции включаются для пользователей, и автоматически становятся доступны во всех организациях, где пользователь является владельцем. 
+          При работе в организации пользователи получают функции владельца этой организации.
         </p>
 
         {/* User Features Section */}
@@ -1262,8 +1582,8 @@ function FeaturesManagementTab() {
           </h3>
           
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Включенные функции будут доступны пользователю во всех организациях, где он является владельцем.
             Примечание: Для управления функциями пользователей используйте ID пользователя напрямую.
-            Полноценный поиск пользователей будет добавлен в Phase 0.4.
           </p>
 
           <div className="mb-4">
@@ -1317,13 +1637,18 @@ function FeaturesManagementTab() {
         {/* Organization Features Section */}
         <div>
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-            Функции организации
+            Функции организации (производные от владельца)
           </h3>
+          
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            Функции организации автоматически наследуются от функций владельца организации. 
+            Для изменения функций организации измените функции её владельца в разделе выше.
+          </p>
           
           {/* Organization Select */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Выберите организацию
+              Выберите организацию (только просмотр)
             </label>
             <select
               value={selectedOrgId || ''}
@@ -1333,20 +1658,20 @@ function FeaturesManagementTab() {
               <option value="">-- Выберите организацию --</option>
               {organizations?.map((org: any) => (
                 <option key={org.id} value={org.id}>
-                  {org.name} {org.is_personal && '(Личная)'}
+                  {org.name} {org.is_personal && '(Личная)'} {org.owner_id && `(Владелец: ID ${org.owner_id})`}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Organization Features List */}
+          {/* Organization Features List (Read-only, shows owner's features) */}
           {selectedOrgId && features && orgFeatures && (
             <div className="border border-gray-200 dark:border-gray-700 rounded-md p-4">
               <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">
                 Функции для организации ID: {selectedOrgId}
               </h4>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Изменения применятся ко всем членам организации
+                Эти функции наследуются от владельца организации. Для изменения функций организации измените функции её владельца.
               </p>
               <div className="space-y-2">
                 {Object.entries(features).map(([featureName, displayName]) => (
@@ -1355,21 +1680,11 @@ function FeaturesManagementTab() {
                       <span className="font-medium text-gray-900 dark:text-white">{displayName as string}</span>
                       <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({featureName})</span>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={orgFeatures[featureName] ?? true}
-                        onChange={(e) => {
-                          updateOrgFeatureMutation.mutate({
-                            orgId: selectedOrgId,
-                            featureName,
-                            enabled: e.target.checked
-                          })
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded text-sm ${orgFeatures[featureName] ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'}`}>
+                        {orgFeatures[featureName] ? 'Включено' : 'Отключено'}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>

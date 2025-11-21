@@ -14,8 +14,11 @@ interface User {
   email: string
   full_name: string | null
   is_admin: boolean  // Deprecated, use role instead
-  role: string  // 'admin', 'org_admin', 'org_user'
+  role: string  // 'admin' (platform admin) or 'user' (regular user)
   created_at: string
+  is_impersonated?: boolean
+  impersonated_by?: number
+  impersonated_by_email?: string
 }
 
 // Simple function to get current user - just make the request
@@ -76,7 +79,7 @@ export function useAuth() {
     isAuthenticated: !!user,
     isAdmin: user?.is_admin || user?.role === 'admin' || false,
     isPlatformAdmin: user?.role === 'admin' || false,
-    isOrgAdmin: user?.role === 'admin' || user?.role === 'org_admin' || false,
+    isOrgAdmin: user?.role === 'admin' || false, // Platform admins are always org admins. For regular users, check organization membership.
     role: user?.role || null,
     logout: () => logoutMutation.mutate(),
   }

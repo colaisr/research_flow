@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import { useRequireAuth, useAuth } from '@/hooks/useAuth'
-import { useOrganizations } from '@/hooks/useOrganizations'
+import { useOrganizations, Organization } from '@/hooks/useOrganizations'
 import { useOrganizationContext } from '@/contexts/OrganizationContext'
 import { API_BASE_URL } from '@/lib/config'
 import apiClient from '@/lib/api'
@@ -91,21 +91,22 @@ export default function UserSettingsPage() {
   const [showCreateOrgForm, setShowCreateOrgForm] = useState(false)
   const [newOrgName, setNewOrgName] = useState('')
 
-  const createOrgMutation = useMutation({
-    mutationFn: createOrganization,
-    onSuccess: () => {
+  const handleCreateOrganization = () => {
+    if (newOrgName.trim()) {
+      createOrganization(newOrgName.trim())
       setNewOrgName('')
       setShowCreateOrgForm(false)
-      queryClient.invalidateQueries({ queryKey: ['organizations'] })
       // Reload to show new organization
       setTimeout(() => {
         window.location.reload()
       }, 500)
-    },
-  })
+    }
+  }
 
   const leaveOrgMutation = useMutation({
-    mutationFn: leaveOrganization,
+    mutationFn: async (organizationId: number) => {
+      await leaveOrganization(organizationId)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organizations'] })
       // Reload to refresh organizations list
@@ -517,23 +518,12 @@ export default function UserSettingsPage() {
                         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
-                    {createOrgMutation.isError && (
-                      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                        <p className="text-red-700 dark:text-red-400 text-sm">
-                          {(createOrgMutation.error as any)?.response?.data?.detail || 'Ошибка при создании организации'}
-                        </p>
-                      </div>
-                    )}
                     <button
-                      onClick={() => {
-                        if (newOrgName.trim()) {
-                          createOrgMutation.mutate(newOrgName.trim())
-                        }
-                      }}
-                      disabled={!newOrgName.trim() || createOrgMutation.isPending}
+                      onClick={handleCreateOrganization}
+                      disabled={!newOrgName.trim()}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
                     >
-                      {createOrgMutation.isPending ? 'Создание...' : 'Создать организацию'}
+                      Создать организацию
                     </button>
                     {leaveOrgMutation.isError && (
                       <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
@@ -656,7 +646,7 @@ async function acceptInvitationById(invitationId: number): Promise<Organization>
 
 function PendingInvitationsSection() {
   const queryClient = useQueryClient()
-  const { refetch: refetchOrganizations } = useOrganizations()
+  const { organizations } = useOrganizations()
   
   const { data: invitations = [], isLoading } = useQuery({
     queryKey: ['pending-invitations'],
@@ -667,7 +657,7 @@ function PendingInvitationsSection() {
     mutationFn: acceptInvitationById,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-invitations'] })
-      refetchOrganizations()
+      queryClient.invalidateQueries({ queryKey: ['organizations'] })
       // Reload to show new organization
       setTimeout(() => {
         window.location.reload()
