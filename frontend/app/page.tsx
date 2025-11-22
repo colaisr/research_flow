@@ -92,17 +92,16 @@ export default function LandingPage() {
                   Посмотрите, как Research Flow помогает создавать исследовательские процессы за минуту.
                 </p>
               </div>
-              <div className="aspect-video bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-gray-200 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-shadow cursor-pointer group relative overflow-hidden">
-                {/* Play button overlay */}
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-blue-600/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <div className="text-center relative z-10">
-                  <div className="w-20 h-20 mx-auto mb-4 bg-white rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                    <svg className="w-8 h-8 text-blue-600 ml-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                    </svg>
-                  </div>
-                  <p className="text-gray-600 text-sm font-medium">Видео будет здесь</p>
-                </div>
+              <div className="aspect-video rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
+                <video
+                  className="w-full h-full object-cover"
+                  controls
+                  preload="metadata"
+                  poster=""
+                >
+                  <source src="/research_flow_intro.mp4" type="video/mp4" />
+                  Ваш браузер не поддерживает видео.
+                </video>
               </div>
             </div>
           </div>
