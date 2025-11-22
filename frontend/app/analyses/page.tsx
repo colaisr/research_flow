@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -52,8 +52,16 @@ async function duplicateAnalysisType(id: number) {
   return data
 }
 
+async function deleteAnalysisType(id: number) {
+  await axios.delete(
+    `${API_BASE_URL}/api/analyses/${id}`,
+    { withCredentials: true }
+  )
+}
+
 export default function AnalysesPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { isAuthenticated } = useAuth()
   const [filter, setFilter] = useState<'my' | 'system'>('my')
   
@@ -63,12 +71,31 @@ export default function AnalysesPage() {
     enabled: isAuthenticated !== false, // Wait for auth check
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteAnalysisType,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['analysis-types', filter] })
+    },
+  })
+
   const handleDuplicate = async (id: number) => {
     try {
       const duplicated = await duplicateAnalysisType(id)
       router.push(`/pipelines/${duplicated.id}/edit`)
     } catch (error: any) {
       alert(`Не удалось дублировать: ${error.response?.data?.detail || error.message}`)
+    }
+  }
+
+  const handleDelete = async (id: number, displayName: string) => {
+    if (!confirm(`Вы уверены, что хотите удалить процесс "${displayName}"? Это действие нельзя отменить.`)) {
+      return
+    }
+    
+    try {
+      await deleteMutation.mutateAsync(id)
+    } catch (error: any) {
+      alert(`Не удалось удалить: ${error.response?.data?.detail || error.message}`)
     }
   }
 
@@ -259,6 +286,16 @@ export default function AnalysesPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       </Link>
+                      <button
+                        onClick={() => handleDelete(analysis.id, analysis.display_name)}
+                        disabled={deleteMutation.isPending}
+                        className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Удалить"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </>
                   )}
                   <button

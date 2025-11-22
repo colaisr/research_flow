@@ -11,6 +11,7 @@ from app.models.analysis_type import AnalysisType
 from app.core.auth import get_current_admin_user_dependency, get_current_user_dependency, verify_session, get_current_organization_dependency
 from app.models.user import User
 from app.models.organization import Organization
+from app.models.organization_tool_access import OrganizationToolAccess
 
 router = APIRouter()
 
@@ -41,19 +42,20 @@ async def list_analysis_types(
 ):
     """List analysis types with optional filtering.
     
-    - Shows organization's pipelines + system pipelines (organization_id IS NULL)
+    - Shows organization's pipelines + system pipelines (is_system=True, visible to all)
+    - System processes belong to platform admin but are visible to all users
     - Query params: user_id, system (true/false)
     """
     query = db.query(AnalysisType).filter(AnalysisType.is_active == 1)
     
-    # Filter by organization context: show system pipelines (NULL org_id) + current org's pipelines
+    # Filter by organization context: show system pipelines (is_system=True) + current org's pipelines
     if current_organization:
         query = query.filter(
-            (AnalysisType.organization_id == current_organization.id) | (AnalysisType.organization_id.is_(None))
+            (AnalysisType.organization_id == current_organization.id) | (AnalysisType.is_system == True)
         )
     else:
         # Not authenticated - only show system pipelines
-        query = query.filter(AnalysisType.organization_id.is_(None), AnalysisType.is_system == True)
+        query = query.filter(AnalysisType.is_system == True)
     
     # Apply filters
     if user_id is not None:
@@ -82,7 +84,10 @@ async def list_my_analysis_types(
 
 
 @router.get("/system", response_model=List[AnalysisTypeResponse])
-async def list_system_analysis_types(db: Session = Depends(get_db)):
+async def list_system_analysis_types(
+    db: Session = Depends(get_db),
+    researchflow_session: Optional[str] = Cookie(None)
+):
     """List system analysis types (available to all users)."""
     analysis_types = db.query(AnalysisType).filter(
         AnalysisType.is_system == True,
@@ -186,29 +191,27 @@ async def update_analysis_type(
     if not analysis_type:
         raise HTTPException(status_code=404, detail="Analysis type not found")
     
-    # Check organization context - can only edit pipelines in current organization
-    if analysis_type.organization_id != current_organization.id and analysis_type.organization_id is not None:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only edit pipelines in your current organization context"
-        )
-    
     # Check permissions
-    # User can edit their own pipelines in their organization
-    # Admin can edit any pipeline
-    # Non-admin cannot edit system pipelines
-    if analysis_type.user_id != current_user.id:
-        if analysis_type.is_system:
-            if not current_user.is_platform_admin():
-                raise HTTPException(
-                    status_code=403,
-                    detail="Only platform admins can edit system pipelines"
-                )
-        else:
-            # User trying to edit another user's pipeline
+    # System processes: only platform admin can edit (regardless of organization)
+    if analysis_type.is_system:
+        if not current_user.is_platform_admin():
+            raise HTTPException(
+                status_code=403,
+                detail="Only platform admins can edit system pipelines"
+            )
+    else:
+        # User processes: check ownership and organization context
+        if analysis_type.user_id != current_user.id:
             raise HTTPException(
                 status_code=403,
                 detail="You can only edit your own pipelines"
+            )
+        
+        # Check organization context - can only edit pipelines in current organization
+        if analysis_type.organization_id != current_organization.id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only edit pipelines in your current organization context"
             )
     
     # Update fields
@@ -309,9 +312,47 @@ async def delete_analysis_type(
 async def duplicate_analysis_type(
     analysis_type_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency)
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
-    """Duplicate an analysis type (creates a user copy)."""
+    """Duplicate an analysis type (creates a user copy).
+    
+    Handles tool references by copying tools from source process owner (typically platform admin).
+    If source process uses tools, they are automatically copied to the user.
+    
+    Strategy:
+    1. System processes belong to platform admin user
+    2. Tools in system processes belong to admin
+    3. When duplicating, admin's tools are copied to user
+    4. Tool references are updated to point to user's copied tools
+    """
+    from app.models.user_tool import UserTool
+    from app.models.organization_tool_access import OrganizationToolAccess
+    import copy
+    
+    def get_user_owned_organizations(db: Session, user_id: int):
+        """Get all organizations where user is owner."""
+        return db.query(Organization).filter(Organization.owner_id == user_id).all()
+    
+    def ensure_tool_access_entries(db: Session, tool: UserTool, user: User):
+        """Ensure organization_tool_access entries exist for all orgs where user is owner."""
+        if not tool.is_shared:
+            return
+        
+        owned_orgs = get_user_owned_organizations(db, user.id)
+        for org in owned_orgs:
+            existing = db.query(OrganizationToolAccess).filter(
+                OrganizationToolAccess.organization_id == org.id,
+                OrganizationToolAccess.tool_id == tool.id
+            ).first()
+            if not existing:
+                access = OrganizationToolAccess(
+                    organization_id=org.id,
+                    tool_id=tool.id,
+                    is_enabled=True
+                )
+                db.add(access)
+    
     source_analysis = db.query(AnalysisType).filter(AnalysisType.id == analysis_type_id).first()
     if not source_analysis:
         raise HTTPException(status_code=404, detail="Analysis type not found")
@@ -320,7 +361,6 @@ async def duplicate_analysis_type(
         raise HTTPException(status_code=400, detail="Cannot duplicate inactive analysis type")
     
     # Create a copy with a new name
-    import copy
     new_name = f"{source_analysis.name}_copy_{current_user.id}_{int(datetime.now().timestamp())}"
     
     # Check if name already exists
@@ -331,6 +371,76 @@ async def duplicate_analysis_type(
     
     # Deep copy the config
     new_config = copy.deepcopy(source_analysis.config)
+    
+    # Process tool references: copy tools from source process owner to current user
+    tool_id_mapping = {}  # Maps source_tool_id -> user_tool_id
+    tools_created = []  # Track newly created tools for user notification
+    
+    # Get source process owner (typically platform admin for system processes)
+    source_owner_id = source_analysis.user_id
+    if not source_owner_id:
+        # Legacy: if user_id is None, skip tool copying (old system processes)
+        pass
+    else:
+        # Collect all tool IDs from step configs
+        for step in new_config.get('steps', []):
+            tool_references = step.get('tool_references', [])
+            for tool_ref in tool_references:
+                source_tool_id = tool_ref.get('tool_id')
+                if source_tool_id and source_tool_id not in tool_id_mapping:
+                    # Load source tool (belongs to source process owner, typically admin)
+                    source_tool = db.query(UserTool).filter(
+                        UserTool.id == source_tool_id,
+                        UserTool.user_id == source_owner_id  # Ensure tool belongs to source owner
+                    ).first()
+                    
+                    if not source_tool:
+                        # Tool doesn't exist or doesn't belong to source owner - skip
+                        continue
+                    
+                    # Check if user already has a tool with same display_name and tool_type
+                    user_tool = db.query(UserTool).filter(
+                        UserTool.user_id == current_user.id,
+                        UserTool.display_name == source_tool.display_name,
+                        UserTool.tool_type == source_tool.tool_type,
+                        UserTool.is_active == True
+                    ).first()
+                    
+                    if user_tool:
+                        # User already has this tool - use it
+                        tool_id_mapping[source_tool_id] = user_tool.id
+                    else:
+                        # Copy tool from source owner (admin) to user
+                        # Note: Config is copied as-is (credentials are encrypted, may need re-entry)
+                        new_tool = UserTool(
+                            user_id=current_user.id,
+                            organization_id=current_organization.id,
+                            tool_type=source_tool.tool_type,
+                            display_name=source_tool.display_name,
+                            config=copy.deepcopy(source_tool.config),
+                            is_active=True,
+                            is_shared=source_tool.is_shared
+                        )
+                        db.add(new_tool)
+                        db.flush()  # Get the new tool ID
+                        
+                        # Ensure tool access entries for all user's organizations
+                        ensure_tool_access_entries(db, new_tool, current_user)
+                        
+                        tool_id_mapping[source_tool_id] = new_tool.id
+                        tools_created.append(new_tool.display_name)
+        
+        # Update tool_references with new tool IDs
+        for step in new_config.get('steps', []):
+            tool_references = step.get('tool_references', [])
+            for tool_ref in tool_references:
+                source_tool_id = tool_ref.get('tool_id')
+                if source_tool_id in tool_id_mapping:
+                    tool_ref['tool_id'] = tool_id_mapping[source_tool_id]
+                elif source_tool_id:
+                    # Tool not found and couldn't be created - keep reference but it will show error when executed
+                    # User can manually fix it in the editor by selecting a different tool
+                    pass
     
     # Create new analysis type
     new_analysis = AnalysisType(

@@ -260,19 +260,67 @@ async def delete_tool(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency)
 ):
-    """Delete tool (not allowed for now - prevent breaking analyses)."""
+    """Delete tool (checks if used in any analyses via tool_references)."""
+    import json
+    
     tool = check_tool_ownership(db, current_user, tool_id)
     
     # Check if tool is used in any analyses
-    from app.models.analysis_step import AnalysisStep
-    used_in_steps = db.query(AnalysisStep).filter(
-        AnalysisStep.tool_id == tool_id
-    ).first()
+    # Tool is considered "used" only if:
+    # 1. It's in tool_references AND
+    # 2. Its variable name appears in user_prompt_template or system_prompt
+    from app.models.analysis_type import AnalysisType
+    from app.models.user_tool import UserTool
     
-    if used_in_steps:
+    # Check if tool is used in any analyses
+    # Tool is considered "used" only if:
+    # 1. It's in tool_references AND
+    # 2. Its variable name appears in user_prompt_template or system_prompt
+    from app.models.analysis_type import AnalysisType
+    import re
+    
+    # Get all analysis types
+    all_analyses = db.query(AnalysisType).filter(AnalysisType.is_active == 1).all()
+    
+    used_in_analyses = []
+    for analysis in all_analyses:
+        config = analysis.config if isinstance(analysis.config, dict) else json.loads(analysis.config) if isinstance(analysis.config, str) else {}
+        steps = config.get('steps', [])
+        
+        for step in steps:
+            # Check if tool is in tool_references
+            tool_references = step.get('tool_references', [])
+            tool_ref = None
+            for tr in tool_references:
+                if tr.get('tool_id') == tool_id:
+                    tool_ref = tr
+                    break
+            
+            # If tool is referenced, check if variable is actually used in prompts
+            if tool_ref:
+                variable_name_in_ref = tool_ref.get('variable_name', '')
+                if variable_name_in_ref:
+                    variable_pattern = f"{{{variable_name_in_ref}}}"
+                    
+                    # Check user_prompt_template and system_prompt
+                    user_prompt = step.get('user_prompt_template', '') or ''
+                    system_prompt = step.get('system_prompt', '') or ''
+                    
+                    # Check if variable is actually used in prompt text
+                    if variable_pattern in user_prompt or variable_pattern in system_prompt:
+                        used_in_analyses.append({
+                            'id': analysis.id,
+                            'name': analysis.display_name
+                        })
+                        break  # Found usage in this analysis, move to next
+    
+    if used_in_analyses:
+        analysis_names = ', '.join([a['name'] for a in used_in_analyses[:3]])
+        if len(used_in_analyses) > 3:
+            analysis_names += f' и еще {len(used_in_analyses) - 3}'
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete tool: Tool is used in one or more analyses"
+            detail=f"Нельзя удалить инструмент: он используется в процессах: {analysis_names}"
         )
     
     # Delete organization_tool_access entries

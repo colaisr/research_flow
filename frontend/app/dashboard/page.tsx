@@ -43,12 +43,16 @@ async function fetchInstruments(analysisTypeId?: number) {
   const url = analysisTypeId 
     ? `${API_BASE_URL}/api/instruments?analysis_type_id=${analysisTypeId}`
     : `${API_BASE_URL}/api/instruments`
-  const { data } = await axios.get<Instrument[]>(url)
+  const { data } = await axios.get<Instrument[]>(url, {
+    withCredentials: true
+  })
   return data
 }
 
 async function fetchRuns() {
-  const { data } = await axios.get<Run[]>(`${API_BASE_URL}/api/runs?limit=10`)
+  const { data } = await axios.get<Run[]>(`${API_BASE_URL}/api/runs?limit=10`, {
+    withCredentials: true
+  })
   return data
 }
 

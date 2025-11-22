@@ -112,7 +112,7 @@ class ToolExecutor:
             result = self.execute_tool(tool, params)
             
             # Format result for prompt injection
-            return self._format_tool_result(result, tool.tool_type)
+            return self._format_tool_result(result, tool.tool_type, tool)
             
         except Exception as e:
             logger.error(f"Tool execution failed for {tool.display_name}: {e}", exc_info=True)
@@ -243,12 +243,13 @@ class ToolExecutor:
         
         return {"query": query_text}
     
-    def _format_tool_result(self, result: Dict[str, Any], tool_type: str) -> str:
+    def _format_tool_result(self, result: Dict[str, Any], tool_type: str, tool: Optional[UserTool] = None) -> str:
         """Format tool execution result as string for prompt injection.
         
         Args:
             result: Tool execution result dict
             tool_type: Tool type (api, database, rag)
+            tool: Optional UserTool instance (used to detect market data tools)
             
         Returns:
             Formatted string result
@@ -275,7 +276,52 @@ class ToolExecutor:
             return str(result)
         
         elif tool_type == ToolType.API.value:
-            # Format API results as JSON or text
+            # Check if this is a market data tool (Binance, Tinkoff, Yahoo Finance)
+            is_market_data_tool = False
+            if tool:
+                try:
+                    # Decrypt config to check connector name
+                    from app.services.tools.encryption import decrypt_tool_config
+                    config = decrypt_tool_config(tool.config)
+                    connector_name = config.get('connector_name', '').lower() if isinstance(config, dict) else ''
+                    if connector_name in ['binance', 'ccxt', 'tinkoff', 'yfinance']:
+                        is_market_data_tool = True
+                except:
+                    pass  # If decryption fails, treat as regular API
+            
+            # Format market data tools as market_data_summary format
+            if is_market_data_tool and "data" in result:
+                data = result.get("data", {})
+                candles_data = data.get("candles", [])
+                if candles_data:
+                    formatted = ""
+                    # Sort candles by timestamp (oldest first)
+                    sorted_candles = sorted(candles_data, key=lambda c: c.get('timestamp', ''))
+                    # Take last 50 candles (or all if less)
+                    candles_to_show = sorted_candles[-50:] if len(sorted_candles) > 50 else sorted_candles
+                    
+                    for candle in candles_to_show:
+                        timestamp_str = candle.get('timestamp', '')
+                        # Format timestamp
+                        if isinstance(timestamp_str, str):
+                            # Try to parse and format timestamp
+                            try:
+                                from datetime import datetime
+                                if 'T' in timestamp_str:
+                                    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                                    timestamp_formatted = dt.strftime('%Y-%m-%d %H:%M')
+                                else:
+                                    timestamp_formatted = timestamp_str
+                            except:
+                                timestamp_formatted = timestamp_str
+                        else:
+                            timestamp_formatted = str(timestamp_str)
+                        
+                        formatted += f"- {timestamp_formatted}: O={candle.get('open', 0):.2f} H={candle.get('high', 0):.2f} L={candle.get('low', 0):.2f} C={candle.get('close', 0):.2f} V={candle.get('volume', 0):.2f}\n"
+                    
+                    return formatted if formatted else "No market data available."
+            
+            # Format other API results as JSON or text
             if "data" in result:
                 return f"API response:\n{json.dumps(result['data'], indent=2)[:500]}"
             return str(result)

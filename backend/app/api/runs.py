@@ -275,9 +275,19 @@ async def get_run(
     # Get steps
     steps = []
     for step in run.steps:
+        # Parse input_blob if it's a string (for backward compatibility)
+        input_blob = step.input_blob
+        if isinstance(input_blob, str):
+            try:
+                import json
+                input_blob = json.loads(input_blob)
+            except (json.JSONDecodeError, TypeError):
+                # If it's not valid JSON, wrap it in a dict
+                input_blob = {"raw": input_blob}
+        
         steps.append(RunStepResponse(
             step_name=step.step_name,
-            input_blob=step.input_blob,
+            input_blob=input_blob,
             output_blob=step.output_blob,
             llm_model=step.llm_model,
             tokens_used=step.tokens_used,

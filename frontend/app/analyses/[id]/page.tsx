@@ -28,12 +28,12 @@ interface DataSource {
 interface StepConfig {
   step_name: string
   step_type: string
-  model: string
-  system_prompt: string
-  user_prompt_template: string
-  temperature: number
-  max_tokens: number
-  data_sources: string[]
+  model?: string
+  system_prompt?: string
+  user_prompt_template?: string
+  temperature?: number
+  max_tokens?: number
+  data_sources?: string[]
 }
 
 interface AnalysisType {
@@ -366,7 +366,7 @@ export default function AnalysisDetailPage() {
                                 {isEditing ? (
                                   <div>
                                     <Select
-                                      value={step.model}
+                                      value={step.model || ''}
                                       onChange={(value) => updateStepConfig(index, 'model', value)}
                                       options={enabledModels.map((model) => ({
                                         value: model.name,
@@ -375,15 +375,15 @@ export default function AnalysisDetailPage() {
                                       }))}
                                       className="w-full"
                                     />
-                                    {enabledModels.find(m => m.name === step.model)?.has_failures && (
+                                    {step.model && enabledModels.find(m => m.name === step.model)?.has_failures && (
                                       <p className="mt-2 text-xs text-orange-600 flex items-center gap-1">
                                         <span>⚠️</span>
                                         <span>У этой модели зафиксированы ошибки и она может работать нестабильно</span>
                                       </p>
                                     )}
-                                    {isModelChangedFromDefault(index) && (
+                                    {isModelChangedFromDefault(index) && step.model && (
                                       <button
-                                        onClick={() => applyModelToAllSteps(step.model)}
+                                        onClick={() => applyModelToAllSteps(step.model!)}
                                         className="mt-2 px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
                                       >
                                         Применить ко всем шагам
@@ -393,9 +393,9 @@ export default function AnalysisDetailPage() {
                                 ) : (
                                   <div>
                                     <span className="text-gray-900 font-medium">
-                                      {step.model}
+                                      {step.model || '—'}
                                     </span>
-                                    {enabledModels.find(m => m.name === step.model)?.has_failures && (
+                                    {step.model && enabledModels.find(m => m.name === step.model)?.has_failures && (
                                       <span className="ml-2 text-xs px-2 py-1 bg-orange-100 rounded text-orange-600">
                                         ⚠️ Есть ошибки
                                       </span>
@@ -411,13 +411,13 @@ export default function AnalysisDetailPage() {
                                     step="0.1"
                                     min="0"
                                     max="2"
-                                    value={step.temperature}
-                                    onChange={(e) => updateStepConfig(index, 'temperature', parseFloat(e.target.value))}
+                                    value={step.temperature ?? ''}
+                                    onChange={(e) => updateStepConfig(index, 'temperature', parseFloat(e.target.value) || undefined)}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   />
                                 ) : (
                                   <span className="text-gray-900 font-medium">
-                                    {step.temperature}
+                                    {step.temperature ?? '—'}
                                   </span>
                                 )}
                               </div>
@@ -426,13 +426,13 @@ export default function AnalysisDetailPage() {
                                 {isEditing ? (
                                   <input
                                     type="number"
-                                    value={step.max_tokens}
-                                    onChange={(e) => updateStepConfig(index, 'max_tokens', parseInt(e.target.value))}
+                                    value={step.max_tokens || ''}
+                                    onChange={(e) => updateStepConfig(index, 'max_tokens', parseInt(e.target.value) || undefined)}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   />
                                 ) : (
                                   <span className="text-gray-900 font-medium">
-                                    {step.max_tokens.toLocaleString()}
+                                    {step.max_tokens ? step.max_tokens.toLocaleString() : '—'}
                                   </span>
                                 )}
                               </div>
@@ -472,7 +472,7 @@ export default function AnalysisDetailPage() {
                           </p>
                           {isEditing ? (
                             <textarea
-                              value={step.system_prompt}
+                              value={step.system_prompt || ''}
                               onChange={(e) => updateStepConfig(index, 'system_prompt', e.target.value)}
                               rows={4}
                               className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -480,7 +480,7 @@ export default function AnalysisDetailPage() {
                           ) : (
                             <div className="bg-white rounded-lg p-4 border border-gray-200">
                               <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
-                                {step.system_prompt}
+                                {step.system_prompt || '—'}
                               </pre>
                             </div>
                           )}
@@ -493,7 +493,7 @@ export default function AnalysisDetailPage() {
                           </p>
                           {isEditing ? (
                             <textarea
-                              value={step.user_prompt_template}
+                              value={step.user_prompt_template || ''}
                               onChange={(e) => updateStepConfig(index, 'user_prompt_template', e.target.value)}
                               rows={6}
                               className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -501,9 +501,9 @@ export default function AnalysisDetailPage() {
                           ) : (
                             <div className="bg-white rounded-lg p-4 border border-gray-200">
                               <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
-                                {step.user_prompt_template}
+                                {step.user_prompt_template || '—'}
                               </pre>
-                              {step.user_prompt_template.match(/\{(\w+)\}/g) && (
+                              {step.user_prompt_template && step.user_prompt_template.match(/\{(\w+)\}/g) && (
                                 <p className="mt-3 text-xs text-gray-500 italic pt-3 border-t border-gray-200">
                                   Переменные: {step.user_prompt_template.match(/\{(\w+)\}/g)?.join(', ') || 'Нет'}
                                 </p>

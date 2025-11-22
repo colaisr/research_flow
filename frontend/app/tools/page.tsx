@@ -76,7 +76,8 @@ export default function ToolsPage() {
       queryClient.invalidateQueries({ queryKey: ['tools'] })
     },
     onError: (error: any) => {
-      alert(`Failed to delete tool: ${error.response?.data?.detail || error.message}`)
+      const errorMessage = error.response?.data?.detail || error.message || 'Неизвестная ошибка'
+      alert(`Не удалось удалить инструмент: ${errorMessage}`)
     }
   })
 
@@ -87,7 +88,7 @@ export default function ToolsPage() {
   }
 
   const handleDelete = (toolId: number, toolName: string) => {
-    if (confirm(`Are you sure you want to delete "${toolName}"? This action cannot be undone if the tool is used in analyses.`)) {
+    if (confirm(`Вы уверены, что хотите удалить инструмент "${toolName}"? Это действие нельзя отменить. Инструмент не может быть удален, если он используется в процессах.`)) {
       deleteMutation.mutate(toolId)
     }
   }
