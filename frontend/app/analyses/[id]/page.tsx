@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import Select from '@/components/Select'
@@ -84,11 +85,26 @@ async function fetchAnalysisType(id: string) {
   return data
 }
 
+interface Tool {
+  id: number
+  display_name: string
+  tool_type: 'database' | 'api' | 'rag'
+  is_active: boolean
+}
+
+async function fetchTools() {
+  const { data } = await axios.get<Tool[]>(`${API_BASE_URL}/api/tools?tool_type=api`, {
+    withCredentials: true
+  })
+  return data
+}
+
 async function createRun(
   analysisTypeId: number, 
   instrument: string, 
   timeframe: string,
-  customConfig?: AnalysisType['config']
+  customConfig?: AnalysisType['config'],
+  toolId?: number | null
 ) {
   const payload: any = {
     analysis_type_id: analysisTypeId,
@@ -98,7 +114,12 @@ async function createRun(
   if (customConfig) {
     payload.custom_config = customConfig
   }
-  const { data } = await axios.post(`${API_BASE_URL}/api/runs`, payload)
+  if (toolId) {
+    payload.tool_id = toolId
+  }
+  const { data } = await axios.post(`${API_BASE_URL}/api/runs`, payload, {
+    withCredentials: true
+  })
   return data
 }
 
@@ -110,6 +131,7 @@ export default function AnalysisDetailPage() {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
   const [selectedInstrument, setSelectedInstrument] = useState<string>('')
   const [selectedTimeframe, setSelectedTimeframe] = useState<string>('')
+  const [selectedToolId, setSelectedToolId] = useState<number | null>(null)
   const [editableConfig, setEditableConfig] = useState<AnalysisType['config'] | null>(null)
   const [isEditing, setIsEditing] = useState(false)
 
@@ -135,9 +157,14 @@ export default function AnalysisDetailPage() {
     enabled: !!analysis,
   })
 
+  const { data: tools = [], isLoading: toolsLoading } = useQuery({
+    queryKey: ['tools', 'api'],
+    queryFn: fetchTools,
+  })
+
   const createRunMutation = useMutation({
-    mutationFn: ({ instrument, timeframe }: { instrument: string; timeframe: string }) =>
-      createRun(analysis?.id || 0, instrument, timeframe, editableConfig || undefined),
+    mutationFn: ({ instrument, timeframe, toolId }: { instrument: string; timeframe: string; toolId?: number | null }) =>
+      createRun(analysis?.id || 0, instrument, timeframe, editableConfig || undefined, toolId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       router.push(`/runs/${data.id}`)
@@ -185,6 +212,7 @@ export default function AnalysisDetailPage() {
     createRunMutation.mutate({
       instrument: selectedInstrument,
       timeframe: selectedTimeframe,
+      toolId: selectedToolId,
     })
   }
 
@@ -624,6 +652,42 @@ export default function AnalysisDetailPage() {
               </select>
               <div className="mt-1 h-5"></div>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                Data Source Tool (Optional)
+              </label>
+              <select
+                value={selectedToolId || ''}
+                onChange={(e) => setSelectedToolId(e.target.value ? parseInt(e.target.value) : null)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                disabled={toolsLoading}
+              >
+                <option value="">Use default data source</option>
+                {toolsLoading ? (
+                  <option disabled>Loading tools...</option>
+                ) : (
+                  tools.filter(t => t.is_active).map((tool) => (
+                    <option key={tool.id} value={tool.id}>
+                      {tool.display_name}
+                    </option>
+                  ))
+                )}
+              </select>
+              <div className="mt-1 flex items-center gap-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Select a custom tool for data fetching
+                </p>
+                <Link
+                  href="/tools/new"
+                  className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                >
+                  Create Tool →
+                </Link>
+              </div>
+            </div>
 
             <div className="flex flex-col">
               <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300 opacity-0">
@@ -637,6 +701,7 @@ export default function AnalysisDetailPage() {
                 {createRunMutation.isPending ? 'Creating...' : 'Run Analysis'}
               </button>
             </div>
+          </div>
           </div>
 
           {createRunMutation.isError && (

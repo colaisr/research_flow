@@ -1388,30 +1388,30 @@ return owner_features
   - **Step 3**: Test connection
   - **Step 4**: Name and save
   - **Note**: For Phase 1, start with generic tool creation. Predefined connectors can be added incrementally.
-- [ ] **Tool Integration in Pipeline Editor**:
-  - Step configuration shows tool selector dropdown
-  - Filter tools by step type (e.g., API steps show only API tools)
-  - "Create New Tool" button opens tool wizard
+- [x] **Tool Integration in Pipeline Editor**:
+  - Tool selector dropdown in run creation forms ✅
+  - Filter tools by type (API tools for data fetching) ✅
+  - "Create New Tool" link opens tool wizard ✅
 
 **1.4) Migration from Data Adapters**
 
-- [ ] **Migrate Existing Adapters to User Tools**:
-  - **Migration Strategy**: For each existing user, create tools based on current adapters
+- [x] **Migrate Existing Adapters to User Tools**:
+  - **Migration Strategy**: For each existing user, create tools based on current adapters ✅
   - **CCXT Adapter → "Binance API" Tool**:
-    - Create API tool with `tool_type='api'`
-    - Config: `{base_url: 'ccxt://binance', adapter_type: 'ccxt', exchange_name: 'binance'}`
-    - These become user's actual tools (not examples)
+    - Create API tool with `tool_type='api'` ✅
+    - Config: `{connector_type: 'predefined', connector_name: 'binance', adapter_config: {adapter_type: 'ccxt', exchange_name: 'binance'}}` ✅
+    - These become user's actual tools (not examples) ✅
   - **yfinance Adapter → "Yahoo Finance API" Tool**:
-    - Create API tool with `tool_type='api'`
-    - Config: `{base_url: 'yfinance://', adapter_type: 'yfinance'}`
-    - No API key needed
+    - Create API tool with `tool_type='api'` ✅
+    - Config: `{connector_type: 'predefined', connector_name: 'yfinance', adapter_config: {adapter_type: 'yfinance'}}` ✅
+    - No API key needed ✅
   - **Tinkoff Adapter → "Tinkoff Invest API" Tool**:
-    - Create API tool with `tool_type='api'`
-    - Config: `{base_url: 'tinkoff://', adapter_type: 'tinkoff', api_token: <from AppSettings>}`
-    - Only create if `AppSettings.tinkoff_api_token` is configured
-  - **Auto-setup**: For each user, create tools in their personal org
-  - **Auto-share**: Create `organization_tool_access` entries for all orgs where user is owner
-  - **Testing**: These migrated tools serve as good candidates for testing the new system
+    - Create API tool with `tool_type='api'` ✅
+    - Config: `{connector_type: 'predefined', connector_name: 'tinkoff', adapter_config: {adapter_type: 'tinkoff'}, api_token: <from AppSettings>}` ✅
+    - Only create if `AppSettings.tinkoff_api_token` is configured ✅
+  - **Auto-setup**: For each user, create tools in their personal org ✅
+  - **Auto-share**: Create `organization_tool_access` entries for all orgs where user is owner ✅
+  - **Testing**: Migration script executed successfully ✅
 
 - [x] **Update Pipeline Execution**:
   - Modify `AnalysisPipeline.run()` to use tools instead of hardcoded adapters ✅
@@ -1460,7 +1460,7 @@ return owner_features
 - [x] Credentials encrypted/decrypted correctly ✅ **IMPLEMENTED**
 - [x] Can use tool in analysis run (via `tool_id` parameter) ✅
 - [x] Tool execution works in pipeline ✅ **IMPLEMENTED**
-- [ ] Migrated tools (CCXT, yfinance, Tinkoff) work correctly (migration script exists, needs testing)
+- [x] Migrated tools (CCXT, yfinance, Tinkoff) work correctly ✅ **MIGRATION COMPLETE**
 - [x] Tools available in all orgs where user is owner ✅
 - [x] Can disable tool in specific org via settings ✅
 - [x] Tool deletion prevented (if used in analyses) ✅

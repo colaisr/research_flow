@@ -42,7 +42,6 @@ def create_tool_for_user(
     db: Session,
     user: User,
     tool_type: str,
-    name: str,
     display_name: str,
     config: dict,
     home_org_id: int
@@ -51,18 +50,17 @@ def create_tool_for_user(
     # Check if tool already exists
     existing = db.query(UserTool).filter(
         UserTool.user_id == user.id,
-        UserTool.name == name
+        UserTool.display_name == display_name
     ).first()
     
     if existing:
-        logger.info(f"Tool '{name}' already exists for user {user.email}, skipping")
+        logger.info(f"Tool '{display_name}' already exists for user {user.email}, skipping")
         return existing
     
     tool = UserTool(
         user_id=user.id,
         organization_id=home_org_id,
         tool_type=tool_type,
-        name=name,
         display_name=display_name,
         config=config,
         is_active=True,
@@ -128,7 +126,6 @@ def migrate_user_tools(db: Session):
             db=db,
             user=user,
             tool_type=ToolType.API.value,
-            name="binance_api",
             display_name="Binance API",
             config={
                 "connector_type": "predefined",
@@ -147,7 +144,6 @@ def migrate_user_tools(db: Session):
             db=db,
             user=user,
             tool_type=ToolType.API.value,
-            name="yahoo_finance_api",
             display_name="Yahoo Finance API",
             config={
                 "connector_type": "predefined",
@@ -166,7 +162,6 @@ def migrate_user_tools(db: Session):
                 db=db,
                 user=user,
                 tool_type=ToolType.API.value,
-                name="tinkoff_invest_api",
                 display_name="Tinkoff Invest API",
                 config={
                     "connector_type": "predefined",
