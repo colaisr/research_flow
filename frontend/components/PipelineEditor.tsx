@@ -55,21 +55,11 @@ interface StepConfig {
   temperature: number
   max_tokens: number
   data_sources: string[]
-  num_candles?: number
-  publish_to_telegram?: boolean
-  include_context?: {
-    steps: string[]
-    placement: 'before' | 'after'
-    format: 'full' | 'summary'
-    auto_detected?: string[]
-  }
   tool_references?: ToolReference[]
 }
 
 interface PipelineConfig {
   steps: StepConfig[]
-  default_instrument: string
-  default_timeframe: string
   estimated_cost: number
   estimated_duration_seconds: number
 }
@@ -134,12 +124,11 @@ async function updatePipeline(id: number, request: {
 const DEFAULT_STEP_TEMPLATE: Partial<StepConfig> = {
   step_type: 'llm_analysis',
   model: 'openai/gpt-4o-mini',
-  system_prompt: 'You are an expert analyst.',
-  user_prompt_template: 'Analyze {instrument} on {timeframe}.\n\n{market_data_summary}',
+  system_prompt: 'Вы эксперт-аналитик.',
+  user_prompt_template: 'Выполните анализ и предоставьте результаты.',
   temperature: 0.7,
   max_tokens: 2000,
-  data_sources: ['market_data'],
-  num_candles: 30,
+  data_sources: [],
 }
 
 interface PipelineEditorProps {
@@ -153,11 +142,9 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
 
   const [pipelineName, setPipelineName] = useState('')
   const [pipelineDescription, setPipelineDescription] = useState('')
-  const [defaultInstrument, setDefaultInstrument] = useState('BTC/USDT')
-  const [defaultTimeframe, setDefaultTimeframe] = useState('H1')
   const [steps, setSteps] = useState<StepConfig[]>([])
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null)
-  const [showAddStepDialog, setShowAddStepDialog] = useState(false)
+  const [newStepName, setNewStepName] = useState('')
   const [reorderWarning, setReorderWarning] = useState<{ warnings: string[]; newSteps: StepConfig[] } | null>(null)
   const [saveWarning, setSaveWarning] = useState<string[] | null>(null)
 
@@ -190,8 +177,6 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
     if (existingPipeline && !isNew) {
       setPipelineName(existingPipeline.display_name)
       setPipelineDescription(existingPipeline.description || '')
-      setDefaultInstrument(existingPipeline.config.default_instrument)
-      setDefaultTimeframe(existingPipeline.config.default_timeframe)
       setSteps(existingPipeline.config.steps || [])
     } else if (isNew) {
       // Initialize empty pipeline
@@ -203,11 +188,7 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
     mutationFn: createPipeline,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
-      alert('Pipeline created successfully!')
       router.push(`/pipelines/${data.id}/edit`)
-    },
-    onError: (error: any) => {
-      alert(`Failed to create pipeline: ${error.response?.data?.detail || error.message}`)
     },
   })
 
@@ -217,27 +198,23 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
       queryClient.invalidateQueries({ queryKey: ['analysis-type', pipelineId] })
-      alert('Pipeline updated successfully!')
-    },
-    onError: (error: any) => {
-      alert(`Failed to update pipeline: ${error.response?.data?.detail || error.message}`)
     },
   })
 
-  const addStep = (stepName: string) => {
-    if (!stepName.trim()) {
-      alert('Please enter a step name')
+  const addStep = (stepName?: string) => {
+    const nameToUse = stepName || newStepName.trim()
+    if (!nameToUse) {
       return
     }
     
     const newStep: StepConfig = {
       ...DEFAULT_STEP_TEMPLATE,
-      step_name: stepName.trim(),
+      step_name: nameToUse,
       order: steps.length + 1,
     } as StepConfig
     
     setSteps([...steps, newStep])
-    setShowAddStepDialog(false)
+    setNewStepName('')
     setSelectedStepIndex(steps.length)
   }
 
@@ -265,24 +242,12 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
         // If referenced step comes AFTER current step, it's invalid
         if (referencedStepIndex > i) {
           warnings.push(
-            `Step "${step.step_name}" (position ${i + 1}) references {${varName}} from step "${referencedStepName}" (position ${referencedStepIndex + 1}), which comes after it. This will cause an error.`
-          )
+              `Шаг "${step.step_name}" (позиция ${i + 1}) ссылается на {${varName}} из шага "${referencedStepName}" (позиция ${referencedStepIndex + 1}), который идёт после него. Это вызовет ошибку.`
+            )
         }
       }
       
-      // Check include_context references
-      if (step.include_context && step.include_context.steps) {
-        for (const referencedStepName of step.include_context.steps) {
-          const referencedStepIndex = newSteps.findIndex(s => s.step_name === referencedStepName)
-          
-          // If referenced step comes AFTER current step, it's invalid
-          if (referencedStepIndex > i) {
-            warnings.push(
-              `Step "${step.step_name}" (position ${i + 1}) includes context from step "${referencedStepName}" (position ${referencedStepIndex + 1}), which comes after it. This will cause an error.`
-            )
-          }
-        }
-      }
+      // Removed include_context validation - users now use {step_name_output} variables directly in prompts
     }
     
     return {
@@ -354,11 +319,11 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   const savePipeline = () => {
     // Validate
     if (!pipelineName.trim()) {
-      alert('Please enter a pipeline name')
+      alert('Введите название процесса')
       return
     }
     if (steps.length === 0) {
-      alert('Please add at least one step')
+      alert('Добавьте хотя бы один шаг')
       return
     }
 
@@ -377,8 +342,6 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
 
     const config: PipelineConfig = {
       steps: orderedSteps,
-      default_instrument: defaultInstrument,
-      default_timeframe: defaultTimeframe,
       estimated_cost: 0.1 * steps.length, // Rough estimate
       estimated_duration_seconds: 20 * steps.length, // Rough estimate
     }
@@ -401,8 +364,11 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
 
   if (!isNew && isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <p className="text-gray-600 dark:text-gray-400">Loading pipeline...</p>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+          <p className="text-gray-600">Загрузка процесса...</p>
+        </div>
       </div>
     )
   }
@@ -410,130 +376,64 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   return (
     <div className="space-y-6">
       {/* Pipeline Metadata */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-        <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
-          Pipeline Metadata
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h2 className="text-xl font-semibold mb-4 text-gray-900">
+          Метаданные процесса
         </h2>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-              Pipeline Name *
+            <label className="block text-sm font-medium mb-2 text-gray-700">
+              Название процесса *
             </label>
             <input
               type="text"
               value={pipelineName}
               onChange={(e) => setPipelineName(e.target.value)}
-              placeholder="e.g., My Custom Analysis"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              placeholder="Например: Мой анализ"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-              Description
+            <label className="block text-sm font-medium mb-2 text-gray-700">
+              Описание
             </label>
             <textarea
               value={pipelineDescription}
               onChange={(e) => setPipelineDescription(e.target.value)}
-              placeholder="Describe what this pipeline does..."
+              placeholder="Опишите, что делает этот процесс..."
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Default Timeframe
-              </label>
-              <select
-                value={defaultTimeframe}
-                onChange={(e) => setDefaultTimeframe(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="M1">1 Minute</option>
-                <option value="M5">5 Minutes</option>
-                <option value="M15">15 Minutes</option>
-                <option value="H1">1 Hour</option>
-                <option value="D1">1 Day</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Default Instrument
-              </label>
-              <input
-                type="text"
-                value={defaultInstrument}
-                onChange={(e) => setDefaultInstrument(e.target.value)}
-                placeholder="e.g., BTC/USDT"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
           </div>
         </div>
       </div>
 
       {/* Pipeline Steps */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-            Pipeline Steps ({steps.length})
+          <h2 className="text-xl font-semibold text-gray-900">
+            Шаги процесса ({steps.length})
           </h2>
           <div className="flex gap-2">
             <button
-              onClick={() => setShowAddStepDialog(true)}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium"
-            >
-              Add Step
-            </button>
-            <button
               onClick={savePipeline}
               disabled={createMutation.isPending || updateMutation.isPending}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
             >
-              {createMutation.isPending || updateMutation.isPending ? 'Saving...' : isNew ? 'Create Pipeline' : 'Save Pipeline'}
+              {createMutation.isPending || updateMutation.isPending ? 'Сохранение...' : isNew ? 'Создать процесс' : 'Сохранить'}
             </button>
             <button
               onClick={() => router.push('/analyses')}
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-md text-sm font-medium"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
             >
-              Cancel
+              Отмена
             </button>
           </div>
         </div>
 
-        {/* Warning for multiple publishable steps */}
-        {(() => {
-          const publishableSteps = steps.filter(s => s.publish_to_telegram === true)
-          if (publishableSteps.length > 1) {
-            const lastPublishableStep = publishableSteps[publishableSteps.length - 1]
-            return (
-              <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded">
-                <div className="flex items-start gap-2">
-                  <span className="text-yellow-600 dark:text-yellow-400 text-lg">⚠️</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-1">
-                      Multiple steps marked for Telegram publishing
-                    </p>
-                    <p className="text-xs text-yellow-700 dark:text-yellow-400">
-                      {publishableSteps.length} steps have "Publish to Telegram" checked. Only the <strong>last</strong> one ({lastPublishableStep.step_name}) will be published. Consider unchecking others to avoid confusion.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )
-          }
-          return null
-        })()}
-
         {steps.length === 0 ? (
-          <div className="text-center py-12 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-            <p className="text-gray-600 dark:text-gray-400 mb-4">No steps yet. Click "Add Step" to get started.</p>
-            <button
-              onClick={() => setShowAddStepDialog(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
-            >
-              Add First Step
-            </button>
+          <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+            <p className="text-gray-600 mb-4">Пока нет шагов. Добавьте первый шаг ниже, чтобы начать.</p>
           </div>
         ) : (
           <DndContext
@@ -564,36 +464,59 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
             </SortableContext>
           </DndContext>
         )}
-      </div>
 
-      {/* Add Step Dialog */}
-      {showAddStepDialog && (
-        <AddStepDialog
-          onAdd={(stepName) => addStep(stepName)}
-          onClose={() => setShowAddStepDialog(false)}
-        />
-      )}
+        {/* Add Step - Always after last step */}
+        <div className="mt-6 p-3 bg-gray-50 rounded-lg border border-gray-200">
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              value={newStepName}
+              onChange={(e) => setNewStepName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newStepName.trim()) {
+                  addStep()
+                }
+              }}
+              placeholder="Название нового шага (нажмите Enter для добавления)"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <button
+              onClick={() => addStep()}
+              disabled={!newStepName.trim()}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Добавить
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            Все шаги одинаковы по структуре - они отличаются только промптами. Настройте промпты после добавления шага.
+          </p>
+        </div>
+      </div>
 
       {/* Reorder Warning Dialog */}
       {reorderWarning && (
         <WarningDialog
-          title="⚠️ Reordering May Break Variable References"
+          title="⚠️ Изменение порядка может нарушить ссылки на переменные"
           message={reorderWarning.warnings.join('\n\n')}
           onConfirm={() => {
             setSteps(reorderWarning.newSteps)
             setReorderWarning(null)
           }}
           onCancel={() => setReorderWarning(null)}
-          confirmText="Continue Anyway"
-          cancelText="Cancel"
+          confirmText="Продолжить"
+          cancelText="Отмена"
         />
       )}
 
       {/* Save Warning Dialog */}
       {saveWarning && (
         <WarningDialog
-          title="⚠️ Invalid Variable References"
-          message={saveWarning.join('\n\n') + '\n\nThis will cause errors when running the pipeline. Do you want to save anyway?'}
+          title="⚠️ Некорректные ссылки на переменные"
+          message={saveWarning.join('\n\n') + '\n\nЭто вызовет ошибки при запуске процесса. Сохранить всё равно?'}
           onConfirm={() => {
             setSaveWarning(null)
             // Continue with save
@@ -604,8 +527,6 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
 
             const config: PipelineConfig = {
               steps: orderedSteps,
-              default_instrument: defaultInstrument,
-              default_timeframe: defaultTimeframe,
               estimated_cost: 0.1 * steps.length,
               estimated_duration_seconds: 20 * steps.length,
             }
@@ -626,8 +547,8 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
             }
           }}
           onCancel={() => setSaveWarning(null)}
-          confirmText="Save Anyway"
-          cancelText="Cancel"
+          confirmText="Сохранить"
+          cancelText="Отмена"
         />
       )}
     </div>
@@ -677,68 +598,66 @@ function SortableStepItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`border rounded-lg overflow-hidden ${
+      className={`border rounded-lg overflow-hidden transition-all ${
         selectedStepIndex === index
-          ? 'border-blue-500 dark:border-blue-400'
-          : 'border-gray-200 dark:border-gray-700'
+          ? 'border-blue-500 shadow-sm'
+          : 'border-gray-200 hover:border-gray-300'
       }`}
     >
-      <div className="px-4 py-3 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
-        <div className="flex items-center gap-3">
+      <div className="px-4 py-3 flex justify-between items-center bg-gray-50">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
             {...attributes}
             {...listeners}
-            className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-            title="Drag to reorder"
+            className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 flex-shrink-0"
+            title="Перетащите для изменения порядка"
           >
             ☰
           </button>
-          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
+          <span className="text-sm font-medium text-gray-500 flex-shrink-0">
             {step.order || index + 1}.
           </span>
-          <span className="font-semibold text-gray-900 dark:text-white">
+          <span className="font-semibold text-gray-900 truncate">
             {step.step_name}
           </span>
-          <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-600 dark:text-blue-400">
+          <span className="text-xs px-2 py-1 bg-blue-100 rounded text-blue-700 font-medium flex-shrink-0">
             {step.model}
           </span>
-          {step.publish_to_telegram && (
-            <span className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 rounded text-green-600 dark:text-green-400">
-              📤 Publishable
-            </span>
-          )}
-          {step.include_context && step.include_context.steps.length > 0 && (
-            <span className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 rounded text-purple-600 dark:text-purple-400">
-              🔗 Uses context
+          {false && (
+            <span className="text-xs px-2 py-1 bg-green-100 rounded text-green-700 font-medium flex-shrink-0">
+              Результат
             </span>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0">
           <button
             onClick={onSelect}
-            className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
+            className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
           >
-            {selectedStepIndex === index ? 'Hide' : 'Configure'}
+            {selectedStepIndex === index ? 'Скрыть' : 'Настроить'}
           </button>
           <button
             onClick={onRemove}
-            className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded"
+            className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors shadow-sm"
+            title="Удалить шаг"
           >
-            Remove
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
           </button>
         </div>
       </div>
 
-        {selectedStepIndex === index && (
-          <StepConfigurationPanel
-            step={step}
-            stepIndex={index}
-            allSteps={allSteps}
-            enabledModels={enabledModels}
+      {selectedStepIndex === index && (
+        <StepConfigurationPanel
+          step={step}
+          stepIndex={index}
+          allSteps={allSteps}
+          enabledModels={enabledModels}
             tools={tools}
-            onUpdate={onUpdate}
-          />
-        )}
+          onUpdate={onUpdate}
+        />
+      )}
     </div>
   )
 }
@@ -790,388 +709,53 @@ function VariableTextEditorWrapper({
 }
 
 function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tools, onUpdate }: StepConfigurationPanelProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const availableStepNames = allSteps
     .slice(0, stepIndex)
     .map(s => s.step_name)
     .filter(name => name !== step.step_name)
 
+  // Get model display info for summary
+  const currentModel = enabledModels.find(m => m.name === step.model)
+  const modelDisplayName = currentModel?.display_name || step.model
+  const temperatureDisplay = step.temperature <= 0.3 ? '0.2' : step.temperature <= 0.5 ? '0.4' : step.temperature <= 0.7 ? '0.7' : step.temperature <= 1.0 ? '1.0' : '1.5'
+
   return (
-    <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 space-y-4">
-      {/* Model Configuration */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">Model Configuration</p>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Model</label>
-            <Select
-              value={step.model}
-              onChange={(value) => onUpdate({ model: value })}
-              options={enabledModels.map(m => ({
-                value: m.name,
-                label: `${m.display_name} (${m.provider})${m.has_failures ? ' - Has failures' : ''}`,
-                hasFailures: m.has_failures,
-              }))}
-            />
-            {enabledModels.find(m => m.name === step.model)?.has_failures && (
-              <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">⚠️ This model has recorded failures</p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Temperature</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="2"
-              value={step.temperature}
-              onChange={(e) => onUpdate({ temperature: parseFloat(e.target.value) })}
-              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Max Tokens</label>
-            <input
-              type="number"
-              min="1"
-              value={step.max_tokens}
-              onChange={(e) => onUpdate({ max_tokens: parseInt(e.target.value) })}
-              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-            />
-          </div>
-          {step.step_name !== 'merge' && (
-            <div>
-              <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Number of Candles</label>
-              <input
-                type="number"
-                min="1"
-                max="500"
-                value={step.num_candles || 30}
-                onChange={(e) => onUpdate({ num_candles: parseInt(e.target.value) })}
-                className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Context Inclusion */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">Context Inclusion</p>
-        <div className="space-y-2">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={!!step.include_context}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  onUpdate({
-                    include_context: {
-                      steps: [],
-                      placement: 'before',
-                      format: 'summary',
-                    },
-                  })
-                } else {
-                  onUpdate({ include_context: undefined })
-                }
-              }}
-              className="rounded"
-            />
-            <span className="text-sm text-gray-700 dark:text-gray-300">Include context from previous steps</span>
-          </label>
-          {step.include_context && (
-            <div className="ml-6 space-y-2">
-              {(() => {
-                // Check for invalid context references (steps that come after this one)
-                const invalidContextSteps = step.include_context!.steps.filter(referencedStepName => {
-                  const referencedStepIndex = allSteps.findIndex(s => s.step_name === referencedStepName)
-                  return referencedStepIndex > stepIndex
-                })
-                
-                if (invalidContextSteps.length > 0) {
-                  return (
-                    <div className="mb-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                      <p className="text-xs font-semibold text-red-800 dark:text-red-300 mb-1">
-                        ⚠️ Invalid Context References
-                      </p>
-                      <p className="text-xs text-red-700 dark:text-red-400">
-                        This step includes context from: {invalidContextSteps.join(', ')} which come <strong>after</strong> it. 
-                        These won't be available and will cause an error. Please reorder steps or remove these references.
-                      </p>
-                    </div>
-                  )
-                }
-                return null
-              })()}
-              <div>
-                <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Select Steps</label>
-                <div className="space-y-1">
-                  {availableStepNames.map(stepName => (
-                    <label key={stepName} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={step.include_context!.steps.includes(stepName)}
-                        onChange={(e) => {
-                          const currentSteps = step.include_context!.steps
-                          const newSteps = e.target.checked
-                            ? [...currentSteps, stepName]
-                            : currentSteps.filter(s => s !== stepName)
-                          onUpdate({
-                            include_context: {
-                              ...step.include_context!,
-                              steps: newSteps,
-                            },
-                          })
-                        }}
-                        className="rounded"
-                      />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">{stepName}</span>
-                    </label>
-                  ))}
-                  {availableStepNames.length === 0 && (
-                    <p className="text-xs text-gray-500 dark:text-gray-400">No previous steps available</p>
-                  )}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Placement</label>
-                  <select
-                    value={step.include_context!.placement}
-                    onChange={(e) => onUpdate({
-                      include_context: {
-                        ...step.include_context!,
-                        placement: e.target.value as 'before' | 'after',
-                      },
-                    })}
-                    className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                  >
-                    <option value="before">Before prompt</option>
-                    <option value="after">After prompt</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Format</label>
-                  <select
-                    value={step.include_context!.format}
-                    onChange={(e) => onUpdate({
-                      include_context: {
-                        ...step.include_context!,
-                        format: e.target.value as 'full' | 'summary',
-                      },
-                    })}
-                    className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                  >
-                    <option value="summary">Summary (200 chars)</option>
-                    <option value="full">Full output</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Publish to Telegram */}
-      <div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={step.publish_to_telegram || false}
-            onChange={(e) => {
-              onUpdate({ publish_to_telegram: e.target.checked })
-            }}
-            className="rounded"
+    <div className="px-4 pb-4 border-t border-gray-200 bg-gray-50 space-y-4">
+      {/* PROMPTS - Main content, always visible */}
+      <div className="space-y-4">
+        {/* System Prompt */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-900 mb-2">Системный промпт</label>
+          <textarea
+            value={step.system_prompt}
+            onChange={(e) => onUpdate({ system_prompt: e.target.value })}
+            rows={3}
+            placeholder="Определите роль и стиль ответов модели..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
           />
-          <span className="text-sm text-gray-700 dark:text-gray-300">Publish to Telegram</span>
-        </label>
-        <p className="text-xs text-gray-500 dark:text-gray-400 ml-6 mt-1">
-          This step's output will be available for publishing to Telegram
-        </p>
-        {(() => {
-          const publishableSteps = allSteps.filter(s => s.publish_to_telegram === true)
-          const isLastPublishable = publishableSteps.length > 0 && 
-            publishableSteps[publishableSteps.length - 1].step_name === step.step_name
-          const isNotLastPublishable = step.publish_to_telegram && publishableSteps.length > 1 && !isLastPublishable
-          
-          if (isNotLastPublishable) {
-            return (
-              <p className="text-xs text-yellow-600 dark:text-yellow-400 ml-6 mt-1">
-                ⚠️ Another step will be published instead (only the last publishable step is used)
-              </p>
-            )
-          }
-          if (isLastPublishable && publishableSteps.length > 1) {
-            return (
-              <p className="text-xs text-green-600 dark:text-green-400 ml-6 mt-1">
-                ✓ This step will be published (it's the last publishable step)
-              </p>
-            )
-          }
-          return null
-        })()}
-      </div>
-
-      {/* Tool References */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">Tool References</p>
-        <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-          Select tools to use in this step's prompt. Tools will execute and inject results before the prompt is sent to the LLM.
-        </p>
-        
-        <div className="space-y-3">
-          {(step.tool_references || []).map((toolRef, refIndex) => {
-            const tool = tools.find(t => t.id === toolRef.tool_id)
-            return (
-              <div key={refIndex} className="p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">
-                        {tool ? tool.display_name : `Tool #${toolRef.tool_id}`}
-                      </span>
-                      {tool && (
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          tool.tool_type === 'api' ? 'bg-blue-100 text-blue-800' :
-                          tool.tool_type === 'database' ? 'bg-green-100 text-green-800' :
-                          'bg-purple-100 text-purple-800'
-                        }`}>
-                          {tool.tool_type}
-                        </span>
-                      )}
-                      {tool && !tool.is_active && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">
-                          Inactive
-                        </span>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <div>
-                        <label className="block text-xs text-gray-700 dark:text-gray-300 mb-1">
-                          Variable Name (use in prompt as {'{'}{toolRef.variable_name}{'}'})
-                        </label>
-                        <input
-                          type="text"
-                          value={toolRef.variable_name}
-                          onChange={(e) => {
-                            const newRefs = [...(step.tool_references || [])]
-                            newRefs[refIndex] = { ...toolRef, variable_name: e.target.value }
-                            onUpdate({ tool_references: newRefs })
-                          }}
-                          className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                          placeholder="tool_variable_name"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-700 dark:text-gray-300 mb-1">
-                          Extraction Method
-                        </label>
-                        <select
-                          value={toolRef.extraction_method}
-                          onChange={(e) => {
-                            const newRefs = [...(step.tool_references || [])]
-                            newRefs[refIndex] = { 
-                              ...toolRef, 
-                              extraction_method: e.target.value as 'natural_language' | 'explicit' | 'template'
-                            }
-                            onUpdate({ tool_references: newRefs })
-                          }}
-                          className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                        >
-                          <option value="natural_language">Natural Language (extract from prompt text)</option>
-                          <option value="explicit">Explicit Parameters (future)</option>
-                          <option value="template">Query Template (future)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const newRefs = [...(step.tool_references || [])]
-                      newRefs.splice(refIndex, 1)
-                      onUpdate({ tool_references: newRefs.length > 0 ? newRefs : undefined })
-                    }}
-                    className="ml-2 text-red-600 hover:text-red-800 text-sm"
-                    title="Remove tool reference"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-          
-          <div>
-            <select
-              value=""
-              onChange={(e) => {
-                const toolId = parseInt(e.target.value)
-                if (toolId) {
-                  const tool = tools.find(t => t.id === toolId)
-                  if (tool) {
-                    // Sanitize display_name for variable name
-                    const variableName = tool.display_name
-                      .toLowerCase()
-                      .replace(/[^a-z0-9]+/g, '_')
-                      .replace(/^_+|_+$/g, '')
-                    
-                    const newRef: ToolReference = {
-                      tool_id: toolId,
-                      variable_name: variableName,
-                      extraction_method: 'natural_language',
-                      extraction_config: {
-                        context_window: 200
-                      }
-                    }
-                    const newRefs = [...(step.tool_references || []), newRef]
-                    onUpdate({ tool_references: newRefs })
-                    e.target.value = ''
-                  }
-                }
-              }}
-              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-            >
-              <option value="">+ Add Tool Reference</option>
-              {tools
-                .filter(tool => tool.is_active)
-                .filter(tool => !step.tool_references?.some(ref => ref.tool_id === tool.id))
-                .map(tool => (
-                  <option key={tool.id} value={tool.id}>
-                    {tool.display_name} ({tool.tool_type})
-                  </option>
-                ))}
-            </select>
-            {tools.length === 0 && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                No tools available. <Link href="/tools/new" className="text-blue-600 hover:underline">Create a tool</Link>
-              </p>
-            )}
-          </div>
         </div>
-      </div>
 
-      {/* System Prompt */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">System Prompt</p>
-        <textarea
-          value={step.system_prompt}
-          onChange={(e) => onUpdate({ system_prompt: e.target.value })}
-          rows={4}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono"
-        />
-      </div>
-
-      {/* User Prompt Template */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">User Prompt Template</p>
+        {/* User Prompt Template */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-900 mb-2">Пользовательский промпт</label>
         {(() => {
           // Get available variables
           const previousSteps = allSteps.slice(0, stepIndex)
-          const standardVars = ['{instrument}', '{timeframe}', '{market_data_summary}']
+          // Removed trading-specific variables: {instrument}, {timeframe}, {market_data_summary}
+          // These are only relevant for trading pipelines and are handled automatically by the backend
           const stepOutputVars = previousSteps.map(s => `{${s.step_name}_output}`)
-          // Add tool reference variables
-          const toolVars = (step.tool_references || []).map(ref => `{${ref.variable_name}}`)
-          const availableVariables = [...standardVars, ...stepOutputVars, ...toolVars]
+          // Add all tool variables (simplified - no configuration needed)
+          const toolVars = tools
+            .filter(tool => tool.is_active)
+            .map(tool => {
+              const variableName = tool.display_name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '')
+              return `{${variableName}}`
+            })
+          const availableVariables = [...stepOutputVars, ...toolVars]
           
           return (
             <>
@@ -1179,6 +763,8 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
                 allSteps={allSteps}
                 currentStepIndex={stepIndex}
                 tools={tools}
+                step={step}
+                onUpdate={onUpdate}
                 editorRef={(index: number) => {
                   const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
                   return refs?.get(index) || { current: null }
@@ -1207,13 +793,13 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
                 
                 if (invalidRefs.length > 0) {
                   return (
-                    <div className="mb-2 p-2 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                      <p className="text-xs font-semibold text-red-800 dark:text-red-300 mb-1">
-                        ⚠️ Invalid Variable References
+                    <div className="mb-2 p-2 bg-red-50 rounded border border-red-200">
+                      <p className="text-xs font-semibold text-red-800 mb-1">
+                        ⚠️ Некорректные ссылки на переменные
                       </p>
-                      <p className="text-xs text-red-700 dark:text-red-400">
-                        This step references: {invalidRefs.join(', ')} from steps that come <strong>after</strong> it. 
-                        These variables won't be available and will cause an error. Please reorder steps or remove these references.
+                      <p className="text-xs text-red-700">
+                        Этот шаг ссылается на: {invalidRefs.join(', ')} из шагов, которые идут <strong>после</strong> него. 
+                        Эти переменные не будут доступны и вызовут ошибку. Измените порядок шагов или удалите эти ссылки.
                       </p>
                     </div>
                   )
@@ -1229,6 +815,104 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
             </>
           )
         })()}
+        </div>
+      </div>
+
+      {/* Advanced Settings - Collapsible */}
+      <div className="border-t border-gray-300 pt-4">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full flex items-center justify-between text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <svg className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Дополнительные настройки
+          </span>
+          {!showAdvanced && (
+            <span className="text-xs text-gray-500 font-normal">
+              {modelDisplayName} • {temperatureDisplay} • {step.max_tokens} токенов
+            </span>
+          )}
+        </button>
+
+        {showAdvanced && (
+          <div className="mt-4 space-y-4 pt-4 border-t border-gray-200">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm mb-1 text-gray-700">Модель</label>
+                <Select
+                  value={step.model}
+                  onChange={(value) => onUpdate({ model: value })}
+                  options={enabledModels.map(m => ({
+                    value: m.name,
+                    label: `${m.display_name} (${m.provider})${m.has_failures ? ' - Есть ошибки' : ''}`,
+                    hasFailures: m.has_failures,
+                  }))}
+                />
+                {currentModel?.has_failures && (
+                  <p className="mt-1 text-xs text-orange-600">⚠️ У этой модели были зафиксированы ошибки</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm mb-1 text-gray-700">Макс. токенов</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={step.max_tokens}
+                  onChange={(e) => onUpdate({ max_tokens: parseInt(e.target.value) })}
+                  className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm mb-2 text-gray-700">Креативность ответа</label>
+              <div className="space-y-2">
+                <div className="flex items-center gap-4">
+                  <input
+                    type="range"
+                    min="0"
+                    max="4"
+                    step="1"
+                    value={(() => {
+                      const temp = step.temperature
+                      if (temp <= 0.3) return 0
+                      if (temp <= 0.5) return 1
+                      if (temp <= 0.7) return 2
+                      if (temp <= 1.0) return 3
+                      return 4
+                    })()}
+                    onChange={(e) => {
+                      const positions = [0.2, 0.4, 0.7, 1.0, 1.5]
+                      const temp = positions[parseInt(e.target.value)]
+                      onUpdate({ temperature: temp })
+                    }}
+                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                  <span className="text-sm font-medium text-gray-700 min-w-[60px] text-right">
+                    {temperatureDisplay}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span className="flex-1 text-left">Консервативный</span>
+                  <span className="flex-1 text-center">Сбалансированный</span>
+                  <span className="flex-1 text-right">Креативный</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {(() => {
+                    const temp = step.temperature
+                    if (temp <= 0.3) return 'Более предсказуемые и стабильные ответы. Идеально для анализа данных.'
+                    if (temp <= 0.5) return 'Умеренная предсказуемость. Хорошо для структурированного анализа.'
+                    if (temp <= 0.7) return 'Баланс между стабильностью и разнообразием. Рекомендуется для большинства задач.'
+                    if (temp <= 1.0) return 'Более разнообразные ответы. Подходит для креативных задач.'
+                    return 'Максимальная креативность. Высокая вариативность ответов.'
+                  })()}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1241,41 +925,72 @@ interface VariablePaletteProps {
   editorRef?: (index: number) => React.RefObject<VariableTextEditorHandle>
   onInsertVariable: (variable: string, editorRef?: React.RefObject<VariableTextEditorHandle>) => void
   tools?: Tool[]
+  step: StepConfig
+  onUpdate: (updates: Partial<StepConfig>) => void
 }
 
-function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariable, tools = [] }: VariablePaletteProps) {
+function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariable, tools = [], step, onUpdate }: VariablePaletteProps) {
   // Get previous steps (steps before current one)
   const previousSteps = allSteps.slice(0, currentStepIndex)
   const currentStep = allSteps[currentStepIndex]
   
-  // Standard variables
-  const standardVars = [
-    { name: '{instrument}', desc: 'Instrument symbol (e.g., "BTC/USDT")' },
-    { name: '{timeframe}', desc: 'Timeframe (e.g., "H1", "M15")' },
-    { name: '{market_data_summary}', desc: 'Formatted OHLCV candle data' },
-  ]
+  // Standard variables (removed trading-specific: instrument, timeframe, market_data_summary)
+  // These are only relevant for trading pipelines and are handled automatically by the backend
+  const standardVars: Array<{ name: string; desc: string }> = []
   
   // Previous step outputs
   const stepOutputVars = previousSteps.map(step => ({
     name: `{${step.step_name}_output}`,
-    desc: `Output from "${step.step_name}" step`,
+    desc: `Вывод из шага "${step.step_name}"`,
   }))
   
-  // Tool reference variables
-  const toolVars = (currentStep?.tool_references || []).map(ref => {
-    const tool = tools.find(t => t.id === ref.tool_id)
-    return {
-      name: `{${ref.variable_name}}`,
-      desc: tool ? `Tool: ${tool.display_name} (${tool.tool_type})` : `Tool reference: ${ref.variable_name}`,
+  // All available tools as variables (simplified - no configuration needed)
+  const toolVars = tools
+    .filter(tool => tool.is_active)
+    .map(tool => {
+      // Generate variable name from display_name
+      const variableName = tool.display_name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+      
+      return {
+        toolId: tool.id,
+        name: `{${variableName}}`,
+        desc: `${tool.display_name} (${tool.tool_type})`,
+        variableName,
+      }
+    })
+  
+  // Handle tool variable click - automatically add to tool_references if not already there
+  const handleToolVariableClick = (toolVar: { toolId: number; name: string; variableName: string }, editorRef?: React.RefObject<VariableTextEditorHandle>) => {
+    // Check if tool is already in tool_references
+    const existingRef = (step.tool_references || []).find(ref => ref.tool_id === toolVar.toolId)
+    
+    if (!existingRef) {
+      // Add tool reference with defaults
+      const newRef: ToolReference = {
+        tool_id: toolVar.toolId,
+        variable_name: toolVar.variableName,
+        extraction_method: 'natural_language',
+        extraction_config: {
+          context_window: 200
+        }
+      }
+      const newRefs = [...(step.tool_references || []), newRef]
+      onUpdate({ tool_references: newRefs })
     }
-  })
+    
+    // Insert variable into prompt
+    if (editorRef?.current) {
+      editorRef.current.insertVariable(toolVar.name)
+    }
+  }
   
   return (
-    <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-      <p className="text-xs font-semibold text-blue-900 dark:text-blue-300 mb-2">
-        Available Variables (click to insert):
-      </p>
-      <div className="flex flex-wrap gap-2">
+    <div className="mb-2">
+      <div className="flex flex-wrap gap-1.5 items-center">
+        <span className="text-xs text-gray-500 mr-1">Переменные:</span>
         {standardVars.map((v) => {
           const ref = editorRef ? editorRef(currentStepIndex) : undefined
           return (
@@ -1283,7 +998,7 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
               key={v.name}
               type="button"
               onClick={() => onInsertVariable(v.name, ref)}
-              className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded border border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-300 font-mono cursor-pointer transition-colors"
+              className="text-xs px-2 py-0.5 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-blue-700 font-mono cursor-pointer transition-colors"
               title={v.desc}
             >
               {v.name}
@@ -1292,7 +1007,7 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
         })}
         {stepOutputVars.length > 0 && (
           <>
-            <span className="text-xs text-blue-600 dark:text-blue-400 self-center">|</span>
+            <span className="text-xs text-gray-300 self-center">•</span>
             {stepOutputVars.map((v) => {
               const ref = editorRef ? editorRef(currentStepIndex) : undefined
               return (
@@ -1300,7 +1015,7 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
                   key={v.name}
                   type="button"
                   onClick={() => onInsertVariable(v.name, ref)}
-                  className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 rounded border border-purple-300 dark:border-purple-700 text-purple-800 dark:text-purple-300 font-mono cursor-pointer transition-colors"
+                  className="text-xs px-2 py-0.5 bg-purple-50 hover:bg-purple-100 rounded border border-purple-200 text-purple-700 font-mono cursor-pointer transition-colors"
                   title={v.desc}
                 >
                   {v.name}
@@ -1311,15 +1026,15 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
         )}
         {toolVars.length > 0 && (
           <>
-            <span className="text-xs text-blue-600 dark:text-blue-400 self-center">|</span>
+            <span className="text-xs text-gray-300 self-center">•</span>
             {toolVars.map((v) => {
               const ref = editorRef ? editorRef(currentStepIndex) : undefined
               return (
                 <button
                   key={v.name}
                   type="button"
-                  onClick={() => onInsertVariable(v.name, ref)}
-                  className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 rounded border border-green-300 dark:border-green-700 text-green-800 dark:text-green-300 font-mono cursor-pointer transition-colors"
+                  onClick={() => handleToolVariableClick(v, ref)}
+                  className="text-xs px-2 py-0.5 bg-green-50 hover:bg-green-100 rounded border border-green-200 text-green-700 font-mono cursor-pointer transition-colors"
                   title={v.desc}
                 >
                   {v.name}
@@ -1328,9 +1043,9 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
             })}
           </>
         )}
-        {previousSteps.length === 0 && toolVars.length === 0 && (
-          <span className="text-xs text-blue-600 dark:text-blue-400 italic">
-            (No previous steps or tools - add steps before this one or select tools above)
+        {previousSteps.length === 0 && toolVars.length === 0 && standardVars.length === 0 && (
+          <span className="text-xs text-blue-600 italic">
+            (Нет доступных переменных - добавьте шаги перед этим или создайте инструменты)
           </span>
         )}
       </div>
@@ -1348,14 +1063,14 @@ interface WarningDialogProps {
   cancelText?: string
 }
 
-function WarningDialog({ title, message, onConfirm, onCancel, confirmText = 'Continue', cancelText = 'Cancel' }: WarningDialogProps) {
+function WarningDialog({ title, message, onConfirm, onCancel, confirmText = 'Продолжить', cancelText = 'Отмена' }: WarningDialogProps) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
-        <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">{title}</h3>
+      <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
+        <h3 className="text-xl font-semibold mb-4 text-gray-900">{title}</h3>
         
         <div className="mb-6">
-          <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-900/50 p-3 rounded border border-gray-200 dark:border-gray-700 max-h-96 overflow-y-auto">
+          <pre className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 p-3 rounded border border-gray-200 max-h-96 overflow-y-auto">
             {message}
           </pre>
         </div>
@@ -1363,13 +1078,13 @@ function WarningDialog({ title, message, onConfirm, onCancel, confirmText = 'Con
         <div className="flex gap-2 justify-end">
           <button
             onClick={onCancel}
-            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-md"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-md"
+            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors"
           >
             {confirmText}
           </button>
@@ -1379,67 +1094,4 @@ function WarningDialog({ title, message, onConfirm, onCancel, confirmText = 'Con
   )
 }
 
-// Add Step Dialog Component
-interface AddStepDialogProps {
-  onAdd: (stepName: string) => void
-  onClose: () => void
-}
-
-function AddStepDialog({ onAdd, onClose }: AddStepDialogProps) {
-  const [stepName, setStepName] = useState('')
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-        <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Add Step</h3>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-              Step Name *
-            </label>
-            <input
-              type="text"
-              value={stepName}
-              onChange={(e) => setStepName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && stepName.trim()) {
-                  onAdd(stepName.trim())
-                  setStepName('')
-                }
-              }}
-              placeholder="e.g., wyckoff, smc, my_analysis"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              autoFocus
-            />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              All steps are the same - they differ only by their prompts. You'll configure the prompts after adding the step.
-            </p>
-          </div>
-
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-md"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => {
-                if (stepName.trim()) {
-                  onAdd(stepName.trim())
-                  setStepName('')
-                }
-              }}
-              disabled={!stepName.trim()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-md"
-            >
-              Add Step
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 

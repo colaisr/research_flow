@@ -25,8 +25,6 @@ interface AnalysisType {
       max_tokens: number
       data_sources: string[]
     }>
-    default_instrument: string
-    default_timeframe: string
     estimated_cost: number
     estimated_duration_seconds: number
   }
@@ -37,13 +35,10 @@ interface AnalysisType {
   updated_at: string
 }
 
-async function fetchAnalysisTypes(filter?: 'all' | 'my' | 'system') {
-  let url = `${API_BASE_URL}/api/analyses`
-  if (filter === 'my') {
-    url = `${API_BASE_URL}/api/analyses/my`
-  } else if (filter === 'system') {
-    url = `${API_BASE_URL}/api/analyses/system`
-  }
+async function fetchAnalysisTypes(filter: 'my' | 'system') {
+  const url = filter === 'my' 
+    ? `${API_BASE_URL}/api/analyses/my`
+    : `${API_BASE_URL}/api/analyses/system`
   const { data } = await axios.get<AnalysisType[]>(url, { withCredentials: true })
   return data
 }
@@ -60,7 +55,7 @@ async function duplicateAnalysisType(id: number) {
 export default function AnalysesPage() {
   const router = useRouter()
   const { isAuthenticated } = useAuth()
-  const [filter, setFilter] = useState<'all' | 'my' | 'system'>('all')
+  const [filter, setFilter] = useState<'my' | 'system'>('my')
   
   const { data: analysisTypes = [], isLoading, error, refetch } = useQuery({
     queryKey: ['analysis-types', filter],
@@ -73,7 +68,7 @@ export default function AnalysesPage() {
       const duplicated = await duplicateAnalysisType(id)
       router.push(`/pipelines/${duplicated.id}/edit`)
     } catch (error: any) {
-      alert(`Failed to duplicate: ${error.response?.data?.detail || error.message}`)
+      alert(`Не удалось дублировать: ${error.response?.data?.detail || error.message}`)
     }
   }
 
@@ -81,7 +76,10 @@ export default function AnalysesPage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Loading analyses...</p>
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            <p className="text-gray-600">Загрузка анализов...</p>
+          </div>
         </div>
       </div>
     )
@@ -91,9 +89,10 @@ export default function AnalysesPage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 rounded p-4">
-            <p className="text-red-700 dark:text-red-400">
-              Error loading analyses: {error instanceof Error ? error.message : 'Unknown error'}
+          <div className="bg-red-50 border-2 border-red-200 rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-red-900 mb-2">Ошибка загрузки анализов</h2>
+            <p className="text-red-700">
+              {error instanceof Error ? error.message : 'Неизвестная ошибка'}
             </p>
           </div>
         </div>
@@ -106,149 +105,170 @@ export default function AnalysesPage() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-6 flex justify-between items-center">
           <div>
-            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-              Analysis Pipelines
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">
+              Анализы
             </h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              Browse and configure available analysis pipelines
+            <p className="text-gray-600">
+              Управление вашими аналитическими процессами
             </p>
           </div>
           <button
             onClick={() => router.push('/pipelines/new')}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium transition-colors"
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm hover:shadow-md"
           >
-            Create New Pipeline
+            Создать процесс
           </button>
         </div>
 
         {/* Filter Tabs */}
         {isAuthenticated && (
-          <div className="mb-6 flex gap-2 border-b border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-4 py-2 font-medium transition-colors ${
-                filter === 'all'
-                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              All Pipelines
-            </button>
+          <div className="mb-6 flex gap-2 border-b border-gray-200">
             <button
               onClick={() => setFilter('my')}
               className={`px-4 py-2 font-medium transition-colors ${
                 filter === 'my'
-                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              My Pipelines
+              Мои процессы
             </button>
             <button
               onClick={() => setFilter('system')}
               className={`px-4 py-2 font-medium transition-colors ${
                 filter === 'system'
-                  ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              System Pipelines
+              Примеры процессов
             </button>
           </div>
         )}
 
+        {filter === 'system' && analysisTypes.length > 0 && (
+          <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-sm text-blue-800">
+              💡 Это примеры процессов для ознакомления. Нажмите кнопку клонирования, чтобы создать свою копию и начать редактирование.
+            </p>
+          </div>
+        )}
+
         {analysisTypes.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <p className="text-gray-600 dark:text-gray-400">No analysis types available.</p>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+            {filter === 'my' ? (
+              <>
+                <p className="text-gray-600 mb-4">У вас пока нет созданных процессов.</p>
+                <button
+                  onClick={() => router.push('/pipelines/new')}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm"
+                >
+                  Создать первый процесс
+                </button>
+              </>
+            ) : (
+              <p className="text-gray-600">Нет доступных примеров процессов.</p>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {analysisTypes.map((analysis) => (
               <div
                 key={analysis.id}
-                className="bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-lg transition-shadow p-6 flex flex-col"
+                className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-gray-300 transition-all p-6 flex flex-col"
               >
                 <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2 truncate">
                       {analysis.display_name}
                     </h3>
-                    <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-400">
+                    <span className="inline-block text-xs px-2 py-1 bg-gray-100 rounded text-gray-600 font-medium">
                       v{analysis.version}
                     </span>
                   </div>
                 </div>
 
                 {analysis.description && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  <p className="text-sm text-gray-600 mb-4 line-clamp-3 leading-relaxed">
                     {analysis.description}
                   </p>
                 )}
 
-                <div className="space-y-2 mb-4 flex-grow">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400">Steps:</span>
-                    <span className="text-gray-900 dark:text-white font-medium">
+                <div className="space-y-2.5 mb-5 flex-grow">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500 uppercase tracking-wide text-xs">Шаги:</span>
+                    <span className="text-gray-900 font-semibold">
                       {analysis.config.steps.length}
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400">Estimated Cost:</span>
-                    <span className="text-gray-900 dark:text-white font-medium">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500 uppercase tracking-wide text-xs">Стоимость:</span>
+                    <span className="text-gray-900 font-semibold">
                       ${analysis.config.estimated_cost.toFixed(3)}
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400">Duration:</span>
-                    <span className="text-gray-900 dark:text-white font-medium">
-                      ~{Math.round(analysis.config.estimated_duration_seconds / 60)} min
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400">Default Timeframe:</span>
-                    <span className="text-gray-900 dark:text-white font-medium">
-                      {analysis.config.default_timeframe}
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500 uppercase tracking-wide text-xs">Длительность:</span>
+                    <span className="text-gray-900 font-semibold">
+                      ~{Math.round(analysis.config.estimated_duration_seconds / 60)} мин
                     </span>
                   </div>
                 </div>
 
-                <div className="flex gap-2 mt-auto">
+                <div className="flex gap-2 mt-auto pt-4 border-t border-gray-200">
                   {analysis.is_system ? (
                     <>
                       <button
                         onClick={() => handleDuplicate(analysis.id)}
-                        className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium transition-colors"
+                        className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
+                        title="Дублировать"
                       >
-                        Duplicate
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
                       </button>
                       <Link
                         href={`/analyses/${analysis.id}`}
-                        className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium text-center transition-colors"
+                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-center transition-colors shadow-sm flex items-center justify-center"
+                        title="Запустить"
                       >
-                        Run
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
                       </Link>
                     </>
                   ) : (
                     <>
                       <button
                         onClick={() => router.push(`/pipelines/${analysis.id}/edit`)}
-                        className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
+                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
+                        title="Редактировать"
                       >
-                        Edit Pipeline
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
                       </button>
                       <Link
                         href={`/analyses/${analysis.id}`}
-                        className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium text-center transition-colors"
+                        className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-center transition-colors shadow-sm flex items-center justify-center"
+                        title="Запустить"
                       >
-                        Run
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
                       </Link>
                     </>
                   )}
                   <button
                     onClick={() => router.push(`/runs?analysis_type_id=${analysis.id}`)}
-                    className="flex-1 px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-md text-sm font-medium transition-colors"
+                    className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
+                    title="История"
                   >
-                    History
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                   </button>
                 </div>
               </div>

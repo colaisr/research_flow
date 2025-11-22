@@ -42,8 +42,6 @@ class AnalysisType(Base):
     #     },
     #     ...
     #   ],
-    #   "default_instrument": "BTC/USDT",
-    #   "default_timeframe": "H1",
     #   "estimated_cost": 0.18,
     #   "estimated_duration_seconds": 120
     # }

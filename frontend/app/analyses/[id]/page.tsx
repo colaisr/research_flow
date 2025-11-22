@@ -3,7 +3,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import Select from '@/components/Select'
@@ -26,12 +25,6 @@ interface DataSource {
   is_enabled: boolean
 }
 
-interface Instrument {
-  symbol: string
-  type: string
-  exchange: string | null
-}
-
 interface StepConfig {
   step_name: string
   step_type: string
@@ -41,7 +34,6 @@ interface StepConfig {
   temperature: number
   max_tokens: number
   data_sources: string[]
-  num_candles?: number
 }
 
 interface AnalysisType {
@@ -52,8 +44,6 @@ interface AnalysisType {
   version: string
   config: {
     steps: StepConfig[]
-    default_instrument: string
-    default_timeframe: string
     estimated_cost: number
     estimated_duration_seconds: number
   }
@@ -72,50 +62,22 @@ async function fetchEnabledDataSources() {
   return data
 }
 
-async function fetchInstruments(analysisTypeId?: number) {
-  const url = analysisTypeId 
-    ? `${API_BASE_URL}/api/instruments?analysis_type_id=${analysisTypeId}`
-    : `${API_BASE_URL}/api/instruments`
-  const { data } = await axios.get<Instrument[]>(url)
-  return data
-}
-
 async function fetchAnalysisType(id: string) {
   const { data } = await axios.get<AnalysisType>(`${API_BASE_URL}/api/analyses/${id}`)
   return data
 }
 
-interface Tool {
-  id: number
-  display_name: string
-  tool_type: 'database' | 'api' | 'rag'
-  is_active: boolean
-}
-
-async function fetchTools() {
-  const { data } = await axios.get<Tool[]>(`${API_BASE_URL}/api/tools?tool_type=api`, {
-    withCredentials: true
-  })
-  return data
-}
-
 async function createRun(
   analysisTypeId: number, 
-  instrument: string, 
-  timeframe: string,
-  customConfig?: AnalysisType['config'],
-  toolId?: number | null
+  customConfig?: AnalysisType['config']
 ) {
   const payload: any = {
     analysis_type_id: analysisTypeId,
-    instrument,
-    timeframe,
+    instrument: 'N/A',
+    timeframe: 'N/A',
   }
   if (customConfig) {
     payload.custom_config = customConfig
-  }
-  if (toolId) {
-    payload.tool_id = toolId
   }
   const { data } = await axios.post(`${API_BASE_URL}/api/runs`, payload, {
     withCredentials: true
@@ -129,9 +91,6 @@ export default function AnalysisDetailPage() {
   const queryClient = useQueryClient()
   const analysisId = params.id as string
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
-  const [selectedInstrument, setSelectedInstrument] = useState<string>('')
-  const [selectedTimeframe, setSelectedTimeframe] = useState<string>('')
-  const [selectedToolId, setSelectedToolId] = useState<number | null>(null)
   const [editableConfig, setEditableConfig] = useState<AnalysisType['config'] | null>(null)
   const [isEditing, setIsEditing] = useState(false)
 
@@ -143,7 +102,7 @@ export default function AnalysisDetailPage() {
   const { data: enabledModels = [] } = useQuery({
     queryKey: ['settings', 'models', 'enabled'],
     queryFn: fetchEnabledModels,
-    staleTime: 0, // Always fetch fresh data to get latest has_failures status
+    staleTime: 0,
   })
 
   const { data: enabledDataSources = [] } = useQuery({
@@ -151,20 +110,9 @@ export default function AnalysisDetailPage() {
     queryFn: fetchEnabledDataSources,
   })
 
-  const { data: instruments = [], isLoading: instrumentsLoading, error: instrumentsError } = useQuery({
-    queryKey: ['instruments', analysisId],
-    queryFn: () => fetchInstruments(analysis?.id),
-    enabled: !!analysis,
-  })
-
-  const { data: tools = [], isLoading: toolsLoading } = useQuery({
-    queryKey: ['tools', 'api'],
-    queryFn: fetchTools,
-  })
-
   const createRunMutation = useMutation({
-    mutationFn: ({ instrument, timeframe, toolId }: { instrument: string; timeframe: string; toolId?: number | null }) =>
-      createRun(analysis?.id || 0, instrument, timeframe, editableConfig || undefined, toolId),
+    mutationFn: () =>
+      createRun(analysis?.id || 0, editableConfig || undefined),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       router.push(`/runs/${data.id}`)
@@ -174,46 +122,14 @@ export default function AnalysisDetailPage() {
     },
   })
 
-  // Initialize editable config when analysis loads
   useEffect(() => {
     if (analysis && !editableConfig) {
-      setEditableConfig(JSON.parse(JSON.stringify(analysis.config))) // Deep copy
+      setEditableConfig(JSON.parse(JSON.stringify(analysis.config)))
     }
   }, [analysis, editableConfig])
 
-  // Set defaults on load - only if default instrument is available in enabled instruments
-  useEffect(() => {
-    if (analysis && instruments.length > 0) {
-      // Check if default instrument is available in enabled instruments
-      const defaultInstrumentAvailable = instruments.some(
-        inst => inst.symbol === analysis.config.default_instrument
-      )
-      
-      if (!selectedInstrument) {
-        if (defaultInstrumentAvailable && analysis.config.default_instrument) {
-          // Use default if available
-          setSelectedInstrument(analysis.config.default_instrument)
-        } else if (instruments.length > 0) {
-          // Otherwise use first available instrument
-          setSelectedInstrument(instruments[0].symbol)
-        }
-      }
-      if (!selectedTimeframe && analysis.config.default_timeframe) {
-        setSelectedTimeframe(analysis.config.default_timeframe)
-      }
-    }
-  }, [analysis, instruments, selectedInstrument, selectedTimeframe])
-
   const handleRunAnalysis = () => {
-    if (!selectedInstrument || !selectedTimeframe) {
-      alert('Please select instrument and timeframe')
-      return
-    }
-    createRunMutation.mutate({
-      instrument: selectedInstrument,
-      timeframe: selectedTimeframe,
-      toolId: selectedToolId,
-    })
+    createRunMutation.mutate()
   }
 
   const toggleStep = (stepName: string) => {
@@ -227,12 +143,18 @@ export default function AnalysisDetailPage() {
   }
 
   const stepNames: Record<string, string> = {
-    wyckoff: '1️⃣ Wyckoff Analysis',
-    smc: '2️⃣ Smart Money Concepts (SMC)',
-    vsa: '3️⃣ Volume Spread Analysis (VSA)',
-    delta: '4️⃣ Delta Analysis',
-    ict: '5️⃣ ICT Analysis',
-    merge: '6️⃣ Merge & Telegram Post',
+    wyckoff: 'Анализ Wyckoff',
+    smc: 'Smart Money Concepts (SMC)',
+    vsa: 'Volume Spread Analysis (VSA)',
+    delta: 'Анализ Delta',
+    ict: 'ICT Анализ',
+    price_action: 'Price Action / Паттерны',
+    merge: 'Финальный результат',
+    generate_cities: 'Генерация городов',
+    analyze_weather: 'Анализ погоды',
+    evaluate_attractions: 'Оценка достопримечательностей',
+    calculate_costs: 'Расчет стоимости',
+    final_recommendation: 'Финальная рекомендация',
   }
 
   const updateStepConfig = (stepIndex: number, field: keyof StepConfig, value: any) => {
@@ -270,7 +192,10 @@ export default function AnalysisDetailPage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Loading analysis configuration...</p>
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            <p className="text-gray-600">Загрузка конфигурации анализа...</p>
+          </div>
         </div>
       </div>
     )
@@ -280,10 +205,17 @@ export default function AnalysisDetailPage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 rounded p-4">
-            <p className="text-red-700 dark:text-red-400">
-              Error loading analysis: {error instanceof Error ? error.message : 'Unknown error'}
+          <div className="bg-red-50 border-2 border-red-200 rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-red-900 mb-2">Ошибка загрузки анализа</h2>
+            <p className="text-red-700">
+              {error instanceof Error ? error.message : 'Неизвестная ошибка'}
             </p>
+            <button
+              onClick={() => router.push('/analyses')}
+              className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors"
+            >
+              Назад к анализам
+            </button>
           </div>
         </div>
       </div>
@@ -292,90 +224,95 @@ export default function AnalysisDetailPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div>
           <button
             onClick={() => router.push('/analyses')}
-            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 mb-4"
+            className="text-sm text-blue-600 hover:text-blue-800 mb-2 flex items-center gap-1 transition-colors"
           >
-            ← Back to Analyses
+            <span>←</span> Назад к анализам
           </button>
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
             {analysis.display_name}
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">{analysis.description}</p>
+          {analysis.description && (
+            <p className="text-gray-600">{analysis.description}</p>
+          )}
         </div>
 
-        {/* Analysis Overview */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
-          <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
-            Overview
+        {/* Overview Card */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            Обзор
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Version</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Версия</p>
+              <p className="text-lg font-semibold text-gray-900">
                 v{analysis.version}
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Steps</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Шагов</p>
+              <p className="text-lg font-semibold text-gray-900">
                 {analysis.config.steps.length}
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Estimated Cost</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Стоимость</p>
+              <p className="text-lg font-semibold text-gray-900">
                 ${analysis.config.estimated_cost.toFixed(3)}
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Duration</p>
-              <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                ~{Math.round(analysis.config.estimated_duration_seconds / 60)} min
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Длительность</p>
+              <p className="text-lg font-semibold text-gray-900">
+                ~{Math.round(analysis.config.estimated_duration_seconds / 60)} мин
               </p>
             </div>
           </div>
         </div>
 
-        {/* Pipeline Visualization */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
+        {/* Pipeline Steps Card */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              Pipeline Steps
+            <h2 className="text-xl font-semibold text-gray-900">
+              Шаги процесса
             </h2>
             <div className="flex gap-2">
               {isEditing ? (
                 <>
                   <button
                     onClick={resetConfig}
-                    className="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded"
+                    className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md font-medium transition-colors"
                   >
-                    Reset
+                    Сбросить
                   </button>
                   <button
                     onClick={() => setIsEditing(false)}
-                    className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
+                    className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium transition-colors"
                   >
-                    Done Editing
+                    Готово
                   </button>
                 </>
               ) : (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 text-white rounded"
+                  className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md font-medium transition-colors flex items-center gap-1.5"
                 >
-                  ✏️ Edit Configuration
+                  <span>✏️</span>
+                  <span>Редактировать</span>
                 </button>
               )}
             </div>
           </div>
 
           {isEditing && (
-            <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded">
-              <p className="text-sm text-yellow-800 dark:text-yellow-300">
-                ⚠️ You're editing the configuration. Changes will be used when you run the analysis.
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-800 flex items-center gap-2">
+                <span>⚠️</span>
+                <span>Вы редактируете конфигурацию. Изменения будут использованы при запуске анализа.</span>
               </p>
             </div>
           )}
@@ -388,84 +325,86 @@ export default function AnalysisDetailPage() {
               return (
                 <div
                   key={index}
-                  className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+                  className="border border-gray-200 rounded-lg overflow-hidden hover:border-gray-300 hover:shadow-sm transition-all"
                 >
                   {/* Step Header */}
                   <button
                     onClick={() => toggleStep(step.step_name)}
-                    className="w-full px-4 py-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    className="w-full px-5 py-4 flex justify-between items-center hover:bg-gray-50 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-semibold text-gray-900 dark:text-white">
-                        {stepLabel}
-                      </span>
-                      <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-600 dark:text-blue-400">
-                        {step.model}
-                      </span>
-                      <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-400">
-                        {step.step_type}
-                      </span>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <span className="text-base font-semibold text-gray-900">
+                          {stepLabel}
+                        </span>
+                        <span className="text-xs px-2 py-1 bg-blue-100 rounded text-blue-700 font-medium">
+                          {step.model}
+                        </span>
+                        <span className="text-xs px-2 py-1 bg-gray-100 rounded text-gray-600 font-medium">
+                          {step.step_type}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-gray-400 dark:text-gray-500">
+                    <span className="text-gray-400 text-lg flex-shrink-0 ml-4">
                       {isExpanded ? '▼' : '▶'}
                     </span>
                   </button>
 
                   {/* Step Content (Expandable) */}
                   {isExpanded && (
-                    <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                      <div className="mt-3 space-y-4">
+                    <div className="px-5 pb-5 border-t border-gray-200 bg-gray-50">
+                      <div className="mt-4 space-y-4">
                         {/* Model Configuration */}
                         <div>
-                          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
-                            Model Configuration
+                          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                            Настройки модели
                           </p>
-                          <div className="bg-white dark:bg-gray-800 rounded p-3 text-sm border border-gray-200 dark:border-gray-700">
+                          <div className="bg-white rounded-lg p-4 border border-gray-200">
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <label className="text-gray-500 dark:text-gray-400">Model:</label>
+                                <label className="text-xs text-gray-600 font-medium mb-1 block">Модель:</label>
                                 {isEditing ? (
-                                  <div className="mt-1">
+                                  <div>
                                     <Select
                                       value={step.model}
                                       onChange={(value) => updateStepConfig(index, 'model', value)}
                                       options={enabledModels.map((model) => ({
                                         value: model.name,
-                                        label: `${model.display_name} (${model.provider})${model.has_failures ? ' - Has failures' : ''}`,
+                                        label: `${model.display_name} (${model.provider})${model.has_failures ? ' - Есть ошибки' : ''}`,
                                         hasFailures: model.has_failures,
                                       }))}
                                       className="w-full"
                                     />
                                     {enabledModels.find(m => m.name === step.model)?.has_failures && (
-                                      <p className="mt-1 text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                                      <p className="mt-2 text-xs text-orange-600 flex items-center gap-1">
                                         <span>⚠️</span>
-                                        <span>This model has recorded failures and may not work reliably</span>
+                                        <span>У этой модели зафиксированы ошибки и она может работать нестабильно</span>
                                       </p>
                                     )}
                                     {isModelChangedFromDefault(index) && (
                                       <button
                                         onClick={() => applyModelToAllSteps(step.model)}
-                                        className="mt-2 px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded transition-colors"
+                                        className="mt-2 px-3 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
                                       >
-                                        Apply to all steps
+                                        Применить ко всем шагам
                                       </button>
                                     )}
                                   </div>
                                 ) : (
-                                  <div className="ml-2">
-                                    <span className="text-gray-900 dark:text-white font-medium">
+                                  <div>
+                                    <span className="text-gray-900 font-medium">
                                       {step.model}
                                     </span>
                                     {enabledModels.find(m => m.name === step.model)?.has_failures && (
-                                      <span className="ml-2 text-xs px-2 py-1 bg-orange-100 dark:bg-orange-900/30 rounded text-orange-600 dark:text-orange-400">
-                                        ⚠️ Has failures
+                                      <span className="ml-2 text-xs px-2 py-1 bg-orange-100 rounded text-orange-600">
+                                        ⚠️ Есть ошибки
                                       </span>
                                     )}
                                   </div>
                                 )}
                               </div>
                               <div>
-                                <label className="text-gray-500 dark:text-gray-400">Temperature:</label>
+                                <label className="text-xs text-gray-600 font-medium mb-1 block">Температура:</label>
                                 {isEditing ? (
                                   <input
                                     type="number"
@@ -474,62 +413,40 @@ export default function AnalysisDetailPage() {
                                     max="2"
                                     value={step.temperature}
                                     onChange={(e) => updateStepConfig(index, 'temperature', parseFloat(e.target.value))}
-                                    className="mt-1 w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   />
                                 ) : (
-                                  <span className="ml-2 text-gray-900 dark:text-white font-medium">
+                                  <span className="text-gray-900 font-medium">
                                     {step.temperature}
                                   </span>
                                 )}
                               </div>
                               <div>
-                                <label className="text-gray-500 dark:text-gray-400">Max Tokens:</label>
+                                <label className="text-xs text-gray-600 font-medium mb-1 block">Макс. токенов:</label>
                                 {isEditing ? (
                                   <input
                                     type="number"
                                     value={step.max_tokens}
                                     onChange={(e) => updateStepConfig(index, 'max_tokens', parseInt(e.target.value))}
-                                    className="mt-1 w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   />
                                 ) : (
-                                  <span className="ml-2 text-gray-900 dark:text-white font-medium">
+                                  <span className="text-gray-900 font-medium">
                                     {step.max_tokens.toLocaleString()}
                                   </span>
                                 )}
                               </div>
-                              {/* Show num_candles only for steps that use candles (not merge) */}
-                              {step.step_name !== 'merge' && (
-                                <div>
-                                  <label className="text-gray-500 dark:text-gray-400">Number of Candles:</label>
-                                  {isEditing ? (
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      max="500"
-                                      value={step.num_candles || (step.step_name === 'wyckoff' ? 20 : step.step_name === 'smc' || step.step_name === 'ict' || step.step_name === 'price_action' ? 50 : 30)}
-                                      onChange={(e) => updateStepConfig(index, 'num_candles', parseInt(e.target.value))}
-                                      className="mt-1 w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                                      placeholder="Number of candles to analyze"
-                                    />
-                                  ) : (
-                                    <span className="ml-2 text-gray-900 dark:text-white font-medium">
-                                      {step.num_candles || (step.step_name === 'wyckoff' ? 20 : step.step_name === 'smc' || step.step_name === 'ict' || step.step_name === 'price_action' ? 50 : 30)}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
                               <div>
-                                <label className="text-gray-500 dark:text-gray-400">Data Source:</label>
+                                <label className="text-xs text-gray-600 font-medium mb-1 block">Источник данных:</label>
                                 {isEditing ? (
                                   <select
                                     value={Array.isArray(step.data_sources) ? step.data_sources[0] || '' : step.data_sources || ''}
                                     onChange={(e) => {
-                                      // Store as single value (array for backward compatibility)
                                       updateStepConfig(index, 'data_sources', [e.target.value])
                                     }}
-                                    className="mt-1 w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   >
-                                    <option value="">Auto (detect from instrument)</option>
+                                    <option value="">Авто (определить по инструменту)</option>
                                     {enabledDataSources.map((source) => (
                                       <option key={source.id} value={source.name}>
                                         {source.display_name}
@@ -537,10 +454,10 @@ export default function AnalysisDetailPage() {
                                     ))}
                                   </select>
                                 ) : (
-                                  <span className="ml-2 text-gray-900 dark:text-white font-medium">
+                                  <span className="text-gray-900 font-medium">
                                     {Array.isArray(step.data_sources) 
-                                      ? (step.data_sources[0] || 'Auto')
-                                      : (step.data_sources || 'Auto')}
+                                      ? (step.data_sources[0] || 'Авто')
+                                      : (step.data_sources || 'Авто')}
                                   </span>
                                 )}
                               </div>
@@ -550,41 +467,47 @@ export default function AnalysisDetailPage() {
 
                         {/* System Prompt */}
                         <div>
-                          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
-                            System Prompt
+                          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                            Системный промпт
                           </p>
                           {isEditing ? (
                             <textarea
                               value={step.system_prompt}
                               onChange={(e) => updateStepConfig(index, 'system_prompt', e.target.value)}
-                              rows={6}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs font-mono"
+                              rows={4}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                           ) : (
-                            <div className="bg-white dark:bg-gray-800 rounded p-3 text-xs text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
-                              <pre className="whitespace-pre-wrap">{step.system_prompt}</pre>
+                            <div className="bg-white rounded-lg p-4 border border-gray-200">
+                              <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
+                                {step.system_prompt}
+                              </pre>
                             </div>
                           )}
                         </div>
 
                         {/* User Prompt Template */}
                         <div>
-                          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
-                            User Prompt Template
+                          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                            Шаблон пользовательского промпта
                           </p>
                           {isEditing ? (
                             <textarea
                               value={step.user_prompt_template}
                               onChange={(e) => updateStepConfig(index, 'user_prompt_template', e.target.value)}
                               rows={6}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs font-mono"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                           ) : (
-                            <div className="bg-white dark:bg-gray-800 rounded p-3 text-xs text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700">
-                              <pre className="whitespace-pre-wrap">{step.user_prompt_template}</pre>
-                              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 italic">
-                                Variables: {step.user_prompt_template.match(/\{(\w+)\}/g)?.join(', ') || 'None'}
-                              </p>
+                            <div className="bg-white rounded-lg p-4 border border-gray-200">
+                              <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
+                                {step.user_prompt_template}
+                              </pre>
+                              {step.user_prompt_template.match(/\{(\w+)\}/g) && (
+                                <p className="mt-3 text-xs text-gray-500 italic pt-3 border-t border-gray-200">
+                                  Переменные: {step.user_prompt_template.match(/\{(\w+)\}/g)?.join(', ') || 'Нет'}
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
@@ -597,121 +520,32 @@ export default function AnalysisDetailPage() {
           </div>
         </div>
 
-        {/* Run Analysis */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
-            Run Analysis
+        {/* Run Analysis Card */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            Запуск анализа
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Instrument
-              </label>
-              <select
-                value={selectedInstrument}
-                onChange={(e) => setSelectedInstrument(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                disabled={instrumentsLoading}
-              >
-                <option value="">Select instrument...</option>
-                {instrumentsLoading ? (
-                  <option disabled>Loading instruments...</option>
-                ) : (
-                  instruments.map((inst) => (
-                    <option key={inst.symbol} value={inst.symbol}>
-                      {inst.symbol} ({inst.type})
-                    </option>
-                  ))
-                )}
-              </select>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Показаны только инструменты, подходящие для данного типа анализа
-              </p>
-              {instrumentsError && (
-                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                  Failed to load instruments
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Timeframe
-              </label>
-              <select
-                value={selectedTimeframe}
-                onChange={(e) => setSelectedTimeframe(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="M1">1 Minute</option>
-                <option value="M5">5 Minutes</option>
-                <option value="M15">15 Minutes</option>
-                <option value="H1">1 Hour</option>
-                <option value="D1">1 Day</option>
-              </select>
-              <div className="mt-1 h-5"></div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Data Source Tool (Optional)
-              </label>
-              <select
-                value={selectedToolId || ''}
-                onChange={(e) => setSelectedToolId(e.target.value ? parseInt(e.target.value) : null)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                disabled={toolsLoading}
-              >
-                <option value="">Use default data source</option>
-                {toolsLoading ? (
-                  <option disabled>Loading tools...</option>
-                ) : (
-                  tools.filter(t => t.is_active).map((tool) => (
-                    <option key={tool.id} value={tool.id}>
-                      {tool.display_name}
-                    </option>
-                  ))
-                )}
-              </select>
-              <div className="mt-1 flex items-center gap-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Select a custom tool for data fetching
-                </p>
-                <Link
-                  href="/tools/new"
-                  className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-                >
-                  Create Tool →
-                </Link>
-              </div>
-            </div>
-
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300 opacity-0">
-                Action
-              </label>
-              <button
-                onClick={handleRunAnalysis}
-                disabled={!selectedInstrument || !selectedTimeframe || createRunMutation.isPending}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors"
-              >
-                {createRunMutation.isPending ? 'Creating...' : 'Run Analysis'}
-              </button>
-            </div>
+          <div className="mb-4">
+            <button
+              onClick={handleRunAnalysis}
+              disabled={createRunMutation.isPending}
+              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm hover:shadow-md"
+            >
+              {createRunMutation.isPending ? 'Создание запуска...' : 'Запустить анализ'}
+            </button>
           </div>
 
           {createRunMutation.isError && (
-            <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 rounded text-red-700 dark:text-red-400">
-              Error: {
-                createRunMutation.error && typeof createRunMutation.error === 'object' && 'response' in createRunMutation.error
+            <div className="mt-4 p-4 bg-red-50 border-2 border-red-200 rounded-lg">
+              <p className="text-red-800 font-medium mb-1">Ошибка:</p>
+              <p className="text-sm text-red-700">
+                {createRunMutation.error && typeof createRunMutation.error === 'object' && 'response' in createRunMutation.error
                   ? (createRunMutation.error as any).response?.data?.detail || (createRunMutation.error as any).response?.data?.message || (createRunMutation.error as Error).message
                   : createRunMutation.error instanceof Error
                   ? createRunMutation.error.message
-                  : 'Failed to create run'
-              }
+                  : 'Не удалось создать запуск'}
+              </p>
             </div>
           )}
         </div>
@@ -719,4 +553,3 @@ export default function AnalysisDetailPage() {
     </div>
   )
 }
-

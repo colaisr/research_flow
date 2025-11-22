@@ -261,9 +261,22 @@ Constraints and preferences:
   - Actions: "Edit", "Run", "View History", "Duplicate", "Delete"
   - Organization selector in navigation (switching org reloads page with new org's analyses)
   
-- **Detail/Edit View (`/analyses/{id}` or `/analyses/new`)**: 
-  - Analysis metadata (name, description, tags/categories)
-  - **Pipeline Editor**: Visual step-by-step builder
+  - **Detail View (`/analyses/{id}`)**: 
+    - **Overview Card**: Clean grid showing version, steps count, estimated cost, duration
+    - **Pipeline Steps Card**: Expandable step cards with:
+      - Step name, model, step type badges
+      - Expandable configuration (model settings, prompts)
+      - Edit mode with inline editing capabilities
+      - Visual indicators for model failures
+      - Reset and "Done Editing" buttons
+    - **Run Analysis Card**: Prominent action button to execute analysis
+    - **Consistent Styling**: Matches Run Details and Analyses list pages
+    - **Translation**: All text in Russian
+    - **Removed Fields**: `num_candles` field removed (as in Pipeline Editor)
+  
+  - **Edit View (`/analyses/{id}/edit` or `/pipelines/new`)**: 
+    - Analysis metadata (name, description, tags/categories)
+    - **Pipeline Editor**: Visual step-by-step builder
     - **Step Configuration**:
       - Step type selector (LLM, Data Transform, API Call, RAG Query, Database Query, etc.)
       - Step name and order (drag-and-drop reordering)
@@ -410,18 +423,21 @@ Constraints and preferences:
 
 **Design Patterns:**
 - Left sidebar navigation (or top nav bar for MVP)
-- Dark-first theme
+- **Light Theme**: Consistent light theme across all pages (white backgrounds, gray borders, blue accents)
 - Timeline + accordions for steps
 - Status badges with colors (green=succeeded, blue=running, red=failed, yellow=queued, orange=model_failure)
 - Expandable sections for prompts/outputs
 - Copy-to-clipboard functionality
 - Real-time updates while pipeline runs (polling every 2s)
-- All UI text in Russian
+- **All UI text in Russian**: Complete translation of all user-facing text
 - Instrument filtering hints ("Показаны только инструменты, подходящие для данного типа анализа")
 - Custom Select component for model dropdowns (cross-platform compatibility, proper failure indicators)
 - Tooltip components for error messages (Bootstrap-like styling with Tailwind CSS)
 - Drag-and-drop step reordering with visual feedback
 - Warning dialogs with Cancel buttons for validation errors
+- **Consistent Card Design**: All cards use `rounded-lg`, `shadow-sm`, `border border-gray-200` styling
+- **Icon-Based Actions**: Action buttons use icons instead of text where appropriate (Edit, Run, Duplicate, History)
+- **Professional Typography**: Consistent font sizes, weights, and spacing throughout
 
 
 ### 4) Analysis Types and Pipelines
@@ -534,10 +550,36 @@ The current trading analysis flows serve as **examples/templates** that demonstr
 - Duplicate and modify them for their needs
 - Create completely new flows for any domain
 
+**System Process Creation Approach:**
+- **Purpose**: System processes (`is_system=True`) serve as example/template workflows that users can clone and customize
+- **Creation Method**: Python scripts in `backend/scripts/` directory (e.g., `create_tour_operator_process.py`)
+- **Structure**: Scripts create `AnalysisType` records with `is_system=True`, `user_id=None`, `organization_id=None` (available to all organizations)
+- **Documentation**: Each system process has a markdown file in `docs/system_processes/` describing its purpose, steps, and capabilities
+- **Access**: System processes appear in "Примеры процессов" (Example processes) tab on Analyses page
+- **User Interaction**: Users can clone system processes to create their own editable copies
+
 **Example: Financial Market Analysis** (Current Implementation)
 - Demonstrates: Multi-step LLM analysis, data source integration, structured outputs
 - Steps: Market data retrieval → LLM analysis steps → Final report generation
 - Can be adapted for: Any market analysis, competitive intelligence, trend analysis
+
+**Example: Tour Operator Cities Selection** (System Process - Created)
+- **Purpose**: Comprehensive 5-step process demonstrating all variable and prompt capabilities
+- **Steps**:
+  1. `generate_cities`: Generate list of 8 popular tourist cities (independent step)
+  2. `analyze_weather`: Climate analysis using `{generate_cities_output}` variable
+  3. `evaluate_attractions`: Attraction evaluation using `{generate_cities_output}` and `{analyze_weather_output}`
+  4. `calculate_costs`: Cost calculation using all 3 previous step outputs
+  5. `final_recommendation`: Final recommendation using all 4 previous step outputs
+- **Demonstrates**:
+  - Variable chain dependencies (each step uses variables from previous steps)
+  - Multiple variables in single prompt
+  - Context around variables (explanatory text)
+  - Different analysis types (generation, climate, evaluation, finance, recommendation)
+  - Different temperature settings (0.5-0.7 range)
+  - Result step logic (last step automatically becomes result)
+- **Documentation**: `docs/system_processes/tour_operator_cities_selection.md`
+- **Script**: `backend/scripts/create_tour_operator_process.py`
 
 **Example: Business Intelligence Flow** (Future Template)
 - Steps: Query sales database → Fetch market data API → LLM analysis → Generate report
@@ -1980,5 +2022,67 @@ return owner_features
 - OpenRouter provides a unified OpenAI-compatible interface to many models which simplifies switching and increases availability: `https://openrouter.ai/`.
 - This document is the living source of truth for the Research Flow platform architecture and vision.
 - **Development Approach**: Each phase should be fully tested before moving to the next. Use feature flags to enable/disable new features during development.
+
+### 12a) System Process Creation & Management
+
+**Purpose**: System processes serve as example/template workflows that demonstrate platform capabilities and can be cloned by users.
+
+**Creation Process**:
+1. **Design**: Create markdown documentation in `docs/system_processes/` describing the process purpose, steps, and capabilities
+2. **Implementation**: Create Python script in `backend/scripts/` (e.g., `create_tour_operator_process.py`)
+3. **Execution**: Run script to create `AnalysisType` record with:
+   - `is_system=True`
+   - `user_id=None`
+   - `organization_id=None` (available to all organizations)
+   - Complete step configuration in `config` JSON
+4. **Verification**: Process appears in "Примеры процессов" tab on Analyses page
+
+**Example Process Structure**:
+- **Tour Operator Cities Selection** (`tour_operator_cities_selection`):
+  - 5-step process demonstrating variable dependencies
+  - Each step uses variables from previous steps
+  - Shows different analysis types and temperature settings
+  - Documentation: `docs/system_processes/tour_operator_cities_selection.md`
+  - Script: `backend/scripts/create_tour_operator_process.py`
+
+**Best Practices**:
+- Each system process should demonstrate specific platform capabilities
+- Use clear, descriptive step names
+- Include comprehensive variable usage examples
+- Document the process purpose and what it demonstrates
+- Test the process before making it available as a system process
+
+**User Interaction**:
+- System processes appear in "Примеры процессов" tab (read-only)
+- Users can clone system processes to create editable copies
+- Cloned processes become user-owned (`is_system=False`, `user_id=current_user.id`)
+- Users can modify cloned processes freely
+
+### 12b) UI/UX Consistency & Translation
+
+**Light Theme Migration**:
+- All pages migrated from dark theme to consistent light theme
+- Removed all `dark:` Tailwind classes
+- Consistent color scheme: white backgrounds (`bg-white`), gray borders (`border-gray-200`), blue accents (`text-blue-600`)
+- Applied to: Login, Register, Dashboard, Sidebar, TopBar, User Settings, Analyses, Runs, Pipeline Editor, Analysis Detail
+
+**Translation Completeness**:
+- All user-facing text translated to Russian
+- Consistent terminology across all pages
+- Status labels, buttons, form labels, tooltips, error messages all translated
+- Step names translated (including new system process steps)
+
+**Design System Consistency**:
+- **Cards**: All cards use `rounded-lg`, `shadow-sm`, `border border-gray-200` styling
+- **Buttons**: Icon-based actions where appropriate (Edit, Run, Duplicate, History icons)
+- **Typography**: Consistent font sizes, weights, spacing
+- **Spacing**: Consistent padding and margins (`p-6`, `space-y-6`, `mb-4`)
+- **Hover Effects**: Subtle hover states (`hover:border-gray-300`, `hover:shadow-sm`)
+
+**Page-Specific Improvements**:
+- **Run Details Page**: Professional layout with progress overview, expandable steps, prominent result section
+- **Analysis Detail Page**: Clean overview card, expandable step configuration, inline editing
+- **Analyses List Page**: Filter tabs (My processes / Example processes), icon-based actions, improved card design
+- **Pipeline Editor**: Inline step addition, collapsible advanced settings, simplified variable palette
 
 

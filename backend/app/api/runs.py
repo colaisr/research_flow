@@ -72,63 +72,65 @@ async def create_run(
     For now, this just fetches market data and creates a run record.
     The actual analysis pipeline will be implemented later.
     """
-    # Validate instrument exists (for now, just check format)
-    # TODO: Check against instruments table
+    # Check if this pipeline needs market data (skip if instrument/timeframe are 'N/A')
+    needs_market_data = request.instrument != 'N/A' and request.timeframe != 'N/A'
+    market_data = None
     
-    # Validate tool if tool_id is provided
-    if request.tool_id:
-        from app.models.user_tool import UserTool
-        from app.models.organization_tool_access import OrganizationToolAccess
-        from app.services.tools import ToolExecutor
-        
-        tool = db.query(UserTool).filter(UserTool.id == request.tool_id).first()
-        if not tool:
-            raise HTTPException(status_code=404, detail=f"Tool {request.tool_id} not found")
-        
-        # Check ownership
-        if tool.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="You do not own this tool")
-        
-        # Check if tool is active
-        if not tool.is_active:
-            raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not active")
-        
-        # Check if tool is enabled for current organization
-        if tool.is_shared:
-            access = db.query(OrganizationToolAccess).filter(
-                OrganizationToolAccess.organization_id == current_organization.id,
-                OrganizationToolAccess.tool_id == tool.id
-            ).first()
+    if needs_market_data:
+        # Validate tool if tool_id is provided
+        if request.tool_id:
+            from app.models.user_tool import UserTool
+            from app.models.organization_tool_access import OrganizationToolAccess
+            from app.services.tools import ToolExecutor
             
-            if access and not access.is_enabled:
-                raise HTTPException(status_code=403, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
-        
-        # Validate tool by testing it and get market_data for instrument creation
-        executor = ToolExecutor(db=db)
-        try:
-            tool_params = {
-                'instrument': request.instrument,
-                'timeframe': request.timeframe,
-                'limit': 10  # Just test with a small limit
-            }
-            tool_result = executor.execute_tool(tool, tool_params)
-            # Convert to MarketData for instrument creation
-            from app.services.analysis.pipeline import AnalysisPipeline
-            pipeline = AnalysisPipeline()
-            market_data = pipeline._convert_tool_result_to_market_data(tool_result, request.instrument, request.timeframe)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Tool validation failed: {str(e)}")
-    else:
-        # Fetch market data using DataService (backward compatibility)
-        data_service = DataService(db=db)
-        try:
-            market_data = data_service.fetch_market_data(
-                instrument=request.instrument,
-                timeframe=request.timeframe,
-                use_cache=True
-            )
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to fetch market data: {str(e)}")
+            tool = db.query(UserTool).filter(UserTool.id == request.tool_id).first()
+            if not tool:
+                raise HTTPException(status_code=404, detail=f"Tool {request.tool_id} not found")
+            
+            # Check ownership
+            if tool.user_id != current_user.id:
+                raise HTTPException(status_code=403, detail="You do not own this tool")
+            
+            # Check if tool is active
+            if not tool.is_active:
+                raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not active")
+            
+            # Check if tool is enabled for current organization
+            if tool.is_shared:
+                access = db.query(OrganizationToolAccess).filter(
+                    OrganizationToolAccess.organization_id == current_organization.id,
+                    OrganizationToolAccess.tool_id == tool.id
+                ).first()
+                
+                if access and not access.is_enabled:
+                    raise HTTPException(status_code=403, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
+            
+            # Validate tool by testing it and get market_data for instrument creation
+            executor = ToolExecutor(db=db)
+            try:
+                tool_params = {
+                    'instrument': request.instrument,
+                    'timeframe': request.timeframe,
+                    'limit': 10  # Just test with a small limit
+                }
+                tool_result = executor.execute_tool(tool, tool_params)
+                # Convert to MarketData for instrument creation
+                from app.services.analysis.pipeline import AnalysisPipeline
+                pipeline = AnalysisPipeline()
+                market_data = pipeline._convert_tool_result_to_market_data(tool_result, request.instrument, request.timeframe)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Tool validation failed: {str(e)}")
+        else:
+            # Fetch market data using DataService (backward compatibility)
+            data_service = DataService(db=db)
+            try:
+                market_data = data_service.fetch_market_data(
+                    instrument=request.instrument,
+                    timeframe=request.timeframe,
+                    use_cache=True
+                )
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to fetch market data: {str(e)}")
     
     # Validate OpenRouter API key is configured
     openrouter_setting = db.query(AppSettings).filter(
@@ -140,28 +142,42 @@ async def create_run(
             detail="OpenRouter API key is not configured. Please set it in Settings → OpenRouter Configuration before running analyses."
         )
     
-    # Create or get instrument record
-    instrument = db.query(Instrument).filter(Instrument.symbol == request.instrument).first()
-    if not instrument:
-        # Determine type and exchange
-        inst_type = "crypto" if "/" in request.instrument.upper() else "equity"
-        
-        # Use exchange from market_data if available, otherwise try to determine from symbol
-        exchange = market_data.exchange if market_data else None
-        if not exchange or exchange == "unknown":
-            # Import exchange detection function
-            from app.api.instruments import _get_exchange_for_symbol
-            exchange = _get_exchange_for_symbol(request.instrument) or "unknown"
-        
-        instrument = Instrument(
-            symbol=request.instrument,
-            type=inst_type,
-            exchange=exchange,
-            is_enabled=False  # New instruments are disabled by default (admin must enable in Settings)
-        )
-        db.add(instrument)
-        db.commit()
-        db.refresh(instrument)
+    # Create or get instrument record (use dummy 'N/A' instrument for pipelines that don't need market data)
+    if needs_market_data:
+        instrument = db.query(Instrument).filter(Instrument.symbol == request.instrument).first()
+        if not instrument:
+            # Determine type and exchange
+            inst_type = "crypto" if "/" in request.instrument.upper() else "equity"
+            
+            # Use exchange from market_data if available, otherwise try to determine from symbol
+            exchange = market_data.exchange if market_data else None
+            if not exchange or exchange == "unknown":
+                # Import exchange detection function
+                from app.api.instruments import _get_exchange_for_symbol
+                exchange = _get_exchange_for_symbol(request.instrument) or "unknown"
+            
+            instrument = Instrument(
+                symbol=request.instrument,
+                type=inst_type,
+                exchange=exchange,
+                is_enabled=False  # New instruments are disabled by default (admin must enable in Settings)
+            )
+            db.add(instrument)
+            db.commit()
+            db.refresh(instrument)
+    else:
+        # Use dummy 'N/A' instrument for pipelines that don't need market data
+        instrument = db.query(Instrument).filter(Instrument.symbol == 'N/A').first()
+        if not instrument:
+            instrument = Instrument(
+                symbol='N/A',
+                type='other',
+                exchange='N/A',
+                is_enabled=True
+            )
+            db.add(instrument)
+            db.commit()
+            db.refresh(instrument)
     
     # Create run record
     run = AnalysisRun(
@@ -181,6 +197,7 @@ async def create_run(
     def run_pipeline():
         # Create new DB session for background task
         from app.core.database import SessionLocal
+        from app.services.analysis.pipeline import AnalysisPipeline
         bg_db = SessionLocal()
         bg_run = None
         try:

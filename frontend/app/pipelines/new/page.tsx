@@ -13,15 +13,15 @@ export default function NewPipelinePage() {
         <div className="mb-6">
           <button
             onClick={() => router.push('/analyses')}
-            className="text-blue-600 dark:text-blue-400 hover:underline mb-4"
+            className="text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-1 transition-colors"
           >
-            ← Back to Analyses
+            <span>←</span> Назад к анализам
           </button>
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Create New Pipeline
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Создание процесса
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Build a custom analysis pipeline from scratch
+          <p className="text-gray-600">
+            Создайте собственный аналитический процесс с нуля
           </p>
         </div>
 

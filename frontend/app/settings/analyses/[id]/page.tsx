@@ -37,8 +37,6 @@ interface AnalysisType {
   version: string
   config: {
     steps: StepConfig[]
-    default_instrument: string
-    default_timeframe: string
     estimated_cost: number
     estimated_duration_seconds: number
   }
@@ -214,51 +212,6 @@ export default function AnalysisTypeEditPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">Duration</p>
               <p className="text-lg font-semibold text-gray-900 dark:text-white">
                 ~{Math.round((editableConfig?.estimated_duration_seconds || analysis.config.estimated_duration_seconds) / 60)} min
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Default Timeframe
-              </label>
-              <select
-                value={editableConfig?.default_timeframe || analysis.config.default_timeframe}
-                onChange={(e) => {
-                  if (editableConfig) {
-                    const newConfig = JSON.parse(JSON.stringify(editableConfig))
-                    newConfig.default_timeframe = e.target.value
-                    setEditableConfig(newConfig)
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="M1">1 Minute</option>
-                <option value="M5">5 Minutes</option>
-                <option value="M15">15 Minutes</option>
-                <option value="H1">1 Hour</option>
-                <option value="D1">1 Day</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Default Instrument (optional)
-              </label>
-              <input
-                type="text"
-                value={editableConfig?.default_instrument || analysis.config.default_instrument || ''}
-                onChange={(e) => {
-                  if (editableConfig) {
-                    const newConfig = JSON.parse(JSON.stringify(editableConfig))
-                    newConfig.default_instrument = e.target.value
-                    setEditableConfig(newConfig)
-                  }
-                }}
-                placeholder="e.g., BTC/USDT, NG1!"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Note: This is informational only. Instruments can be enabled/disabled separately.
               </p>
             </div>
           </div>

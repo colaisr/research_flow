@@ -8,13 +8,6 @@ import { useRequireAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import { API_BASE_URL } from '@/lib/config'
 
-interface Tool {
-  id: number
-  display_name: string
-  tool_type: 'database' | 'api' | 'rag'
-  is_active: boolean
-}
-
 interface Instrument {
   symbol: string
   type: string
@@ -59,23 +52,14 @@ async function fetchRuns() {
   return data
 }
 
-async function fetchTools() {
-  const { data } = await axios.get<Tool[]>(`${API_BASE_URL}/api/tools?tool_type=api`, {
-    withCredentials: true
-  })
-  return data
-}
 
-async function createRun(analysisTypeId: number | null, instrument: string, timeframe: string, toolId?: number | null) {
+async function createRun(analysisTypeId: number | null, instrument: string, timeframe: string) {
   const payload: any = {
     instrument,
     timeframe,
   }
   if (analysisTypeId) {
     payload.analysis_type_id = analysisTypeId
-  }
-  if (toolId) {
-    payload.tool_id = toolId
   }
   const { data } = await axios.post(`${API_BASE_URL}/api/runs`, payload, {
     withCredentials: true
@@ -91,7 +75,6 @@ export default function DashboardPage() {
   const [selectedAnalysisType, setSelectedAnalysisType] = useState<number | null>(null)
   const [selectedInstrument, setSelectedInstrument] = useState<string>('')
   const [selectedTimeframe, setSelectedTimeframe] = useState<string>('H1')
-  const [selectedToolId, setSelectedToolId] = useState<number | null>(null)
 
   const { data: analysisTypes = [], isLoading: analysisTypesLoading } = useQuery({
     queryKey: ['analysis-types'],
@@ -110,15 +93,10 @@ export default function DashboardPage() {
     refetchInterval: 5000, // Poll every 5 seconds
   })
 
-  const { data: tools = [], isLoading: toolsLoading } = useQuery({
-    queryKey: ['tools', 'api'],
-    queryFn: fetchTools,
-    enabled: !authLoading,
-  })
 
   const createRunMutation = useMutation({
-    mutationFn: ({ analysisTypeId, instrument, timeframe, toolId }: { analysisTypeId: number | null; instrument: string; timeframe: string; toolId?: number | null }) =>
-      createRun(analysisTypeId, instrument, timeframe, toolId),
+    mutationFn: ({ analysisTypeId, instrument, timeframe }: { analysisTypeId: number | null; instrument: string; timeframe: string }) =>
+      createRun(analysisTypeId, instrument, timeframe),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       router.push(`/runs/${data.id}`)
@@ -138,7 +116,6 @@ export default function DashboardPage() {
       analysisTypeId: selectedAnalysisType,
       instrument: selectedInstrument,
       timeframe: selectedTimeframe,
-      toolId: selectedToolId,
     })
   }
 
@@ -274,40 +251,6 @@ export default function DashboardPage() {
                 ))}
               </select>
               <div className="mt-1 h-5"></div>
-            </div>
-
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700">
-                Инструмент данных (опционально)
-              </label>
-              <select
-                value={selectedToolId || ''}
-                onChange={(e) => setSelectedToolId(e.target.value ? parseInt(e.target.value) : null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900"
-                disabled={toolsLoading}
-              >
-                <option value="">Использовать стандартный источник данных</option>
-                {toolsLoading ? (
-                  <option disabled>Загрузка инструментов...</option>
-                ) : (
-                  tools.filter(t => t.is_active).map((tool) => (
-                    <option key={tool.id} value={tool.id}>
-                      {tool.display_name}
-                    </option>
-                  ))
-                )}
-              </select>
-              <div className="mt-1 flex items-center gap-2">
-                <p className="text-xs text-gray-500">
-                  Выберите пользовательский инструмент для получения данных
-                </p>
-                <Link
-                  href="/tools/new"
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  Создать инструмент →
-                </Link>
-              </div>
             </div>
 
             <div className="flex flex-col">

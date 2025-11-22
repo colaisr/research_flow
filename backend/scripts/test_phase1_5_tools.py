@@ -165,8 +165,9 @@ def main():
         
         # Create test run - use default instrument from pipeline config
         config = pipeline.config
-        test_instrument = config.get('default_instrument', 'BTC/USDT')
-        test_timeframe = config.get('default_timeframe', 'H1')
+        # Use default test values - these fields are no longer in config
+        test_instrument = 'BTC/USDT'
+        test_timeframe = 'H1'
         
         logger.info(f"Using instrument: {test_instrument}, timeframe: {test_timeframe}")
         

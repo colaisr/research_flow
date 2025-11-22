@@ -23,7 +23,7 @@ async function fetchRuns(analysisTypeId?: string) {
   const url = analysisTypeId 
     ? `${API_BASE_URL}/api/runs?analysis_type_id=${analysisTypeId}`
     : `${API_BASE_URL}/api/runs`
-  const { data } = await axios.get<Run[]>(url)
+  const { data } = await axios.get<Run[]>(url, { withCredentials: true })
   return data
 }
 

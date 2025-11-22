@@ -461,21 +461,6 @@ async function updateDataSource(id: number, is_enabled: boolean) {
 }
 
 // Credentials functions
-async function fetchTelegramSettings() {
-  const { data } = await axios.get(`${API_BASE_URL}/api/settings/telegram`, {
-    withCredentials: true
-  })
-  return data
-}
-
-async function updateTelegramSettings(bot_token: string | null) {
-  const { data } = await axios.put(
-    `${API_BASE_URL}/api/settings/telegram`,
-    { bot_token },
-    { withCredentials: true }
-  )
-  return data
-}
 
 async function fetchOpenRouterSettings() {
   const { data } = await axios.get(`${API_BASE_URL}/api/settings/openrouter`, {
@@ -540,13 +525,10 @@ export default function AdminSettingsPage() {
   const [instrumentTypeFilter, setInstrumentTypeFilter] = useState<'all' | 'crypto' | 'equity'>('all')
   
   // Credentials state
-  const [telegramBotToken, setTelegramBotToken] = useState('')
   const [openRouterKeyCreds, setOpenRouterKeyCreds] = useState('')
   const [tinkoffToken, setTinkoffToken] = useState('')
-  const [showTelegramToken, setShowTelegramToken] = useState(false)
   const [showOpenRouterKeyCreds, setShowOpenRouterKeyCreds] = useState(false)
   const [showTinkoffToken, setShowTinkoffToken] = useState(false)
-  const telegramInitialized = useRef(false)
   const openRouterInitialized = useRef(false)
   const tinkoffInitialized = useRef(false)
 
@@ -582,12 +564,6 @@ export default function AdminSettingsPage() {
   })
 
   // Credentials queries - only load when credentials tab is active
-  const { data: telegramSettings } = useQuery({
-    queryKey: ['settings', 'telegram'],
-    queryFn: fetchTelegramSettings,
-    enabled: !authLoading && isPlatformAdmin && activeTab === 'credentials',
-    staleTime: 5 * 60 * 1000,
-  })
 
   const { data: openRouterSettings } = useQuery({
     queryKey: ['settings', 'openrouter'],
@@ -624,15 +600,6 @@ export default function AdminSettingsPage() {
   }, [settings])
 
   // Initialize credentials from API
-  useEffect(() => {
-    if (telegramSettings && !telegramInitialized.current) {
-      if (telegramSettings.bot_token) {
-        setTelegramBotToken(telegramSettings.bot_token)
-      }
-      telegramInitialized.current = true
-    }
-  }, [telegramSettings])
-
   useEffect(() => {
     if (openRouterSettings?.api_key && !openRouterInitialized.current) {
       setOpenRouterKeyCreds(openRouterSettings.api_key)
@@ -742,13 +709,6 @@ export default function AdminSettingsPage() {
   })
 
   // Credentials mutations
-  const updateTelegramMutation = useMutation({
-    mutationFn: () => updateTelegramSettings(telegramBotToken || null),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings', 'telegram'] })
-      alert('Настройки Telegram сохранены!')
-    },
-  })
 
   const updateOpenRouterMutation = useMutation({
     mutationFn: () => updateOpenRouterSettings(openRouterKeyCreds || null),
@@ -1324,58 +1284,6 @@ export default function AdminSettingsPage() {
         {/* Credentials Tab */}
         {activeTab === 'credentials' && (
           <div className="space-y-6">
-            {/* Telegram Settings */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-              <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">
-                Конфигурация Telegram
-              </h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Настройте токен Telegram бота. Сообщения будут отправляться всем пользователям, которые запустили бота (отправили команду /start).
-                {telegramSettings?.active_users_count !== undefined && (
-                  <span className="ml-2 font-medium text-blue-600 dark:text-blue-400">
-                    Активных пользователей: {telegramSettings.active_users_count}
-                  </span>
-                )}
-              </p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                    Токен бота
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showTelegramToken ? "text" : "password"}
-                      value={telegramBotToken}
-                      onChange={(e) => setTelegramBotToken(e.target.value)}
-                      placeholder="Получите от @BotFather"
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowTelegramToken(!showTelegramToken)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                    >
-                      {showTelegramToken ? '👁️' : '👁️‍🗨️'}
-                    </button>
-                  </div>
-                  {telegramSettings?.bot_token_masked && (
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Текущий: {telegramSettings.bot_token_masked}
-                    </p>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => updateTelegramMutation.mutate()}
-                  disabled={updateTelegramMutation.isPending}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md font-medium transition-colors"
-                >
-                  {updateTelegramMutation.isPending ? 'Сохранение...' : 'Сохранить настройки Telegram'}
-                </button>
-              </div>
-            </div>
-
             {/* OpenRouter Settings */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
               <h2 className="text-2xl font-semibold mb-4 text-gray-900 dark:text-white">

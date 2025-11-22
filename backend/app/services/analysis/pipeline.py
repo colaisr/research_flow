@@ -290,47 +290,51 @@ class AnalysisPipeline:
             run.status = RunStatus.RUNNING
             db.commit()
             
-            # Fetch market data - use tool if tool_id is set, otherwise fallback to DataService
-            logger.info(f"fetching_market_data: run_id={run.id}, instrument={run.instrument.symbol}, tool_id={run.tool_id}")
-            
-            if run.tool_id:
-                # Use ToolExecutor to fetch data from user-configured tool
-                from app.models.user_tool import UserTool
-                tool = db.query(UserTool).filter(UserTool.id == run.tool_id).first()
-                if not tool:
-                    raise ValueError(f"Tool {run.tool_id} not found")
+            # Fetch market data - skip if instrument is 'N/A' (pipelines that don't need market data)
+            market_data = None
+            if run.instrument.symbol != 'N/A' and run.timeframe != 'N/A':
+                logger.info(f"fetching_market_data: run_id={run.id}, instrument={run.instrument.symbol}, tool_id={run.tool_id}")
                 
-                if not tool.is_active:
-                    raise ValueError(f"Tool '{tool.display_name}' is not active")
-                
-                # Check if tool is available in current organization
-                from app.models.organization_tool_access import OrganizationToolAccess
-                access = db.query(OrganizationToolAccess).filter(
-                    OrganizationToolAccess.organization_id == run.organization_id,
-                    OrganizationToolAccess.tool_id == tool.id
-                ).first()
-                
-                if access and not access.is_enabled:
-                    raise ValueError(f"Tool '{tool.display_name}' is not enabled for this organization")
-                
-                # Execute tool to fetch market data
-                executor = ToolExecutor(db=db)
-                tool_params = {
-                    'instrument': run.instrument.symbol,
-                    'timeframe': run.timeframe,
-                    'limit': 500
-                }
-                tool_result = executor.execute_tool(tool, tool_params)
-                
-                # Convert tool result to MarketData format
-                market_data = self._convert_tool_result_to_market_data(tool_result, run.instrument.symbol, run.timeframe)
+                if run.tool_id:
+                    # Use ToolExecutor to fetch data from user-configured tool
+                    from app.models.user_tool import UserTool
+                    tool = db.query(UserTool).filter(UserTool.id == run.tool_id).first()
+                    if not tool:
+                        raise ValueError(f"Tool {run.tool_id} not found")
+                    
+                    if not tool.is_active:
+                        raise ValueError(f"Tool '{tool.display_name}' is not active")
+                    
+                    # Check if tool is available in current organization
+                    from app.models.organization_tool_access import OrganizationToolAccess
+                    access = db.query(OrganizationToolAccess).filter(
+                        OrganizationToolAccess.organization_id == run.organization_id,
+                        OrganizationToolAccess.tool_id == tool.id
+                    ).first()
+                    
+                    if access and not access.is_enabled:
+                        raise ValueError(f"Tool '{tool.display_name}' is not enabled for this organization")
+                    
+                    # Execute tool to fetch market data
+                    executor = ToolExecutor(db=db)
+                    tool_params = {
+                        'instrument': run.instrument.symbol,
+                        'timeframe': run.timeframe,
+                        'limit': 500
+                    }
+                    tool_result = executor.execute_tool(tool, tool_params)
+                    
+                    # Convert tool result to MarketData format
+                    market_data = self._convert_tool_result_to_market_data(tool_result, run.instrument.symbol, run.timeframe)
+                else:
+                    # Fallback to DataService (backward compatibility)
+                    market_data = self.data_service.fetch_market_data(
+                        instrument=run.instrument.symbol,
+                        timeframe=run.timeframe,
+                        use_cache=True
+                    )
             else:
-                # Fallback to DataService (backward compatibility)
-                market_data = self.data_service.fetch_market_data(
-                    instrument=run.instrument.symbol,
-                    timeframe=run.timeframe,
-                    use_cache=True
-                )
+                logger.info(f"skipping_market_data: run_id={run.id}, instrument={run.instrument.symbol} (pipeline doesn't need market data)")
             
             # Get configuration: use custom_config if provided, otherwise use analysis_type.config
             config = custom_config
