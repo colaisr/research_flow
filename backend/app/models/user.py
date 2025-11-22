@@ -21,6 +21,7 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     features = relationship("UserFeature", back_populates="user", cascade="all, delete-orphan")
+    tools = relationship("UserTool", back_populates="user", cascade="all, delete-orphan")
     
     def is_platform_admin(self) -> bool:
         """Check if user is platform admin."""

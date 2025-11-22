@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useRequireAuth, useAuth } from '@/hooks/useAuth'
 import { useOrganizations } from '@/hooks/useOrganizations'
@@ -92,6 +92,29 @@ async function transferOwnership(organizationId: number, newOwnerUserId: number)
   )
 }
 
+interface OrganizationToolAccess {
+  tool_id: number
+  tool_name: string
+  tool_type: string
+  is_enabled: boolean
+}
+
+async function fetchOrganizationTools(organizationId: number): Promise<OrganizationToolAccess[]> {
+  const { data } = await apiClient.get<OrganizationToolAccess[]>(
+    `${API_BASE_URL}/api/organizations/${organizationId}/tools`,
+    { withCredentials: true }
+  )
+  return data
+}
+
+async function updateToolAccess(organizationId: number, toolId: number, isEnabled: boolean): Promise<void> {
+  await apiClient.put(
+    `${API_BASE_URL}/api/organizations/${organizationId}/tools/${toolId}/access`,
+    { is_enabled: isEnabled },
+    { withCredentials: true }
+  )
+}
+
 export default function OrganizationManagementPage() {
   const router = useRouter()
   const params = useParams()
@@ -112,6 +135,10 @@ export default function OrganizationManagementPage() {
   // Use organizationDetails if available, otherwise fallback to organizations list
   const organization = organizationDetails || organizations.find(org => org.id === organizationId)
   
+  // Check if current user is the owner (calculate early so it's available for hooks)
+  const ownerId = organizationDetails?.owner_id ?? organization?.owner_id ?? null
+  const isOwner = ownerId !== null && ownerId === user?.id
+  
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState<'org_admin' | 'org_user'>('org_user')
   const [showInviteForm, setShowInviteForm] = useState(false)
@@ -126,11 +153,37 @@ export default function OrganizationManagementPage() {
   // Transfer ownership state
   const [showTransferModal, setShowTransferModal] = useState(false)
   const [selectedNewOwnerId, setSelectedNewOwnerId] = useState<number | null>(null)
+  
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'members' | 'tools'>('members')
+  
+  // If user is not owner, always show members tab
+  useEffect(() => {
+    if (!isOwner && activeTab === 'tools') {
+      setActiveTab('members')
+    }
+  }, [isOwner, activeTab])
 
   const { data: members = [], isLoading: membersLoading, refetch: refetchMembers } = useQuery({
     queryKey: ['organization-members', organizationId],
     queryFn: () => fetchOrganizationMembers(organizationId),
     enabled: !!organizationId && !authLoading,
+  })
+
+  // Fetch organization tools (only for owners)
+  const { data: tools = [], isLoading: toolsLoading, refetch: refetchTools } = useQuery({
+    queryKey: ['organization-tools', organizationId],
+    queryFn: () => fetchOrganizationTools(organizationId),
+    enabled: !!organizationId && !authLoading && isOwner,
+  })
+
+  const updateToolAccessMutation = useMutation({
+    mutationFn: ({ toolId, isEnabled }: { toolId: number; isEnabled: boolean }) =>
+      updateToolAccess(organizationId, toolId, isEnabled),
+    onSuccess: () => {
+      refetchTools()
+      queryClient.invalidateQueries({ queryKey: ['tools'] })
+    },
   })
 
   const inviteMutation = useMutation({
@@ -207,12 +260,6 @@ export default function OrganizationManagementPage() {
     )
   }
 
-  // Check if current user is the owner
-  // Prefer organizationDetails (from API) as it's guaranteed to have owner_id
-  // Fallback to organization from list if details not loaded yet
-  const ownerId = organizationDetails?.owner_id ?? organization?.owner_id ?? null
-  const isOwner = ownerId !== null && ownerId === user?.id
-  
   // Check if user is org_admin of this organization
   const userMember = members.find(m => m.user_id === user?.id)
   
@@ -267,7 +314,7 @@ export default function OrganizationManagementPage() {
               {organization.name}
             </h1>
             <p className="text-gray-600 dark:text-gray-400">
-              Управление участниками организации
+              Управление организацией
             </p>
           </div>
           {isOwner && !organization.is_personal && (
@@ -281,6 +328,31 @@ export default function OrganizationManagementPage() {
         </div>
       </div>
 
+      {/* Tabs */}
+      {isOwner && (
+        <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex space-x-4">
+            {(['members', 'tools'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 font-medium text-sm transition-colors ${
+                  activeTab === tab
+                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                {tab === 'members' && 'Участники'}
+                {tab === 'tools' && 'Инструменты'}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Members Tab */}
+      {activeTab === 'members' && (
+        <>
       {/* Invite User Section */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -529,6 +601,76 @@ export default function OrganizationManagementPage() {
           </div>
         )}
       </div>
+      </>
+      )}
+
+      {/* Tools Tab */}
+      {activeTab === 'tools' && isOwner && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+            Инструменты организации
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+            Управляйте доступностью инструментов для этой организации. По умолчанию все ваши инструменты доступны во всех организациях, которыми вы владеете.
+          </p>
+
+          {toolsLoading ? (
+            <div className="text-center py-8 text-gray-600 dark:text-gray-400">
+              Загрузка инструментов...
+            </div>
+          ) : tools.length === 0 ? (
+            <div className="text-center py-8 text-gray-600 dark:text-gray-400">
+              <p className="mb-2">У вас пока нет инструментов.</p>
+              <button
+                onClick={() => router.push('/tools/new')}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Создать инструмент
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {tools.map((tool) => (
+                <div
+                  key={tool.tool_id}
+                  className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-medium text-gray-900 dark:text-white">
+                        {tool.tool_name}
+                      </h3>
+                      <span className="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        {tool.tool_type === 'api' && 'API'}
+                        {tool.tool_type === 'database' && 'База данных'}
+                        {tool.tool_type === 'rag' && 'RAG'}
+                      </span>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={tool.is_enabled}
+                      onChange={(e) => {
+                        updateToolAccessMutation.mutate({
+                          toolId: tool.tool_id,
+                          isEnabled: e.target.checked,
+                        })
+                      }}
+                      disabled={updateToolAccessMutation.isPending}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                    <span className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {tool.is_enabled ? 'Включено' : 'Выключено'}
+                    </span>
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Transfer Ownership Modal */}
       {showTransferModal && (

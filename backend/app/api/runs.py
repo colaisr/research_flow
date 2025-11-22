@@ -29,6 +29,7 @@ class CreateRunRequest(BaseModel):
     instrument: str
     timeframe: str  # M1, M5, M15, H1, D1, etc.
     analysis_type_id: Optional[int] = None  # Optional for backward compatibility
+    tool_id: Optional[int] = None  # Optional - if set, use this tool for data fetch; otherwise use DataService
     custom_config: Optional[dict] = None  # Optional custom configuration override
 
 
@@ -74,16 +75,60 @@ async def create_run(
     # Validate instrument exists (for now, just check format)
     # TODO: Check against instruments table
     
-    # Fetch market data to validate instrument/timeframe
-    data_service = DataService(db=db)
-    try:
-        market_data = data_service.fetch_market_data(
-            instrument=request.instrument,
-            timeframe=request.timeframe,
-            use_cache=True
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch market data: {str(e)}")
+    # Validate tool if tool_id is provided
+    if request.tool_id:
+        from app.models.user_tool import UserTool
+        from app.models.organization_tool_access import OrganizationToolAccess
+        from app.services.tools import ToolExecutor
+        
+        tool = db.query(UserTool).filter(UserTool.id == request.tool_id).first()
+        if not tool:
+            raise HTTPException(status_code=404, detail=f"Tool {request.tool_id} not found")
+        
+        # Check ownership
+        if tool.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You do not own this tool")
+        
+        # Check if tool is active
+        if not tool.is_active:
+            raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not active")
+        
+        # Check if tool is enabled for current organization
+        if tool.is_shared:
+            access = db.query(OrganizationToolAccess).filter(
+                OrganizationToolAccess.organization_id == current_organization.id,
+                OrganizationToolAccess.tool_id == tool.id
+            ).first()
+            
+            if access and not access.is_enabled:
+                raise HTTPException(status_code=403, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
+        
+        # Validate tool by testing it and get market_data for instrument creation
+        executor = ToolExecutor(db=db)
+        try:
+            tool_params = {
+                'instrument': request.instrument,
+                'timeframe': request.timeframe,
+                'limit': 10  # Just test with a small limit
+            }
+            tool_result = executor.execute_tool(tool, tool_params)
+            # Convert to MarketData for instrument creation
+            from app.services.analysis.pipeline import AnalysisPipeline
+            pipeline = AnalysisPipeline()
+            market_data = pipeline._convert_tool_result_to_market_data(tool_result, request.instrument, request.timeframe)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Tool validation failed: {str(e)}")
+    else:
+        # Fetch market data using DataService (backward compatibility)
+        data_service = DataService(db=db)
+        try:
+            market_data = data_service.fetch_market_data(
+                instrument=request.instrument,
+                timeframe=request.timeframe,
+                use_cache=True
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch market data: {str(e)}")
     
     # Validate OpenRouter API key is configured
     openrouter_setting = db.query(AppSettings).filter(
@@ -102,7 +147,7 @@ async def create_run(
         inst_type = "crypto" if "/" in request.instrument.upper() else "equity"
         
         # Use exchange from market_data if available, otherwise try to determine from symbol
-        exchange = market_data.exchange
+        exchange = market_data.exchange if market_data else None
         if not exchange or exchange == "unknown":
             # Import exchange detection function
             from app.api.instruments import _get_exchange_for_symbol
@@ -124,6 +169,7 @@ async def create_run(
         instrument_id=instrument.id,
         analysis_type_id=request.analysis_type_id,
         organization_id=current_organization.id,  # Set to current organization
+        tool_id=request.tool_id,  # Set tool_id if provided
         timeframe=request.timeframe,
         status=RunStatus.QUEUED
     )

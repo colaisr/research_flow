@@ -97,7 +97,8 @@ Constraints and preferences:
   - `analysis_types`: id, organization_id (required), name, display_name, description, version, config (JSON with steps configuration), is_active, is_system, created_at, updated_at
   - `analysis_runs`: id, trigger_type (manual/scheduled), analysis_type_id, status (queued/running/succeeded/failed/model_failure), input_params (JSON), created_at, finished_at, cost_est_total
   - `analysis_steps`: id, run_id, step_name, step_type (llm/data_transform/api_call/rag_query/etc), input_blob, output_blob, tool_id (nullable, links to user_tools), llm_model (nullable), tokens (nullable), cost_est, created_at
-  - `user_tools`: id, organization_id (required), tool_type (database/api/rag/custom), name, display_name, config (JSON with connection details, credentials), is_active, created_at, updated_at
+  - `user_tools`: id, user_id (required), organization_id (nullable - home org), tool_type (database/api/rag/custom), name, display_name, config (JSON with connection details, credentials), is_active, is_shared (default true), created_at, updated_at
+  - `organization_tool_access`: id, organization_id, tool_id, is_enabled (default true), created_at, updated_at
   - `rag_knowledge_bases`: id, organization_id (required), name, description, vector_db_type, embedding_model, document_count, created_at, updated_at
   - `rag_documents`: id, rag_id, title, content, file_path (nullable), metadata (JSON), embedding_status, created_at, updated_at
   - `available_models`: id, name, display_name, provider, description, max_tokens, cost_per_1k_tokens, is_enabled, has_failures, created_at, updated_at
@@ -594,11 +595,15 @@ Users can create any flow they need - the platform is domain-agnostic.
   - Future: Plugin system for custom tool implementations
 
 **Tool Configuration:**
-- Tools are user-specific (stored in `user_tools` table)
+- **Ownership Model**: Tools belong to users (stored in `user_tools` table with `user_id`)
+- **Access Model**: Tools are available in ALL organizations where the user is owner (by default)
+- **Organization-Level Control**: Users can disable specific tools per organization via `organization_tool_access` table
+- **Default Behavior**: When user creates tool → automatically available in all orgs where user is owner
+- **Use Case**: User creates "CRM API" tool → available in Org A and Org B (both owned) → User can disable it in Org B settings → tool no longer visible in Org B
 - Configuration includes connection details, credentials (encrypted)
 - Tools can be tested before use
-- Tools are reusable across multiple analyses
-- Tools can be enabled/disabled
+- Tools are reusable across multiple analyses and organizations
+- Tools can be enabled/disabled globally (`is_active`) or per-organization (`organization_tool_access.is_enabled`)
 
 **Legacy Data Adapters** (Current Implementation - to be migrated to Tools):
 - CCXT (crypto): Will become user-configurable API tool
@@ -812,7 +817,7 @@ This section outlines the detailed plan to implement the new general-purpose res
     - User automatically added as `org_admin` member
   - **Behavior**:
     - User is always `org_admin` of their personal org
-    - All user's resources belong to their personal org (never NULL)
+  - All user's resources belong to their personal org (never NULL)
     - Cannot be deleted (deleted when user is deleted)
     - Cannot be transferred (ownership always belongs to creator)
     - Cannot be left (user always member of their personal org)
@@ -1244,75 +1249,222 @@ return owner_features
 **Goal**: Replace hardcoded data adapters with user-configurable tools system.
 
 **1.1) Database Schema**
-- [ ] **User Tools Table**:
-  - `user_tools`: id, organization_id (required), tool_type, name, display_name, config (JSON), is_active, created_at, updated_at
-  - Tool types: `database`, `api`, `rag` (RAG will be separate table, but linked as tool)
-  - Note: Tools belong to organizations (user's personal org or shared org)
-- [ ] **Tool Configuration Schema**:
-  - Database tools: `{connection_string, host, port, database, username, password_encrypted, ssl_mode}`
-  - API tools: `{base_url, auth_type, api_key, headers, timeout}`
-  - RAG tools: `{rag_id}` (references rag_knowledge_bases)
-- [ ] **Migration**:
-  - Create `user_tools` table
-  - Migrate existing data adapters to example tools (system tools)
-  - Create example tools for users to duplicate
+
+**Hybrid Model: User-Owned Tools with Organization-Level Access Control**
+
+- [x] **User Tools Table** (`user_tools`):
+  - `id`: Primary key
+  - `user_id`: Foreign key to `users.id` (required) - Tools belong to USER
+  - `organization_id`: Foreign key to `organizations.id` (nullable) - "Home" org where tool was created (for reference)
+  - `tool_type`: Enum (`database`, `api`, `rag`) - Type of tool
+  - `name`: String - Internal name (e.g., "CRM API", "Orders DB")
+  - `display_name`: String - User-friendly display name
+  - `config`: JSON - Type-specific configuration (credentials, connection details)
+  - `is_active`: Boolean - Tool enabled/disabled globally
+  - `is_shared`: Boolean (default `True`) - If true, available in all orgs where user is owner
+  - `created_at`, `updated_at`: Timestamps
+  
+  **Key Concept**: Tools belong to users, not organizations. By default, tools are shared across all organizations where the user is owner.
+
+- [x] **Organization Tool Access Table** (`organization_tool_access`):
+  - `id`: Primary key
+  - `organization_id`: Foreign key to `organizations.id` (required)
+  - `tool_id`: Foreign key to `user_tools.id` (required)
+  - `is_enabled`: Boolean (default `True`) - Tool enabled for this organization
+  - `created_at`, `updated_at`: Timestamps
+  - Unique constraint: `(organization_id, tool_id)` - One access record per org per tool
+  
+  **Purpose**: Allows disabling specific tools per organization. By default, all user's tools are enabled in all orgs where user is owner.
+
+- [x] **Tool Configuration Schema**:
+  - **Database tools**: `{connector_type: 'predefined' | 'custom', connector_name?: string, host, port, database, username, password_encrypted, ssl_mode, connection_string}`
+    - **Predefined**: `connector_type='predefined'`, `connector_name='postgresql'` or `'mysql'` or `'mongodb'`
+    - **Custom**: `connector_type='custom'`, full connection details
+    - **Security**: Credentials encrypted using `cryptography` library ✅ **COMPLETE**
+    - **Access**: Read-only queries only (for now)
+  - **API tools**: `{connector_type: 'predefined' | 'custom', connector_name?: string, base_url, auth_type, api_key_encrypted, headers, timeout, request_template, adapter_config?: {adapter_type, exchange_name?, ...}}`
+    - **Predefined**: `connector_type='predefined'`, `connector_name='binance'` or `'tinkoff'` or `'yfinance'`
+      - May include `adapter_config` for adapter-specific settings (e.g., CCXT exchange name)
+    - **Custom**: `connector_type='custom'`, full API configuration
+    - **Security**: API keys encrypted using `cryptography` library ✅ **COMPLETE**
+  - **RAG tools**: `{rag_id}` (references `rag_knowledge_bases` table - Phase 2)
+
+- [x] **Access Logic**:
+  - **Tool Creation**: User creates tool → automatically available in ALL orgs where user is owner (if `is_shared=True`)
+  - **Tool Visibility**: When listing tools in org context:
+    - Show all tools where `user_tools.user_id = current_user.id` AND `organizations.owner_id = current_user.id` AND `is_enabled = True` (from `organization_tool_access`)
+  - **Org-Level Control**: User can go to org settings → disable specific tools for that org
+  - **Use Case**: User creates "CRM API" tool → available in Org A and Org B (both owned by user) → User disables it in Org B settings → tool no longer visible in Org B
+
+- [x] **Migration**:
+  - Create `user_tools` table ✅
+  - Create `organization_tool_access` table ✅
+  - **Migrate existing adapters to user tools**:
+    - For each existing user: Create tools based on current adapters
+    - **CCXT → "Binance API" tool**: Create API tool with `base_url` and CCXT-specific config
+    - **yfinance → "Yahoo Finance API" tool**: Create API tool (no API key needed)
+    - **Tinkoff → "Tinkoff Invest API" tool**: Create API tool with token from `AppSettings.tinkoff_api_token` (if configured)
+    - These become the user's actual tools (not examples/templates)
+    - Auto-create `organization_tool_access` entries for all orgs where user is owner
+  - **Note**: These migrated tools serve as good candidates for testing the new system
 
 **1.2) Backend - Tool Management API**
-- [ ] **Tool CRUD Endpoints**:
-  - `GET /api/tools` - List tools from current organization context ONLY
-  - Backend filters by `X-Organization-Id` header (from session)
-  - No cross-organization access (user must switch org context to see other org's tools)
-  - `POST /api/tools` - Create new tool (in current organization context ONLY)
-  - `GET /api/tools/{id}` - Get tool details (only if tool belongs to current org context)
-  - `PUT /api/tools/{id}` - Update tool (only if tool belongs to current org context)
-  - `DELETE /api/tools/{id}` - Delete tool (only if tool belongs to current org context)
-  - `POST /api/tools/{id}/test` - Test tool connection (only if tool belongs to current org context)
-- [ ] **Organization Context API**:
-  - `GET /api/auth/organizations` - List all organizations user belongs to
-  - `POST /api/auth/organizations/{id}/switch` - Switch active organization context
-  - `GET /api/auth/current-organization` - Get current organization context
-- [ ] **Tool Execution Engine**:
+
+- [x] **Tool CRUD Endpoints**:
+  - `GET /api/tools` - List tools available in current organization context
+    - Returns: All user's tools where user is owner of current org AND tool is enabled for current org
+    - Filters by: `user_tools.user_id = current_user.id` AND `organizations.owner_id = current_user.id` AND `organization_tool_access.is_enabled = True`
+  - `POST /api/tools` - Create new tool (belongs to user, available in all owned orgs by default)
+    - Body: `{tool_type, name, display_name, config, is_shared (default true)}`
+    - Creates tool with `user_id = current_user.id`
+    - Sets `organization_id = current_organization.id` (home org reference)
+    - Auto-creates `organization_tool_access` entries for ALL orgs where user is owner (if `is_shared=True`)
+  - `GET /api/tools/{id}` - Get tool details (only if user owns tool AND tool is enabled in current org)
+  - `PUT /api/tools/{id}` - Update tool (only if user owns tool)
+    - Can update: name, display_name, config, is_active
+    - **`is_shared` changes**: For now, not allowed to change after creation (can be added later)
+    - If `is_shared` changes (future): Updates `organization_tool_access` entries accordingly
+  - `DELETE /api/tools/{id}` - Delete tool (only if user owns tool)
+    - **For now**: DELETE not allowed (prevent breaking analyses)
+    - **Future**: Check if tool is used in any `analysis_types` or `analysis_steps` before allowing deletion
+    - If used: Return error with list of analyses using the tool
+    - If not used: Delete tool and all `organization_tool_access` entries
+  - `POST /api/tools/{id}/test` - Test tool connection (only if user owns tool)
+
+- [x] **Organization Tool Access Endpoints**:
+  - `GET /api/organizations/{org_id}/tools` - List all user's tools with access status for this org
+    - Returns: All user's tools + `is_enabled` flag per tool for this org
+    - Only accessible if user is owner of the org
+  - `PUT /api/organizations/{org_id}/tools/{tool_id}/access` - Enable/disable tool for organization
+    - Body: `{is_enabled: boolean}`
+    - Only accessible if user is owner of the org AND user owns the tool
+    - Creates/updates `organization_tool_access` record
+- [x] **Organization Context API**:
+  - `GET /api/auth/organizations` - List all organizations user belongs to ✅
+  - `POST /api/auth/organizations/{id}/switch` - Switch active organization context ✅
+  - `GET /api/auth/current-organization` - Get current organization context ✅
+- [x] **Tool Execution Engine**:
   - `ToolExecutor` class with methods per tool type
-  - Database executor: Execute SQL queries safely
-  - API executor: Make HTTP requests with auth
-  - RAG executor: Query knowledge base (Phase 2)
+  - **Database executor**: Execute SQL queries safely (read-only for now)
+    - Support for MySQL, PostgreSQL, MongoDB (via connectors or generic config)
+    - Query validation and safety checks
+  - **API executor**: Make HTTP requests with auth
+    - Support for predefined connectors (CCXT, yfinance, Tinkoff) via adapter pattern
+    - Support for generic REST APIs
+    - Auth handling: API Key, OAuth, Basic Auth, None
+  - **RAG executor**: Query knowledge base (Phase 2)
+  - **Connector Pattern**: Predefined connectors can use adapter classes internally
+    - Example: "Binance API" tool → uses `CCXTAdapter` internally
+    - Example: "Tinkoff Invest API" tool → uses `TinkoffAdapter` internally
   - Error handling and validation
 
 **1.3) Frontend - Tools Management UI**
-- [ ] **Tools List Page** (`/tools`):
-  - List tools from current organization context ONLY
-  - No organization filter (complete separation - only current org visible)
+
+- [x] **Tools List Page** (`/tools`):
+  - List tools available in current organization context
+  - Shows: All user's tools where user is owner of current org AND tool is enabled
   - Filter by type (Database, API, RAG)
   - Search functionality
-  - Actions: Create (in current org), Edit, Delete, Test, Duplicate
-  - Organization selector in navigation (switching org reloads page with new org's tools)
-- [ ] **Create/Edit Tool Wizard**:
-  - Step 1: Select tool type
-  - Step 2: Configure tool (type-specific form)
-  - Step 3: Test connection
-  - Step 4: Name and save
+  - Actions: Create (belongs to user, available in all owned orgs), Edit, Delete, Test, Duplicate
+  - Organization selector in navigation (switching org reloads page with different tool visibility)
+  - **Note**: Same tools may appear in multiple orgs (if user owns multiple orgs), but access can be disabled per org
+
+- [x] **Organization Settings - Tools Tab** (`/organizations/{id}/settings` or `/organizations/{id}`):
+  - List all user's tools with toggle switches (enable/disable per org)
+  - Shows: Tool name, type, status (enabled/disabled for this org)
+  - Toggle switches: Enable/disable tool for this organization
+  - Only visible if user is owner of the organization
+  - **Use Case**: User creates "CRM API" → available in Org A and Org B → User goes to Org B settings → disables "CRM API" → tool no longer visible in Org B
+- [x] **Create/Edit Tool Wizard** (Hybrid Approach):
+  - **Step 1**: Select tool type (Database, API, RAG)
+  - **Step 2**: Choose creation method:
+    - **Option A**: Predefined Connector (if available for tool type)
+      - Select connector from library (e.g., "Binance", "PostgreSQL", "MySQL")
+      - Fill connector-specific settings form
+    - **Option B**: Custom Tool
+      - Fill generic configuration form:
+        - **API**: Base URL, auth type, API key, headers, timeout
+        - **Database**: Database type, host, port, database, username, password, SSL mode
+  - **Step 3**: Test connection
+  - **Step 4**: Name and save
+  - **Note**: For Phase 1, start with generic tool creation. Predefined connectors can be added incrementally.
 - [ ] **Tool Integration in Pipeline Editor**:
   - Step configuration shows tool selector dropdown
   - Filter tools by step type (e.g., API steps show only API tools)
   - "Create New Tool" button opens tool wizard
 
 **1.4) Migration from Data Adapters**
-- [ ] **Create Example Tools**:
-  - Convert CCXT adapter → "Binance API" example tool
-  - Convert yfinance adapter → "Yahoo Finance API" example tool
-  - Convert Tinkoff adapter → "Tinkoff Invest API" example tool
-- [ ] **Update Pipeline Execution**:
-  - Modify step execution to use tools instead of hardcoded adapters
-  - Update existing analyses to use example tools
-  - Maintain backward compatibility during transition
+
+- [ ] **Migrate Existing Adapters to User Tools**:
+  - **Migration Strategy**: For each existing user, create tools based on current adapters
+  - **CCXT Adapter → "Binance API" Tool**:
+    - Create API tool with `tool_type='api'`
+    - Config: `{base_url: 'ccxt://binance', adapter_type: 'ccxt', exchange_name: 'binance'}`
+    - These become user's actual tools (not examples)
+  - **yfinance Adapter → "Yahoo Finance API" Tool**:
+    - Create API tool with `tool_type='api'`
+    - Config: `{base_url: 'yfinance://', adapter_type: 'yfinance'}`
+    - No API key needed
+  - **Tinkoff Adapter → "Tinkoff Invest API" Tool**:
+    - Create API tool with `tool_type='api'`
+    - Config: `{base_url: 'tinkoff://', adapter_type: 'tinkoff', api_token: <from AppSettings>}`
+    - Only create if `AppSettings.tinkoff_api_token` is configured
+  - **Auto-setup**: For each user, create tools in their personal org
+  - **Auto-share**: Create `organization_tool_access` entries for all orgs where user is owner
+  - **Testing**: These migrated tools serve as good candidates for testing the new system
+
+- [x] **Update Pipeline Execution**:
+  - Modify `AnalysisPipeline.run()` to use tools instead of hardcoded adapters ✅
+  - **Tool Selection Logic**: 
+    - If `run.tool_id` is set: Use that tool ✅
+    - If no `tool_id`: Fallback to old adapter logic (backward compatibility) ✅
+  - **Migration Path**: 
+    - Existing analyses continue to work (fallback to adapters) ✅
+    - New analyses can use tools via `tool_id` parameter ✅
+    - Users can update existing analyses to use tools ✅
+  - **Backward Compatibility**: Keep old adapters during transition period ✅
+
+- [ ] **Tool Creation UI** (Hybrid Approach - Option C):
+  - **Predefined Connectors** (Common Services):
+    - Library of popular connectors with dedicated settings pages
+    - Examples: Binance, Coinbase, PostgreSQL, MySQL, MongoDB, etc.
+    - Each connector has:
+      - Pre-configured `base_url` or connection template
+      - Connector-specific settings form (API keys, credentials, etc.)
+      - Validation rules and test connection logic
+    - User selects connector → fills in credentials → tool created
+  - **Generic Tool Creation** (Custom APIs/Databases):
+    - Generic form for custom APIs:
+      - Base URL input
+      - Auth type selector (API Key, OAuth, Basic Auth, None)
+      - Headers configuration
+      - Timeout settings
+    - Generic form for custom databases:
+      - Database type selector (MySQL, PostgreSQL, MongoDB, etc.)
+      - Connection details (host, port, database, username, password)
+      - SSL mode configuration
+    - User provides all configuration manually
+  - **UI Flow**:
+    - Step 1: Select tool type (Database, API, RAG)
+    - Step 2a: If API/Database → Choose "Predefined Connector" or "Custom"
+    - Step 2b: If Predefined → Select connector from library → Fill connector-specific form
+    - Step 2c: If Custom → Fill generic form
+    - Step 3: Test connection
+    - Step 4: Name and save
+  - **For Phase 1**: Implement basic generic tool creation first, add predefined connectors incrementally
 
 **Testing Checklist for Phase 1**:
-- [ ] Can create database tool
-- [ ] Can create API tool
-- [ ] Tool test connection works
-- [ ] Can use tool in analysis step
-- [ ] Tool execution works in pipeline
-- [ ] Example tools available for users
+- [x] Can create database tool (read-only) ✅
+- [x] Can create API tool ✅
+- [x] Tool test connection works ✅
+- [x] Credentials encrypted/decrypted correctly ✅ **IMPLEMENTED**
+- [x] Can use tool in analysis run (via `tool_id` parameter) ✅
+- [x] Tool execution works in pipeline ✅ **IMPLEMENTED**
+- [ ] Migrated tools (CCXT, yfinance, Tinkoff) work correctly (migration script exists, needs testing)
+- [x] Tools available in all orgs where user is owner ✅
+- [x] Can disable tool in specific org via settings ✅
+- [x] Tool deletion prevented (if used in analyses) ✅
+- [x] Backward compatibility: Old analyses still work with adapters ✅ **IMPLEMENTED**
 
 ---
 

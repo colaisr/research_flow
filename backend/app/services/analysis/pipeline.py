@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.models.analysis_run import AnalysisRun, RunStatus
 from app.models.analysis_step import AnalysisStep
 from app.services.data.adapters import DataService
+from app.services.data.normalized import MarketData, OHLCVCandle
 from app.services.llm.client import LLMClient
+from app.services.tools import ToolExecutor
 from app.services.analysis.steps import (
     BaseAnalyzer,
     WyckoffAnalyzer,
@@ -193,6 +195,70 @@ class AnalysisPipeline:
         
         return detected
     
+    def _convert_tool_result_to_market_data(
+        self,
+        tool_result: Dict[str, Any],
+        instrument: str,
+        timeframe: str
+    ) -> MarketData:
+        """Convert tool executor result to MarketData format.
+        
+        Args:
+            tool_result: Result from ToolExecutor.execute_tool()
+            instrument: Instrument symbol
+            timeframe: Timeframe string
+            
+        Returns:
+            MarketData object
+        """
+        from datetime import datetime, timezone
+        
+        # Extract data from tool result
+        data = tool_result.get('data', {})
+        candles_data = data.get('candles', [])
+        
+        # Convert candles to OHLCVCandle objects
+        candles = []
+        for candle in candles_data:
+            # Handle different candle formats
+            if isinstance(candle, dict):
+                timestamp_str = candle.get('timestamp', '')
+                if isinstance(timestamp_str, str):
+                    # Parse ISO format timestamp
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                else:
+                    timestamp = timestamp_str
+                
+                candles.append(OHLCVCandle(
+                    timestamp=timestamp,
+                    open=float(candle.get('open', 0)),
+                    high=float(candle.get('high', 0)),
+                    low=float(candle.get('low', 0)),
+                    close=float(candle.get('close', 0)),
+                    volume=float(candle.get('volume', 0))
+                ))
+        
+        # Get exchange from data if available
+        exchange = data.get('exchange')
+        
+        # Get fetched_at timestamp
+        fetched_at_str = data.get('fetched_at', '')
+        if fetched_at_str:
+            if isinstance(fetched_at_str, str):
+                fetched_at = datetime.fromisoformat(fetched_at_str.replace('Z', '+00:00'))
+            else:
+                fetched_at = fetched_at_str
+        else:
+            fetched_at = datetime.now(timezone.utc)
+        
+        return MarketData(
+            instrument=instrument,
+            timeframe=timeframe,
+            exchange=exchange,
+            candles=candles,
+            fetched_at=fetched_at
+        )
+    
     def run(
         self,
         run: AnalysisRun,
@@ -222,13 +288,47 @@ class AnalysisPipeline:
             run.status = RunStatus.RUNNING
             db.commit()
             
-            # Fetch market data
-            logger.info(f"fetching_market_data: run_id={run.id}, instrument={run.instrument.symbol}")
-            market_data = self.data_service.fetch_market_data(
-                instrument=run.instrument.symbol,
-                timeframe=run.timeframe,
-                use_cache=True
-            )
+            # Fetch market data - use tool if tool_id is set, otherwise fallback to DataService
+            logger.info(f"fetching_market_data: run_id={run.id}, instrument={run.instrument.symbol}, tool_id={run.tool_id}")
+            
+            if run.tool_id:
+                # Use ToolExecutor to fetch data from user-configured tool
+                from app.models.user_tool import UserTool
+                tool = db.query(UserTool).filter(UserTool.id == run.tool_id).first()
+                if not tool:
+                    raise ValueError(f"Tool {run.tool_id} not found")
+                
+                if not tool.is_active:
+                    raise ValueError(f"Tool '{tool.display_name}' is not active")
+                
+                # Check if tool is available in current organization
+                from app.models.organization_tool_access import OrganizationToolAccess
+                access = db.query(OrganizationToolAccess).filter(
+                    OrganizationToolAccess.organization_id == run.organization_id,
+                    OrganizationToolAccess.tool_id == tool.id
+                ).first()
+                
+                if access and not access.is_enabled:
+                    raise ValueError(f"Tool '{tool.display_name}' is not enabled for this organization")
+                
+                # Execute tool to fetch market data
+                executor = ToolExecutor(db=db)
+                tool_params = {
+                    'instrument': run.instrument.symbol,
+                    'timeframe': run.timeframe,
+                    'limit': 500
+                }
+                tool_result = executor.execute_tool(tool, tool_params)
+                
+                # Convert tool result to MarketData format
+                market_data = self._convert_tool_result_to_market_data(tool_result, run.instrument.symbol, run.timeframe)
+            else:
+                # Fallback to DataService (backward compatibility)
+                market_data = self.data_service.fetch_market_data(
+                    instrument=run.instrument.symbol,
+                    timeframe=run.timeframe,
+                    use_cache=True
+                )
             
             # Get configuration: use custom_config if provided, otherwise use analysis_type.config
             config = custom_config
