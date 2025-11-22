@@ -49,7 +49,9 @@ class GenericLLMAnalyzer(BaseAnalyzer):
         """Build user prompt from template in step_config."""
         if step_config and "user_prompt_template" in step_config:
             from app.services.analysis.steps import format_user_prompt_template
-            return format_user_prompt_template(step_config["user_prompt_template"], context, step_config)
+            # Get db session from context if available (for tool execution)
+            db = context.get("_db_session")
+            return format_user_prompt_template(step_config["user_prompt_template"], context, step_config, db)
         return "Please analyze the provided data."
 
 
@@ -360,6 +362,9 @@ class AnalysisPipeline:
                 try:
                     # Build context section if include_context is configured
                     enhanced_context = self._build_context_for_step(context, step_config, steps)
+                    
+                    # Add db session to context for tool execution in format_user_prompt_template
+                    enhanced_context["_db_session"] = db
                     
                     # Run the step (sync call) with step configuration
                     step_result = analyzer.analyze(

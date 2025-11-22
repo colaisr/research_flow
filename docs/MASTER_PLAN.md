@@ -1276,11 +1276,11 @@ return owner_features
   - Example: RAG tool needs query/question extracted from prompt text
   - Example: Database tool needs SQL query or query parameters
   - Example: API tool needs endpoint path, query params, or body data
-- [ ] **Parameter Syntax Options**:
+- [x] **Parameter Syntax Options**:
   - **Option A**: Explicit syntax `{rag_bank_reports(query="get all 21/5/2025 transactions")}`
-  - **Option B**: Natural language extraction - tool extracts query from surrounding prompt text
+  - **Option B**: Natural language extraction - tool extracts query from surrounding prompt text ✅ **DECISION: Start with Option B**
   - **Option C**: Hybrid - explicit params + context extraction
-  - **Decision**: Start with Option B (natural language) for better UX, add explicit syntax later if needed
+  - **Decision**: Start with Option B (natural language) for better UX, add explicit syntax later if needed ✅
 - [ ] **Tool Execution Context**:
   - Each tool receives: step context (instrument, timeframe, previous step outputs)
   - Tools can extract their own parameters from prompt text

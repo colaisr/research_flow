@@ -4,6 +4,8 @@ Tool execution engine for user-configured tools.
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 import logging
+import re
+import json
 from app.models.user_tool import UserTool, ToolType
 from app.services.data.adapters import CCXTAdapter, YFinanceAdapter, TinkoffAdapter, get_tinkoff_token
 from app.services.tools.encryption import decrypt_tool_config
@@ -51,6 +53,234 @@ class ToolExecutor:
             return self.execute_rag_tool(tool, params)
         else:
             raise ValueError(f"Unsupported tool type: {tool.tool_type}")
+    
+    def execute_tool_with_context(
+        self,
+        tool: UserTool,
+        prompt_text: str,
+        tool_variable_name: str,
+        step_context: Optional[Dict[str, Any]] = None,
+        extraction_config: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Execute a tool with natural language parameter extraction from prompt context.
+        
+        This method extracts parameters from the prompt text around the tool reference,
+        executes the tool, and returns a formatted result string ready for injection into the prompt.
+        
+        Args:
+            tool: UserTool instance to execute
+            prompt_text: Full prompt text containing tool reference
+            tool_variable_name: Variable name used in prompt (e.g., "binance_api")
+            step_context: Optional step context (instrument, timeframe, previous steps, etc.)
+            extraction_config: Optional extraction configuration (context_window, query_template, etc.)
+            
+        Returns:
+            Formatted string result ready for prompt injection
+            
+        Raises:
+            ValueError: If tool execution fails or parameter extraction fails
+        """
+        step_context = step_context or {}
+        extraction_config = extraction_config or {}
+        context_window = extraction_config.get("context_window", 200)  # Default 200 chars
+        
+        # Find tool reference in prompt
+        tool_ref_pattern = f"{{{tool_variable_name}}}"
+        tool_position = prompt_text.find(tool_ref_pattern)
+        
+        if tool_position == -1:
+            logger.warning(f"Tool reference {tool_ref_pattern} not found in prompt")
+            return f"[Tool {tool.display_name} execution failed: reference not found]"
+        
+        # Extract context around tool reference
+        start = max(0, tool_position - context_window)
+        end = min(len(prompt_text), tool_position + len(tool_ref_pattern) + context_window)
+        context_text = prompt_text[start:end]
+        
+        # Extract parameters based on tool type
+        try:
+            if tool.tool_type == ToolType.API.value:
+                params = self._extract_api_params(context_text, tool, step_context, extraction_config)
+            elif tool.tool_type == ToolType.DATABASE.value:
+                params = self._extract_database_params(context_text, tool, step_context, extraction_config)
+            elif tool.tool_type == ToolType.RAG.value:
+                params = self._extract_rag_params(context_text, tool, step_context, extraction_config)
+            else:
+                params = {}
+            
+            # Execute tool
+            result = self.execute_tool(tool, params)
+            
+            # Format result for prompt injection
+            return self._format_tool_result(result, tool.tool_type)
+            
+        except Exception as e:
+            logger.error(f"Tool execution failed for {tool.display_name}: {e}", exc_info=True)
+            return f"[Tool {tool.display_name} execution failed: {str(e)}]"
+    
+    def _extract_api_params(
+        self,
+        context_text: str,
+        tool: UserTool,
+        step_context: Dict[str, Any],
+        extraction_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Extract API tool parameters from context text.
+        
+        For API tools, we use the tool's configured endpoint by default.
+        If the prompt contains specific parameters (like instrument), we can pass them.
+        
+        Args:
+            context_text: Text around tool reference
+            tool: UserTool instance
+            step_context: Step context with instrument, timeframe, etc.
+            extraction_config: Extraction configuration
+            
+        Returns:
+            Parameters dict for API tool execution
+        """
+        params = {}
+        
+        # Use step context variables if available
+        if "instrument" in step_context:
+            params["instrument"] = step_context["instrument"]
+        if "timeframe" in step_context:
+            params["timeframe"] = step_context["timeframe"]
+        
+        # Check if context text mentions specific endpoints or parameters
+        # For now, use tool's default configuration
+        # Future: Extract endpoint/params from natural language
+        
+        return params
+    
+    def _extract_database_params(
+        self,
+        context_text: str,
+        tool: UserTool,
+        step_context: Dict[str, Any],
+        extraction_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Extract database tool parameters from context text.
+        
+        For database tools, we look for:
+        1. Query template in extraction_config
+        2. SQL query in context text
+        3. Natural language query that can be converted to SQL
+        
+        Args:
+            context_text: Text around tool reference
+            tool: UserTool instance
+            step_context: Step context
+            extraction_config: Extraction configuration (may contain query_template)
+            
+        Returns:
+            Parameters dict with SQL query
+        """
+        params = {}
+        
+        # Check for query template in extraction_config
+        query_template = extraction_config.get("query_template")
+        if query_template:
+            # Replace template variables with step context values
+            query = query_template
+            for key, value in step_context.items():
+                query = query.replace(f"{{{key}}}", str(value))
+            params["query"] = query
+            return params
+        
+        # Look for SQL query in context text (simple pattern matching)
+        # Check for common SQL keywords
+        sql_pattern = r"(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\s+.*?(?=\s|$)"
+        sql_match = re.search(sql_pattern, context_text, re.IGNORECASE | re.DOTALL)
+        if sql_match:
+            params["query"] = sql_match.group(0).strip()
+            return params
+        
+        # If no SQL found, return empty params (will use tool's default query if configured)
+        logger.warning(f"No SQL query found in context for database tool {tool.display_name}")
+        return params
+    
+    def _extract_rag_params(
+        self,
+        context_text: str,
+        tool: UserTool,
+        step_context: Dict[str, Any],
+        extraction_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Extract RAG tool parameters (query) from context text.
+        
+        For RAG tools, we extract the question/query from the text around the tool reference.
+        
+        Args:
+            context_text: Text around tool reference
+            tool: UserTool instance
+            step_context: Step context
+            extraction_config: Extraction configuration
+            
+        Returns:
+            Parameters dict with query string
+        """
+        # Extract query from context text
+        # Simple approach: Extract text that looks like a question or query
+        # Remove the tool reference itself - try different patterns
+        tool_ref_patterns = [
+            f"{{{tool.display_name.lower().replace(' ', '_')}}}",
+            f"{{{tool.display_name.replace(' ', '_')}}}",
+            f"{{{tool.display_name}}}"
+        ]
+        query_text = context_text
+        for pattern in tool_ref_patterns:
+            query_text = query_text.replace(pattern, "")
+        
+        query_text = query_text.strip()
+        
+        # Replace step context variables
+        for key, value in step_context.items():
+            query_text = query_text.replace(f"{{{key}}}", str(value))
+        
+        # Clean up query text
+        query_text = re.sub(r'\s+', ' ', query_text)  # Normalize whitespace
+        
+        return {"query": query_text}
+    
+    def _format_tool_result(self, result: Dict[str, Any], tool_type: str) -> str:
+        """Format tool execution result as string for prompt injection.
+        
+        Args:
+            result: Tool execution result dict
+            tool_type: Tool type (api, database, rag)
+            
+        Returns:
+            Formatted string result
+        """
+        if tool_type == ToolType.RAG.value:
+            # Format RAG results as "Relevant context: ..."
+            if "results" in result and result["results"]:
+                formatted = "Relevant context:\n"
+                for item in result["results"][:5]:  # Limit to top 5 results
+                    formatted += f"- {item.get('content', item.get('text', ''))[:200]}...\n"
+                return formatted
+            return "Relevant context: No results found."
+        
+        elif tool_type == ToolType.DATABASE.value:
+            # Format database results as table or JSON
+            if "rows" in result:
+                if not result["rows"]:
+                    return "Database query returned no results."
+                # Format as simple table
+                formatted = "Database results:\n"
+                for row in result["rows"][:10]:  # Limit to 10 rows
+                    formatted += str(row) + "\n"
+                return formatted
+            return str(result)
+        
+        elif tool_type == ToolType.API.value:
+            # Format API results as JSON or text
+            if "data" in result:
+                return f"API response:\n{json.dumps(result['data'], indent=2)[:500]}"
+            return str(result)
+        
+        return str(result)
     
     def execute_api_tool(
         self,

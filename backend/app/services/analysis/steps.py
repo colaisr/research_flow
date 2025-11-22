@@ -2,28 +2,48 @@
 Base class and individual step analyzers for the Daystart analysis pipeline.
 """
 from typing import Dict, Any, Optional
+import re
+import logging
+from sqlalchemy.orm import Session
 from app.services.llm.client import LLMClient
 from app.services.data.normalized import MarketData
+from app.services.tools import ToolExecutor
+
+logger = logging.getLogger(__name__)
 
 
-def format_user_prompt_template(template: str, context: Dict[str, Any], step_config: Optional[Dict[str, Any]] = None) -> str:
-    """Format user prompt template with context variables.
+def format_user_prompt_template(
+    template: str, 
+    context: Dict[str, Any], 
+    step_config: Optional[Dict[str, Any]] = None,
+    db: Optional[Session] = None
+) -> str:
+    """Format user prompt template with context variables and tool references.
     
     Supports placeholders:
     - {instrument} - instrument symbol
     - {timeframe} - timeframe
     - {market_data_summary} - formatted market data summary
     - {wyckoff_output}, {smc_output}, {vsa_output}, {delta_output}, {ict_output}, {price_action_output} - previous step outputs
+    - {tool_variable_name} - tool references (executes tool and injects result)
     
     Args:
         template: User prompt template string
         context: Context dictionary with market_data, instrument, timeframe, previous_steps
-        step_config: Optional step configuration dict (may contain num_candles)
+        step_config: Optional step configuration dict (may contain num_candles, tool_references)
+        db: Optional database session for loading tools (required if tool_references are used)
     """
     market_data: MarketData = context.get("market_data")
     instrument = context.get("instrument", "")
     timeframe = context.get("timeframe", "")
     previous_steps = context.get("previous_steps", {})
+    
+    # Process tool references first (before standard variable replacement)
+    if step_config and "tool_references" in step_config and step_config["tool_references"]:
+        if not db:
+            logger.warning("tool_references found in step_config but db session not provided, skipping tool execution")
+        else:
+            template = _process_tool_references(template, step_config, context, db)
     
     # Get number of candles from step_config if available, otherwise use defaults based on step type
     num_candles = None
@@ -77,7 +97,6 @@ def format_user_prompt_template(template: str, context: Dict[str, Any], step_con
     # Replace hardcoded "last X candles" text in template with actual num_candles value
     # This handles cases where templates have hardcoded text like "last 20 candles"
     if num_candles:
-        import re
         # Replace patterns like "last 20 candles", "last 50 candles", etc.
         template = re.sub(
             r'last\s+\d+\s+candles?',
@@ -94,8 +113,13 @@ def format_user_prompt_template(template: str, context: Dict[str, Any], step_con
         )
     
     # Format template with all variables
+    # Note: Tool results already have braces escaped, so they won't interfere with format()
     try:
         formatted = template.format(**format_dict)
+        # Unescape braces in tool results (they were escaped to prevent format() errors)
+        # Replace {{ with { and }} with } but only in tool result sections
+        # Simple approach: unescape all double braces (this is safe since we control tool results)
+        formatted = formatted.replace('{{', '{').replace('}}', '}')
     except KeyError as e:
         # Provide helpful error message for invalid variables
         invalid_var = str(e).strip("'")
@@ -115,6 +139,87 @@ def format_user_prompt_template(template: str, context: Dict[str, Any], step_con
         )
     
     return formatted
+
+
+def _process_tool_references(
+    template: str,
+    step_config: Dict[str, Any],
+    context: Dict[str, Any],
+    db: Session
+) -> str:
+    """Process tool references in prompt template.
+    
+    Executes tools referenced in step_config.tool_references and injects results into template.
+    
+    Args:
+        template: Prompt template string
+        step_config: Step configuration with tool_references array
+        context: Step context (instrument, timeframe, previous_steps, etc.)
+        db: Database session for loading tools
+        
+    Returns:
+        Template with tool references replaced by tool execution results
+    """
+    from app.models.user_tool import UserTool
+    
+    tool_references = step_config.get("tool_references", [])
+    tool_executor = ToolExecutor(db=db)
+    
+    # Build step context for tool execution
+    step_context = {
+        "instrument": context.get("instrument", ""),
+        "timeframe": context.get("timeframe", ""),
+    }
+    # Add previous step outputs to context
+    for step_name, step_result in context.get("previous_steps", {}).items():
+        step_context[f"{step_name}_output"] = step_result.get("output", "")
+    
+    # Execute each tool reference sequentially
+    for tool_ref in tool_references:
+        tool_id = tool_ref.get("tool_id")
+        variable_name = tool_ref.get("variable_name")
+        extraction_method = tool_ref.get("extraction_method", "natural_language")
+        extraction_config = tool_ref.get("extraction_config", {})
+        
+        if not tool_id or not variable_name:
+            logger.warning(f"Invalid tool reference config: {tool_ref}")
+            continue
+        
+        # Load tool from database
+        tool = db.query(UserTool).filter(UserTool.id == tool_id).first()
+        if not tool:
+            logger.warning(f"Tool with id {tool_id} not found")
+            template = template.replace(f"{{{variable_name}}}", f"[Tool {tool_id} not found]")
+            continue
+        
+        # Check if tool is active
+        if not tool.is_active:
+            logger.warning(f"Tool {tool.display_name} (id: {tool_id}) is not active")
+            template = template.replace(f"{{{variable_name}}}", f"[Tool {tool.display_name} is not active]")
+            continue
+        
+        # Execute tool with context
+        try:
+            tool_result = tool_executor.execute_tool_with_context(
+                tool=tool,
+                prompt_text=template,
+                tool_variable_name=variable_name,
+                step_context=step_context,
+                extraction_config=extraction_config
+            )
+            
+            # Replace tool reference with result
+            # Escape braces in tool_result to prevent format() errors
+            # We'll unescape them after format() is called
+            escaped_result = tool_result.replace('{', '{{').replace('}', '}}')
+            template = template.replace(f"{{{variable_name}}}", escaped_result)
+            logger.info(f"Executed tool {tool.display_name} (id: {tool_id}), variable: {variable_name}")
+            
+        except Exception as e:
+            logger.error(f"Tool execution failed for {tool.display_name} (id: {tool_id}): {e}", exc_info=True)
+            template = template.replace(f"{{{variable_name}}}", f"[Tool {tool.display_name} execution failed: {str(e)}]")
+    
+    return template
 
 
 class BaseAnalyzer:
@@ -160,7 +265,9 @@ class BaseAnalyzer:
             
             # Use user_prompt_template from config if provided, otherwise use default
             if "user_prompt_template" in step_config and step_config["user_prompt_template"]:
-                user_prompt = format_user_prompt_template(step_config["user_prompt_template"], context, step_config)
+                # Get db session from context if available (for tool execution)
+                db = context.get("_db_session")
+                user_prompt = format_user_prompt_template(step_config["user_prompt_template"], context, step_config, db)
             else:
                 user_prompt = self.build_user_prompt(context, step_config)
             
