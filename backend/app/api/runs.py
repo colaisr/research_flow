@@ -224,6 +224,10 @@ async def create_run(
             # Update run status to FAILED
             if bg_run:
                 try:
+                    # Rollback any pending transaction first
+                    bg_db.rollback()
+                    # Refresh the run object to get latest state
+                    bg_db.refresh(bg_run)
                     bg_run.status = RunStatus.FAILED
                     bg_run.finished_at = datetime.now(timezone.utc)
                     # Save error message in a step
@@ -238,6 +242,10 @@ async def create_run(
                     bg_db.commit()
                 except Exception as db_error:
                     logger.error(f"Failed to update run status to FAILED: {db_error}")
+                    try:
+                        bg_db.rollback()
+                    except:
+                        pass
         finally:
             bg_db.close()
     

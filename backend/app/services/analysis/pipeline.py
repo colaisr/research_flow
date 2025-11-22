@@ -388,8 +388,27 @@ class AnalysisPipeline:
                         cost_est=step_result.get("cost_est", 0.0),
                     )
                     db.add(step_record)
-                    db.commit()
-                    db.refresh(step_record)
+                    try:
+                        db.commit()
+                        db.refresh(step_record)
+                    except Exception as db_error:
+                        # Handle database connection errors
+                        error_str = str(db_error)
+                        if "Lost connection" in error_str or "OperationalError" in error_str or "PendingRollbackError" in error_str:
+                            logger.warning(f"Database connection error during step save, retrying: {error_str}")
+                            db.rollback()
+                            # Retry once
+                            try:
+                                db.add(step_record)
+                                db.commit()
+                                db.refresh(step_record)
+                            except Exception as retry_error:
+                                logger.error(f"Failed to save step after retry: {retry_error}")
+                                db.rollback()
+                                raise
+                        else:
+                            db.rollback()
+                            raise
                     
                     # Update context with step result for next steps
                     context["previous_steps"][step_name] = step_result
@@ -481,8 +500,16 @@ class AnalysisPipeline:
             
         except Exception as e:
             logger.error(f"pipeline_failed: run_id={run.id}, error={str(e)}")
-            run.status = RunStatus.FAILED
-            run.finished_at = datetime.now(timezone.utc)
-            db.commit()
+            try:
+                # Rollback any pending transaction before updating status
+                db.rollback()
+                # Refresh the run object to get latest state
+                db.refresh(run)
+                run.status = RunStatus.FAILED
+                run.finished_at = datetime.now(timezone.utc)
+                db.commit()
+            except Exception as commit_error:
+                logger.error(f"Failed to update run status to FAILED: {str(commit_error)}")
+                db.rollback()
             raise
 
