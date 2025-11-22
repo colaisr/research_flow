@@ -90,7 +90,9 @@ def format_user_prompt_template(
     for step_name, step_result in previous_steps.items():
         if step_name not in standard_steps:
             step_output = step_result.get("output", "Не доступно")
-            if not is_merge_step and len(step_output) > 100:
+            # Don't truncate fetch_market_data output - it contains data that needs to be passed fully
+            # Also don't truncate for merge steps
+            if step_name != "fetch_market_data" and not is_merge_step and len(step_output) > 100:
                 step_output = step_output[:100] + "..."
             format_dict[f"{step_name}_output"] = step_output
     

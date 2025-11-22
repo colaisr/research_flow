@@ -141,15 +141,50 @@ class ToolExecutor:
         """
         params = {}
         
-        # Use step context variables if available
-        if "instrument" in step_context:
-            params["instrument"] = step_context["instrument"]
-        if "timeframe" in step_context:
-            params["timeframe"] = step_context["timeframe"]
+        # First, try to extract parameters from context text (prompt)
+        # Look for instrument patterns: BTC/USDT, BTC-USDT, BTC_USDT, etc.
+        instrument_patterns = [
+            r'([A-Z0-9]+/[A-Z0-9]+)',  # BTC/USDT format
+            r'([A-Z0-9]+-[A-Z0-9]+)',  # BTC-USDT format
+            r'([A-Z0-9]+_[A-Z0-9]+)',  # BTC_USDT format
+        ]
+        for pattern in instrument_patterns:
+            match = re.search(pattern, context_text, re.IGNORECASE)
+            if match:
+                params["instrument"] = match.group(1).upper()
+                break
         
-        # Check if context text mentions specific endpoints or parameters
-        # For now, use tool's default configuration
-        # Future: Extract endpoint/params from natural language
+        # Look for timeframe patterns: H1, H4, D1, 1h, 4h, 1d, etc.
+        timeframe_patterns = [
+            r'\b([HMD]\d+)\b',  # H1, H4, D1, M1, etc.
+            r'\b(\d+[hdm])\b',  # 1h, 4h, 1d, 5m, etc.
+            r'\b(таймфрейм[е]?\s+([HMD]\d+|\d+[hdm]))',  # Russian: "таймфрейме H1"
+        ]
+        for pattern in timeframe_patterns:
+            match = re.search(pattern, context_text, re.IGNORECASE)
+            if match:
+                timeframe = match.group(1) if len(match.groups()) == 1 else match.group(2)
+                # Normalize timeframe format (convert 1h to H1, etc.)
+                if timeframe and not timeframe[0].isalpha():
+                    # Convert 1h -> H1, 4h -> H4, etc.
+                    num = re.match(r'(\d+)', timeframe)
+                    unit = re.search(r'([hdm])', timeframe.lower())
+                    if num and unit:
+                        unit_map = {'h': 'H', 'd': 'D', 'm': 'M'}
+                        timeframe = f"{unit_map.get(unit.group(1), 'H')}{num.group(1)}"
+                params["timeframe"] = timeframe.upper()
+                break
+        
+        # Use step context variables only if:
+        # 1. Not already extracted from prompt, AND
+        # 2. Not "N/A" (which means not set)
+        if "instrument" not in params and "instrument" in step_context:
+            if step_context["instrument"] and step_context["instrument"] != "N/A":
+                params["instrument"] = step_context["instrument"]
+        
+        if "timeframe" not in params and "timeframe" in step_context:
+            if step_context["timeframe"] and step_context["timeframe"] != "N/A":
+                params["timeframe"] = step_context["timeframe"]
         
         return params
     
