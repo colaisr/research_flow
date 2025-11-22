@@ -496,10 +496,51 @@ Users can create, edit, and manage their own custom analysis pipelines using the
    - Summary format is configurable per analysis
 
 **Access Control:**
-- **System Pipelines**: Read-only for regular users (can duplicate, can't edit)
+- **System Pipelines**: 
+  - Belong to platform admin user (`user_id=admin_user.id`)
+  - Marked with `is_system=True` (visible to all users)
+  - Read-only for regular users (can duplicate, can't edit)
+  - Only platform admin can edit system pipelines
 - **User Pipelines**: Full edit access (only by owner)
 - **Admin**: Can edit any pipeline (system or user)
-- **Duplicate**: Users can duplicate system pipelines to create their own copies
+- **Duplicate**: Users can duplicate system pipelines to create their own copies (tools are automatically copied from admin)
+
+**System Process Ownership Model:**
+- **System processes belong to platform admin user**: All system processes are created under platform admin user (`user_id=admin_user.id`)
+- **Tools in system processes belong to admin**: Tools used in system processes are owned by platform admin
+- **Visibility**: System processes are visible to all users (via `is_system=True` flag) but belong to admin
+- **Benefits**:
+  - Admin can manage system processes and their tools centrally
+  - Tools always exist (belong to admin)
+  - Simple duplication logic: copy admin's tools to user
+
+**Tool Reference Handling During Duplication:**
+When a user duplicates a system pipeline that uses tools (via `tool_references` in step configs), the system automatically handles tool references:
+
+1. **Tool Discovery**: System collects all `tool_id` values from `tool_references` in all steps
+2. **Tool Source**: Tools belong to system process owner (platform admin)
+3. **Tool Matching**: For each source `tool_id`:
+   - Loads the source tool from admin's account
+   - Searches for user's existing tool with matching `display_name` and `tool_type`
+   - If found: Uses existing user's tool ID
+   - If not found: Creates a copy of admin's tool for the user
+4. **Tool Copying**: When creating tool copies:
+   - Copies tool configuration from admin's tool (including encrypted credentials)
+   - Creates `organization_tool_access` entries for all user's organizations
+   - **Note**: Credentials are copied as-is (encrypted with same key), but user should verify they work
+   - **Note**: If admin's credentials are specific to admin's account, user will need to update them
+5. **Reference Updates**: All `tool_id` values in `tool_references` are updated to point to user's copied tools
+6. **Error Handling**: If a tool cannot be found or created:
+   - Reference is kept in config
+   - Will show error message when pipeline executes: "[Tool {tool_id} not found]"
+   - User can manually fix by selecting a different tool in the Pipeline Editor
+
+**Best Practices:**
+- **Admin Tool Management**: Platform admin should create and maintain tools for system processes
+- **Tool Naming**: Use standard tool names (e.g., "Binance API", "PostgreSQL DB") that make sense when copied
+- **Credentials**: Admin should use generic credentials or document that users need to update them
+- **User Verification**: Users should verify tool credentials after duplicating a process that uses tools
+- **Manual Updates**: Users can manually update tool references in the Pipeline Editor if needed
 
 **Navigation Flow:**
 - `/analyses` → "Create New Pipeline" button → `/pipelines/new` (fresh empty pipeline)
@@ -552,11 +593,18 @@ The current trading analysis flows serve as **examples/templates** that demonstr
 
 **System Process Creation Approach:**
 - **Purpose**: System processes (`is_system=True`) serve as example/template workflows that users can clone and customize
+- **Ownership**: System processes belong to platform admin user (`user_id=admin_user.id`)
+- **Visibility**: Marked with `is_system=True` flag, making them visible to all users
 - **Creation Method**: Python scripts in `backend/scripts/` directory (e.g., `create_tour_operator_process.py`)
-- **Structure**: Scripts create `AnalysisType` records with `is_system=True`, `user_id=None`, `organization_id=None` (available to all organizations)
+- **Structure**: Scripts create `AnalysisType` records with:
+  - `is_system=True` (visible to all users)
+  - `user_id=admin_user.id` (belongs to platform admin)
+  - `organization_id=admin_org.id` (belongs to admin's organization)
+- **Tools**: Tools used in system processes belong to platform admin and are copied to users when duplicating
 - **Documentation**: Each system process has a markdown file in `docs/system_processes/` describing its purpose, steps, and capabilities
 - **Access**: System processes appear in "Примеры процессов" (Example processes) tab on Analyses page
-- **User Interaction**: Users can clone system processes to create their own editable copies
+- **User Interaction**: Users can clone system processes to create their own editable copies (tools are automatically copied)
+- **Admin Management**: Platform admin can create, edit, and manage system processes and their tools
 
 **Example: Financial Market Analysis** (Current Implementation)
 - Demonstrates: Multi-step LLM analysis, data source integration, structured outputs
@@ -1593,10 +1641,15 @@ return owner_features
     - **`is_shared` changes**: For now, not allowed to change after creation (can be added later)
     - If `is_shared` changes (future): Updates `organization_tool_access` entries accordingly
   - `DELETE /api/tools/{id}` - Delete tool (only if user owns tool)
-    - **For now**: DELETE not allowed (prevent breaking analyses)
-    - **Future**: Check if tool is used in any `analysis_types` or `analysis_steps` before allowing deletion
-    - If used: Return error with list of analyses using the tool
-    - If not used: Delete tool and all `organization_tool_access` entries
+    - **Usage Check**: Verifies tool is actually used in analysis prompts before allowing deletion
+    - **Check Logic**: 
+      - Iterates through all active `AnalysisType` configurations
+      - For each step, checks if tool is referenced in `tool_references`
+      - **Critical**: Verifies tool's variable name (`{variable_name}`) actually appears in `user_prompt_template` or `system_prompt` text
+      - **Rationale**: Tool may be in `tool_references` (added via palette) but not used in prompt text
+    - **If Used**: Returns HTTP 400 error with list of analyses using the tool (up to 3 names + count)
+    - **If Not Used**: Deletes tool and all `organization_tool_access` entries
+    - **Error Message**: Detailed Russian error message listing dependent analyses
   - `POST /api/tools/{id}/test` - Test tool connection (only if user owns tool)
 
 - [x] **Organization Tool Access Endpoints**:
@@ -1753,6 +1806,8 @@ return owner_features
 - [x] Tools available in all orgs where user is owner ✅
 - [x] Can disable tool in specific org via settings ✅
 - [x] Tool deletion prevented (if used in analyses) ✅
+  - **Implementation**: Checks for actual variable usage in prompt text, not just `tool_references` presence ✅
+  - **Logic**: Tool is considered "used" only if variable appears in `user_prompt_template` or `system_prompt` ✅
 - [x] Backward compatibility: Old analyses still work with adapters ✅ **IMPLEMENTED**
 
 ---
@@ -2031,11 +2086,29 @@ return owner_features
 1. **Design**: Create markdown documentation in `docs/system_processes/` describing the process purpose, steps, and capabilities
 2. **Implementation**: Create Python script in `backend/scripts/` (e.g., `create_tour_operator_process.py`)
 3. **Execution**: Run script to create `AnalysisType` record with:
-   - `is_system=True`
-   - `user_id=None`
-   - `organization_id=None` (available to all organizations)
+   - `is_system=True` (visible to all users)
+   - `user_id=admin_user.id` (belongs to platform admin)
+   - `organization_id=admin_org.id` (belongs to admin's organization)
    - Complete step configuration in `config` JSON
-4. **Verification**: Process appears in "Примеры процессов" tab on Analyses page
+4. **Tools**: If process uses tools:
+   - Create tools under platform admin account first
+   - Tools belong to admin and are copied to users when duplicating
+   - Admin can manage all system process tools centrally
+5. **Verification**: Process appears in "Примеры процессов" tab on Analyses page
+
+**Tool Management for System Processes**:
+- **Admin Creates Tools**: Platform admin creates and configures tools for system processes
+- **Tool Ownership**: Tools belong to admin (`user_id=admin_user.id`)
+- **Tool Visibility**: Tools are available to admin in all their organizations
+- **Duplication**: When user duplicates system process:
+  - Admin's tools are automatically copied to user
+  - User gets their own copies of tools (can modify credentials)
+  - Tool references in process config are updated to point to user's tools
+- **Benefits**:
+  - Centralized tool management (admin controls all system tools)
+  - No broken references (tools always exist)
+  - Simple duplication logic (just copy admin's tools)
+  - Users can customize tool credentials after duplication
 
 **Example Process Structure**:
 - **Tour Operator Cities Selection** (`tour_operator_cities_selection`):
@@ -2053,10 +2126,12 @@ return owner_features
 - Test the process before making it available as a system process
 
 **User Interaction**:
-- System processes appear in "Примеры процессов" tab (read-only)
+- System processes appear in "Примеры процессов" tab (read-only for regular users)
 - Users can clone system processes to create editable copies
 - Cloned processes become user-owned (`is_system=False`, `user_id=current_user.id`)
++- **Tool Copying**: When duplicating, admin's tools are automatically copied to user
 - Users can modify cloned processes freely
+- Users can update tool credentials in copied tools after duplication
 
 ### 12b) UI/UX Consistency & Translation
 
