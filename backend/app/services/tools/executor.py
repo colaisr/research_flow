@@ -141,18 +141,30 @@ class ToolExecutor:
         """
         params = {}
         
+        # Remove tool variable references from context to avoid false matches
+        # Example: {yahoo_finance_api} -> remove it so we don't match "YAHOO_FINANCE" as instrument
+        cleaned_context = context_text
+        # Remove {variable_name} patterns
+        cleaned_context = re.sub(r'\{[^}]+\}', '', cleaned_context)
+        
         # First, try to extract parameters from context text (prompt)
-        # Look for instrument patterns: BTC/USDT, BTC-USDT, BTC_USDT, etc.
+        # Look for instrument patterns: BTC/USDT, BTC-USDT, BTC_USDT, AAPL, etc.
+        # Priority: simple tickers first (AAPL, BTC), then pairs (BTC/USDT)
         instrument_patterns = [
+            r'\b([A-Z]{2,5})\b',  # Simple tickers: AAPL, BTC, TSLA (2-5 uppercase letters, word boundary)
             r'([A-Z0-9]+/[A-Z0-9]+)',  # BTC/USDT format
             r'([A-Z0-9]+-[A-Z0-9]+)',  # BTC-USDT format
-            r'([A-Z0-9]+_[A-Z0-9]+)',  # BTC_USDT format
+            r'([A-Z0-9]+_[A-Z0-9]+)',  # BTC_USDT format (last priority)
         ]
         for pattern in instrument_patterns:
-            match = re.search(pattern, context_text, re.IGNORECASE)
+            match = re.search(pattern, cleaned_context, re.IGNORECASE)
             if match:
-                params["instrument"] = match.group(1).upper()
-                break
+                candidate = match.group(1).upper()
+                # Skip common tool/service names that might be matched
+                skip_names = {'API', 'HTTP', 'HTTPS', 'GET', 'POST', 'PUT', 'DELETE', 'YAHOO', 'FINANCE', 'BINANCE', 'TINKOFF'}
+                if candidate not in skip_names and len(candidate) >= 2:
+                    params["instrument"] = candidate
+                    break
         
         # Look for timeframe patterns: H1, H4, D1, 1h, 4h, 1d, etc.
         timeframe_patterns = [
@@ -161,7 +173,7 @@ class ToolExecutor:
             r'\b(таймфрейм[е]?\s+([HMD]\d+|\d+[hdm]))',  # Russian: "таймфрейме H1"
         ]
         for pattern in timeframe_patterns:
-            match = re.search(pattern, context_text, re.IGNORECASE)
+            match = re.search(pattern, cleaned_context, re.IGNORECASE)
             if match:
                 timeframe = match.group(1) if len(match.groups()) == 1 else match.group(2)
                 # Normalize timeframe format (convert 1h to H1, etc.)
