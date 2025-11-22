@@ -123,7 +123,6 @@ export default function ToolsPage() {
     if (!searchQuery) return true
     const query = searchQuery.toLowerCase()
     return (
-      tool.name.toLowerCase().includes(query) ||
       tool.display_name.toLowerCase().includes(query)
     )
   })

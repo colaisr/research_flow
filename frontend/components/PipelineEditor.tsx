@@ -10,6 +10,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { API_BASE_URL } from '@/lib/config'
 import Select from '@/components/Select'
 import VariableTextEditor, { VariableTextEditorHandle } from '@/components/VariableTextEditor'
+import Link from 'next/link'
 
 interface Model {
   id: number
@@ -19,6 +20,29 @@ interface Model {
   description: string | null
   is_enabled: boolean
   has_failures: boolean
+}
+
+interface Tool {
+  id: number
+  user_id: number
+  organization_id: number | null
+  tool_type: 'database' | 'api' | 'rag'
+  display_name: string
+  config: Record<string, any>
+  is_active: boolean
+  is_shared: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+interface ToolReference {
+  tool_id: number
+  variable_name: string
+  extraction_method: 'natural_language' | 'explicit' | 'template'
+  extraction_config?: {
+    query_template?: string
+    context_window?: number
+  }
 }
 
 interface StepConfig {
@@ -39,6 +63,7 @@ interface StepConfig {
     format: 'full' | 'summary'
     auto_detected?: string[]
   }
+  tool_references?: ToolReference[]
 }
 
 interface PipelineConfig {
@@ -65,6 +90,11 @@ interface AnalysisType {
 
 async function fetchEnabledModels() {
   const { data } = await axios.get<Model[]>(`${API_BASE_URL}/api/settings/models?enabled_only=true`, { withCredentials: true })
+  return data
+}
+
+async function fetchTools() {
+  const { data } = await axios.get<Tool[]>(`${API_BASE_URL}/api/tools`, { withCredentials: true })
   return data
 }
 
@@ -142,6 +172,11 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
     queryKey: ['settings', 'models', 'enabled'],
     queryFn: fetchEnabledModels,
     staleTime: 0,
+  })
+
+  const { data: tools = [] } = useQuery({
+    queryKey: ['tools'],
+    queryFn: fetchTools,
   })
 
   const { data: existingPipeline, isLoading } = useQuery({
@@ -519,6 +554,7 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
                     selectedStepIndex={selectedStepIndex}
                     enabledModels={enabledModels}
                     allSteps={steps}
+                    tools={tools}
                     onSelect={() => setSelectedStepIndex(selectedStepIndex === index ? null : index)}
                     onRemove={() => removeStep(index)}
                     onUpdate={(updates) => updateStep(index, updates)}
@@ -605,6 +641,7 @@ interface SortableStepItemProps {
   selectedStepIndex: number | null
   enabledModels: Model[]
   allSteps: StepConfig[]
+  tools: Tool[]
   onSelect: () => void
   onRemove: () => void
   onUpdate: (updates: Partial<StepConfig>) => void
@@ -616,6 +653,7 @@ function SortableStepItem({
   selectedStepIndex,
   enabledModels,
   allSteps,
+  tools,
   onSelect,
   onRemove,
   onUpdate,
@@ -691,15 +729,16 @@ function SortableStepItem({
         </div>
       </div>
 
-      {selectedStepIndex === index && (
-        <StepConfigurationPanel
-          step={step}
-          stepIndex={index}
-          allSteps={allSteps}
-          enabledModels={enabledModels}
-          onUpdate={onUpdate}
-        />
-      )}
+        {selectedStepIndex === index && (
+          <StepConfigurationPanel
+            step={step}
+            stepIndex={index}
+            allSteps={allSteps}
+            enabledModels={enabledModels}
+            tools={tools}
+            onUpdate={onUpdate}
+          />
+        )}
     </div>
   )
 }
@@ -710,6 +749,7 @@ interface StepConfigurationPanelProps {
   stepIndex: number
   allSteps: StepConfig[]
   enabledModels: Model[]
+  tools: Tool[]
   onUpdate: (updates: Partial<StepConfig>) => void
 }
 
@@ -749,7 +789,7 @@ function VariableTextEditorWrapper({
   )
 }
 
-function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, onUpdate }: StepConfigurationPanelProps) {
+function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tools, onUpdate }: StepConfigurationPanelProps) {
   const availableStepNames = allSteps
     .slice(0, stepIndex)
     .map(s => s.step_name)
@@ -972,6 +1012,144 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, onUp
         })()}
       </div>
 
+      {/* Tool References */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">Tool References</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+          Select tools to use in this step's prompt. Tools will execute and inject results before the prompt is sent to the LLM.
+        </p>
+        
+        <div className="space-y-3">
+          {(step.tool_references || []).map((toolRef, refIndex) => {
+            const tool = tools.find(t => t.id === toolRef.tool_id)
+            return (
+              <div key={refIndex} className="p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">
+                        {tool ? tool.display_name : `Tool #${toolRef.tool_id}`}
+                      </span>
+                      {tool && (
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          tool.tool_type === 'api' ? 'bg-blue-100 text-blue-800' :
+                          tool.tool_type === 'database' ? 'bg-green-100 text-green-800' :
+                          'bg-purple-100 text-purple-800'
+                        }`}>
+                          {tool.tool_type}
+                        </span>
+                      )}
+                      {tool && !tool.is_active && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-800">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs text-gray-700 dark:text-gray-300 mb-1">
+                          Variable Name (use in prompt as {'{'}{toolRef.variable_name}{'}'})
+                        </label>
+                        <input
+                          type="text"
+                          value={toolRef.variable_name}
+                          onChange={(e) => {
+                            const newRefs = [...(step.tool_references || [])]
+                            newRefs[refIndex] = { ...toolRef, variable_name: e.target.value }
+                            onUpdate({ tool_references: newRefs })
+                          }}
+                          className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          placeholder="tool_variable_name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-700 dark:text-gray-300 mb-1">
+                          Extraction Method
+                        </label>
+                        <select
+                          value={toolRef.extraction_method}
+                          onChange={(e) => {
+                            const newRefs = [...(step.tool_references || [])]
+                            newRefs[refIndex] = { 
+                              ...toolRef, 
+                              extraction_method: e.target.value as 'natural_language' | 'explicit' | 'template'
+                            }
+                            onUpdate({ tool_references: newRefs })
+                          }}
+                          className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        >
+                          <option value="natural_language">Natural Language (extract from prompt text)</option>
+                          <option value="explicit">Explicit Parameters (future)</option>
+                          <option value="template">Query Template (future)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const newRefs = [...(step.tool_references || [])]
+                      newRefs.splice(refIndex, 1)
+                      onUpdate({ tool_references: newRefs.length > 0 ? newRefs : undefined })
+                    }}
+                    className="ml-2 text-red-600 hover:text-red-800 text-sm"
+                    title="Remove tool reference"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+          
+          <div>
+            <select
+              value=""
+              onChange={(e) => {
+                const toolId = parseInt(e.target.value)
+                if (toolId) {
+                  const tool = tools.find(t => t.id === toolId)
+                  if (tool) {
+                    // Sanitize display_name for variable name
+                    const variableName = tool.display_name
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, '_')
+                      .replace(/^_+|_+$/g, '')
+                    
+                    const newRef: ToolReference = {
+                      tool_id: toolId,
+                      variable_name: variableName,
+                      extraction_method: 'natural_language',
+                      extraction_config: {
+                        context_window: 200
+                      }
+                    }
+                    const newRefs = [...(step.tool_references || []), newRef]
+                    onUpdate({ tool_references: newRefs })
+                    e.target.value = ''
+                  }
+                }
+              }}
+              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            >
+              <option value="">+ Add Tool Reference</option>
+              {tools
+                .filter(tool => tool.is_active)
+                .filter(tool => !step.tool_references?.some(ref => ref.tool_id === tool.id))
+                .map(tool => (
+                  <option key={tool.id} value={tool.id}>
+                    {tool.display_name} ({tool.tool_type})
+                  </option>
+                ))}
+            </select>
+            {tools.length === 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                No tools available. <Link href="/tools/new" className="text-blue-600 hover:underline">Create a tool</Link>
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* System Prompt */}
       <div>
         <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase">System Prompt</p>
@@ -991,13 +1169,16 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, onUp
           const previousSteps = allSteps.slice(0, stepIndex)
           const standardVars = ['{instrument}', '{timeframe}', '{market_data_summary}']
           const stepOutputVars = previousSteps.map(s => `{${s.step_name}_output}`)
-          const availableVariables = [...standardVars, ...stepOutputVars]
+          // Add tool reference variables
+          const toolVars = (step.tool_references || []).map(ref => `{${ref.variable_name}}`)
+          const availableVariables = [...standardVars, ...stepOutputVars, ...toolVars]
           
           return (
             <>
               <VariablePalette
                 allSteps={allSteps}
                 currentStepIndex={stepIndex}
+                tools={tools}
                 editorRef={(index: number) => {
                   const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
                   return refs?.get(index) || { current: null }
@@ -1059,11 +1240,13 @@ interface VariablePaletteProps {
   currentStepIndex: number
   editorRef?: (index: number) => React.RefObject<VariableTextEditorHandle>
   onInsertVariable: (variable: string, editorRef?: React.RefObject<VariableTextEditorHandle>) => void
+  tools?: Tool[]
 }
 
-function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariable }: VariablePaletteProps) {
+function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariable, tools = [] }: VariablePaletteProps) {
   // Get previous steps (steps before current one)
   const previousSteps = allSteps.slice(0, currentStepIndex)
+  const currentStep = allSteps[currentStepIndex]
   
   // Standard variables
   const standardVars = [
@@ -1077,6 +1260,15 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
     name: `{${step.step_name}_output}`,
     desc: `Output from "${step.step_name}" step`,
   }))
+  
+  // Tool reference variables
+  const toolVars = (currentStep?.tool_references || []).map(ref => {
+    const tool = tools.find(t => t.id === ref.tool_id)
+    return {
+      name: `{${ref.variable_name}}`,
+      desc: tool ? `Tool: ${tool.display_name} (${tool.tool_type})` : `Tool reference: ${ref.variable_name}`,
+    }
+  })
   
   return (
     <div className="mb-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
@@ -1117,9 +1309,28 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
             })}
           </>
         )}
-        {previousSteps.length === 0 && (
+        {toolVars.length > 0 && (
+          <>
+            <span className="text-xs text-blue-600 dark:text-blue-400 self-center">|</span>
+            {toolVars.map((v) => {
+              const ref = editorRef ? editorRef(currentStepIndex) : undefined
+              return (
+                <button
+                  key={v.name}
+                  type="button"
+                  onClick={() => onInsertVariable(v.name, ref)}
+                  className="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 rounded border border-green-300 dark:border-green-700 text-green-800 dark:text-green-300 font-mono cursor-pointer transition-colors"
+                  title={v.desc}
+                >
+                  {v.name}
+                </button>
+              )
+            })}
+          </>
+        )}
+        {previousSteps.length === 0 && toolVars.length === 0 && (
           <span className="text-xs text-blue-600 dark:text-blue-400 italic">
-            (No previous steps - add steps before this one to reference their outputs)
+            (No previous steps or tools - add steps before this one or select tools above)
           </span>
         )}
       </div>
