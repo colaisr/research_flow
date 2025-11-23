@@ -1361,22 +1361,23 @@ return owner_features
 - Phase 1.5 includes initial UI improvements, but broader modernization may be needed in separate phase
 
 **1.5.1) Tool Input/Parameter System**
-- [ ] **Tool Parameter Extraction**:
-  - Tools can accept parameters from prompt context
-  - Example: RAG tool needs query/question extracted from prompt text
-  - Example: Database tool needs SQL query or query parameters
-  - Example: API tool needs endpoint path, query params, or body data
-- [x] **Parameter Syntax Options**:
-  - **Option A**: Explicit syntax `{rag_bank_reports(query="get all 21/5/2025 transactions")}`
-  - **Option B**: Natural language extraction - tool extracts query from surrounding prompt text ✅ **DECISION: Start with Option B**
-  - **Option C**: Hybrid - explicit params + context extraction
-  - **Decision**: Start with Option B (natural language) for better UX, add explicit syntax later if needed ✅
+- [ ] **AI-Based Tool Parameter Extraction**:
+  - **Архитектура**: AI/LLM извлекает параметры из промпта для всех типов инструментов
+  - **Монолитность**: Используется тот же model, что выбран в step (для совместимости с локальными LLM)
+  - **Прозрачность**: Нет конфигурации для пользователя - все работает автоматически
+  - **Кэширование**: Результаты extraction кэшируются для оптимизации
+  - **Guardrails**: AI валидирует параметры и защищает от ошибок (SQL injection, etc.)
+  - **Примеры**:
+    - RAG tool: AI извлекает query из текста вокруг `{rag_bank_reports}`
+    - Database tool: AI конвертирует вопрос в SQL запрос
+    - API tool: AI извлекает endpoint/params из промпта
+  - **См. детали**: `docs/AI_TOOL_EXTRACTION_ARCHITECTURE.md`
 - [ ] **Tool Execution Context**:
   - Each tool receives: step context (instrument, timeframe, previous step outputs)
-  - Tools can extract their own parameters from prompt text
-  - RAG tools: Extract question/query from prompt, perform semantic search
-  - Database tools: Extract SQL query or use query template with parameters
-  - API tools: Extract endpoint/params from prompt or use template
+  - AI pre-step анализирует контекст вокруг tool reference и извлекает параметры
+  - RAG tools: AI извлекает question/query из промпта, выполняет semantic search
+  - Database tools: AI конвертирует вопрос в SQL запрос
+  - API tools: AI извлекает endpoint/params из промпта
 - [ ] **Tool Result Formatting**:
   - Tool results formatted as text/JSON based on tool type
   - RAG: Formatted as "Relevant context: ..." with document excerpts
