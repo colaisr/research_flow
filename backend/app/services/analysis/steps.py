@@ -176,12 +176,22 @@ def _process_tool_references(
     for step_name, step_result in context.get("previous_steps", {}).items():
         step_context[f"{step_name}_output"] = step_result.get("output", "")
     
+    # Get model from step_config for AI extraction (use same model as step)
+    step_model = step_config.get("model")
+    
+    # Get LLM client for AI extraction (will be created in ToolExecutor if needed)
+    llm_client = None
+    if step_model:
+        from app.services.llm.client import LLMClient
+        llm_client = LLMClient(db=db)
+    
     # Execute each tool reference sequentially
     for tool_ref in tool_references:
         tool_id = tool_ref.get("tool_id")
         variable_name = tool_ref.get("variable_name")
-        extraction_method = tool_ref.get("extraction_method", "natural_language")
-        extraction_config = tool_ref.get("extraction_config", {})
+        
+        # extraction_method and extraction_config are no longer used (AI-based extraction)
+        # Keep for backward compatibility but ignore
         
         if not tool_id or not variable_name:
             logger.warning(f"Invalid tool reference config: {tool_ref}")
@@ -200,14 +210,15 @@ def _process_tool_references(
             template = template.replace(f"{{{variable_name}}}", f"[Tool {tool.display_name} is not active]")
             continue
         
-        # Execute tool with context
+        # Execute tool with context (AI-based extraction)
         try:
             tool_result = tool_executor.execute_tool_with_context(
                 tool=tool,
                 prompt_text=template,
                 tool_variable_name=variable_name,
                 step_context=step_context,
-                extraction_config=extraction_config
+                model=step_model,  # Use same model as step
+                llm_client=llm_client
             )
             
             # Replace tool reference with result

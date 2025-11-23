@@ -6,11 +6,19 @@ from sqlalchemy.orm import Session
 import logging
 import re
 import json
+import hashlib
+from functools import lru_cache
 from app.models.user_tool import UserTool, ToolType
 from app.services.data.adapters import CCXTAdapter, YFinanceAdapter, TinkoffAdapter, get_tinkoff_token
 from app.services.tools.encryption import decrypt_tool_config
+from app.services.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
+
+# Simple in-memory cache for AI extraction results
+# Key: hash(context_text + step_context + tool_id + model)
+# Value: extracted parameters dict
+_extraction_cache: Dict[str, Dict[str, Any]] = {}
 
 
 class ToolExecutor:
@@ -60,11 +68,12 @@ class ToolExecutor:
         prompt_text: str,
         tool_variable_name: str,
         step_context: Optional[Dict[str, Any]] = None,
-        extraction_config: Optional[Dict[str, Any]] = None
+        model: Optional[str] = None,
+        llm_client: Optional[LLMClient] = None
     ) -> str:
-        """Execute a tool with natural language parameter extraction from prompt context.
+        """Execute a tool with AI-based parameter extraction from prompt context.
         
-        This method extracts parameters from the prompt text around the tool reference,
+        This method uses AI/LLM to extract parameters from the prompt text around the tool reference,
         executes the tool, and returns a formatted result string ready for injection into the prompt.
         
         Args:
@@ -72,7 +81,8 @@ class ToolExecutor:
             prompt_text: Full prompt text containing tool reference
             tool_variable_name: Variable name used in prompt (e.g., "binance_api")
             step_context: Optional step context (instrument, timeframe, previous steps, etc.)
-            extraction_config: Optional extraction configuration (context_window, query_template, etc.)
+            model: Model to use for AI extraction (should be same as step model)
+            llm_client: Optional LLMClient instance (will create if not provided)
             
         Returns:
             Formatted string result ready for prompt injection
@@ -81,8 +91,7 @@ class ToolExecutor:
             ValueError: If tool execution fails or parameter extraction fails
         """
         step_context = step_context or {}
-        extraction_config = extraction_config or {}
-        context_window = extraction_config.get("context_window", 200)  # Default 200 chars
+        context_window = 200  # Fixed context window (200 chars before/after)
         
         # Find tool reference in prompt
         tool_ref_pattern = f"{{{tool_variable_name}}}"
@@ -97,16 +106,15 @@ class ToolExecutor:
         end = min(len(prompt_text), tool_position + len(tool_ref_pattern) + context_window)
         context_text = prompt_text[start:end]
         
-        # Extract parameters based on tool type
+        # Extract parameters using AI
         try:
-            if tool.tool_type == ToolType.API.value:
-                params = self._extract_api_params(context_text, tool, step_context, extraction_config)
-            elif tool.tool_type == ToolType.DATABASE.value:
-                params = self._extract_database_params(context_text, tool, step_context, extraction_config)
-            elif tool.tool_type == ToolType.RAG.value:
-                params = self._extract_rag_params(context_text, tool, step_context, extraction_config)
-            else:
-                params = {}
+            params = self._extract_params_with_ai(
+                context_text=context_text,
+                tool=tool,
+                step_context=step_context,
+                model=model,
+                llm_client=llm_client
+            )
             
             # Execute tool
             result = self.execute_tool(tool, params)

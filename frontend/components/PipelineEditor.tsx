@@ -39,7 +39,9 @@ interface Tool {
 interface ToolReference {
   tool_id: number
   variable_name: string
-  extraction_method: 'natural_language' | 'explicit' | 'template'
+  // extraction_method and extraction_config removed - AI-based extraction is automatic
+  // Kept for backward compatibility but ignored
+  extraction_method?: 'natural_language' | 'explicit' | 'template'
   extraction_config?: {
     query_template?: string
     context_window?: number
@@ -999,14 +1001,11 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
     const existingRef = (step.tool_references || []).find(ref => ref.tool_id === toolVar.toolId)
     
     if (!existingRef) {
-      // Add tool reference with defaults
+      // Add tool reference (simplified format - no extraction_method or extraction_config)
       const newRef: ToolReference = {
         tool_id: toolVar.toolId,
-        variable_name: toolVar.variableName,
-        extraction_method: 'natural_language',
-        extraction_config: {
-          context_window: 200
-        }
+        variable_name: toolVar.variableName
+        // extraction_method and extraction_config removed - AI-based extraction is automatic
       }
       const newRefs = [...(step.tool_references || []), newRef]
       onUpdate({ tool_references: newRefs })
