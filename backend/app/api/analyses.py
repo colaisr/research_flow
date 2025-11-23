@@ -74,10 +74,11 @@ async def list_my_analysis_types(
     current_user: User = Depends(get_current_user_dependency),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
-    """List current user's own analysis types in current organization."""
+    """List current user's own analysis types in current organization (excludes system processes)."""
     analysis_types = db.query(AnalysisType).filter(
         AnalysisType.user_id == current_user.id,
         AnalysisType.organization_id == current_organization.id,
+        AnalysisType.is_system == False,  # Exclude system processes from "My processes"
         AnalysisType.is_active == 1
     ).all()
     return analysis_types
@@ -122,6 +123,7 @@ class CreateAnalysisTypeRequest(BaseModel):
     version: str = "1.0.0"
     config: Dict[str, Any]
     is_active: int = 1
+    is_system: Optional[bool] = False  # Only platform admins can set this to True
 
 
 class UpdateAnalysisTypeConfigRequest(BaseModel):
@@ -136,6 +138,7 @@ class UpdateAnalysisTypeRequest(BaseModel):
     version: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     is_active: Optional[int] = None
+    is_system: Optional[bool] = None  # Only platform admins can change this
 
 
 @router.post("", response_model=AnalysisTypeResponse)
@@ -145,14 +148,37 @@ async def create_analysis_type(
     current_user: User = Depends(get_current_user_dependency),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
-    """Create a new analysis type (user pipeline) in current organization."""
-    # Check if name already exists in this organization
-    existing = db.query(AnalysisType).filter(
-        AnalysisType.name == request.name,
-        AnalysisType.organization_id == current_organization.id
-    ).first()
+    """Create a new analysis type (user pipeline or system process).
+    
+    - Regular users can only create user pipelines (is_system=False)
+    - Platform admins can create system processes (is_system=True) which are visible to all users
+    """
+    # Validate: Only platform admins can create system processes
+    is_system = request.is_system or False
+    if is_system and not current_user.is_platform_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Only platform admins can create system processes"
+        )
+    
+    # Check if name already exists
+    # For system processes, check globally; for user processes, check in organization
+    if is_system:
+        existing = db.query(AnalysisType).filter(
+            AnalysisType.name == request.name,
+            AnalysisType.is_system == True
+        ).first()
+    else:
+        existing = db.query(AnalysisType).filter(
+            AnalysisType.name == request.name,
+            AnalysisType.organization_id == current_organization.id
+        ).first()
+    
     if existing:
-        raise HTTPException(status_code=400, detail="Analysis type with this name already exists in this organization")
+        if is_system:
+            raise HTTPException(status_code=400, detail="System process with this name already exists")
+        else:
+            raise HTTPException(status_code=400, detail="Analysis type with this name already exists in this organization")
     
     # Validate config structure
     if "steps" not in request.config:
@@ -166,9 +192,9 @@ async def create_analysis_type(
         version=request.version,
         config=request.config,
         is_active=request.is_active,
-        user_id=current_user.id,  # Set to current user
-        is_system=False,  # User-created pipeline
-        organization_id=current_organization.id  # Set to current organization
+        user_id=current_user.id,  # Set to current user (admin for system processes)
+        is_system=is_system,
+        organization_id=current_organization.id  # Set to current organization (admin's org for system processes)
     )
     
     db.add(analysis_type)
@@ -229,6 +255,29 @@ async def update_analysis_type(
     if request.is_active is not None:
         analysis_type.is_active = request.is_active
     
+    # Update is_system flag (only platform admins can change this)
+    if request.is_system is not None:
+        if not current_user.is_platform_admin():
+            raise HTTPException(
+                status_code=403,
+                detail="Only platform admins can change system process flag"
+            )
+        
+        # If converting to system process, check for name conflicts globally
+        if request.is_system and not analysis_type.is_system:
+            existing_system = db.query(AnalysisType).filter(
+                AnalysisType.name == analysis_type.name,
+                AnalysisType.is_system == True,
+                AnalysisType.id != analysis_type.id
+            ).first()
+            if existing_system:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A system process with this name already exists"
+                )
+        
+        analysis_type.is_system = request.is_system
+    
     db.commit()
     db.refresh(analysis_type)
     
@@ -250,10 +299,10 @@ async def update_analysis_type_config(
     # Check permissions (same as update_analysis_type)
     if analysis_type.user_id != current_user.id:
         if analysis_type.is_system:
-            if not current_user.is_admin:
+            if not current_user.is_platform_admin():
                 raise HTTPException(
                     status_code=403,
-                    detail="Only admins can edit system pipelines"
+                    detail="Only platform admins can edit system pipelines"
                 )
         else:
             raise HTTPException(
@@ -286,14 +335,14 @@ async def delete_analysis_type(
     
     # Check permissions
     # User can delete their own pipelines
-    # Admin can delete any pipeline
+    # Platform admin can delete any pipeline (including system pipelines)
     # Non-admin cannot delete system pipelines
     if analysis_type.user_id != current_user.id:
         if analysis_type.is_system:
-            if not current_user.is_admin:
+            if not current_user.is_platform_admin():
                 raise HTTPException(
                     status_code=403,
-                    detail="Only admins can delete system pipelines"
+                    detail="Only platform admins can delete system pipelines"
                 )
         else:
             raise HTTPException(

@@ -2082,7 +2082,9 @@ return owner_features
 
 **Purpose**: System processes serve as example/template workflows that demonstrate platform capabilities and can be cloned by users.
 
-**Creation Process**:
+**Creation Methods**:
+
+**Method 1: Via Python Scripts** (Recommended for initial setup)
 1. **Design**: Create markdown documentation in `docs/system_processes/` describing the process purpose, steps, and capabilities
 2. **Implementation**: Create Python script in `backend/scripts/` (e.g., `create_tour_operator_process.py`)
 3. **Execution**: Run script to create `AnalysisType` record with:
@@ -2095,6 +2097,38 @@ return owner_features
    - Tools belong to admin and are copied to users when duplicating
    - Admin can manage all system process tools centrally
 5. **Verification**: Process appears in "Примеры процессов" tab on Analyses page
+
+**Method 2: Via UI** (For platform admins)
+1. **Create Process**: Platform admin creates a new process via Pipeline Editor (`/pipelines/new`)
+2. **Mark as System**: Admin checks "Создать как системный процесс" checkbox during creation
+   - Process is created with `is_system=True`
+   - Process belongs to admin (`user_id=admin_user.id`)
+   - Process is visible to all users in "Примеры процессов" tab
+3. **Convert Existing Process**: Admin can convert any existing process to system process:
+   - Open process in Pipeline Editor (`/pipelines/{id}/edit`)
+   - Check "Системный процесс" checkbox
+   - Save changes
+   - Process becomes visible to all users
+4. **Convert System to Personal**: Admin can also convert system process back to personal:
+   - Uncheck "Системный процесс" checkbox
+   - Process becomes personal (visible only to admin in "Мои процессы")
+
+**Process Status Management**:
+- **System Process** (`is_system=True`):
+  - Visible to all users in "Примеры процессов" tab
+  - Can be cloned by any user
+  - Only platform admin can edit/delete
+  - Belongs to platform admin (`user_id=admin_user.id`)
+- **Personal Process** (`is_system=False`):
+  - Visible only to owner in "Мои процессы" tab
+  - Owner can edit/delete
+  - Belongs to creating user (`user_id=current_user.id`)
+
+**Filtering Logic**:
+- **"Мои процессы" tab**: Shows only personal processes (`is_system=False`) owned by current user in current organization
+- **"Примеры процессов" tab**: Shows only system processes (`is_system=True`) visible to all users
+- **Backend filtering**: `list_my_analysis_types` excludes system processes even if they belong to admin
+- **Rationale**: Prevents system processes from appearing in "Мои процессы" even though they technically belong to admin
 
 **Tool Management for System Processes**:
 - **Admin Creates Tools**: Platform admin creates and configures tools for system processes
@@ -2129,9 +2163,415 @@ return owner_features
 - System processes appear in "Примеры процессов" tab (read-only for regular users)
 - Users can clone system processes to create editable copies
 - Cloned processes become user-owned (`is_system=False`, `user_id=current_user.id`)
-+- **Tool Copying**: When duplicating, admin's tools are automatically copied to user
+- **Tool Copying**: When duplicating, admin's tools are automatically copied to user
 - Users can modify cloned processes freely
 - Users can update tool credentials in copied tools after duplication
+
+**Admin Capabilities**:
+- **Create System Processes**: Platform admin can create system processes via UI (checkbox in Pipeline Editor)
+- **Convert Processes**: Admin can convert any process to/from system status via UI
+- **Delete System Processes**: Only platform admin can delete system processes (delete button visible in "Примеры процессов" tab)
+- **Edit System Processes**: Only platform admin can edit system processes (full access via Pipeline Editor)
+
+**Access Control**:
+- **Creation**: Only platform admin can set `is_system=True` when creating process
+- **Update**: Only platform admin can change `is_system` flag after creation
+- **Deletion**: System processes can only be deleted by platform admin
+- **Editing**: System processes can only be edited by platform admin
+- **Validation**: When converting to system process, backend checks for global name uniqueness
+
+### 12b) System Process Creation & Deployment Workflow
+
+**Purpose**: Standardized workflow for creating, testing, and deploying system processes to production.
+
+**Overview**:
+System processes are created via Python scripts in `backend/scripts/` directory. Each script follows a consistent pattern and can be executed locally for testing, then deployed to production. This section documents the complete workflow from script creation to production deployment.
+
+**Script Structure Pattern**:
+
+All system process creation scripts follow this structure:
+
+```python
+#!/usr/bin/env python3
+"""
+Script to create the complete "[Process Name]" system process.
+
+This script:
+1. Gets or creates required tools for platform admin (if needed)
+2. Creates the "[Process Name]" process with all steps
+3. Configures tool references and variable dependencies
+
+Run this after cleaning all processes and tools (if needed).
+"""
+
+import sys
+from pathlib import Path
+
+# Add backend to path
+backend_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(backend_dir))
+
+from sqlalchemy.orm import Session
+from app.core.database import SessionLocal
+from app.models.user import User
+from app.models.organization import Organization
+from app.models.analysis_type import AnalysisType
+from app.models.user_tool import UserTool, ToolType
+from app.models.organization_tool_access import OrganizationToolAccess
+from app.services.tools.encryption import encrypt_tool_config
+from app.services.organization import get_user_personal_organization, create_personal_organization
+from sqlalchemy.orm.attributes import flag_modified
+
+
+def get_platform_admin_user(db: Session) -> User:
+    """Get platform admin user."""
+    admin_user = db.query(User).filter(User.role == 'admin').first()
+    if not admin_user:
+        raise Exception("Platform admin user not found. Please create an admin user first.")
+    return admin_user
+
+
+def get_or_create_admin_organization(db: Session, admin_user: User) -> Organization:
+    """Get or create platform admin's personal organization."""
+    org = get_user_personal_organization(db, admin_user.id)
+    if not org:
+        print(f"Creating personal organization for admin user {admin_user.email}...")
+        org = create_personal_organization(
+            db, 
+            admin_user.id, 
+            admin_user.full_name or "Platform Admin",
+            admin_user.email
+        )
+        print(f"✅ Created organization: {org.name} (ID: {org.id})")
+    else:
+        print(f"✅ Using existing organization: {org.name} (ID: {org.id})")
+    return org
+
+
+def get_or_create_tool(db: Session, admin_user: User, admin_org: Organization) -> UserTool:
+    """Get or create tool for platform admin (if process uses tools)."""
+    # Check if tool already exists
+    existing = db.query(UserTool).filter(
+        UserTool.user_id == admin_user.id,
+        UserTool.display_name == "[Tool Display Name]",
+        UserTool.tool_type == ToolType.API.value  # or ToolType.DATABASE, ToolType.RAG
+    ).first()
+
+    if existing:
+        print(f"✅ Using existing tool (ID: {existing.id})")
+        return existing
+
+    # Tool configuration
+    config = {
+        "connector_type": "predefined",  # or "custom"
+        "connector_name": "[connector_name]",  # e.g., "binance", "yfinance", "tinkoff"
+        # ... tool-specific config
+    }
+
+    # Encrypt config
+    encrypted_config = encrypt_tool_config(config)
+
+    # Create tool
+    tool = UserTool(
+        user_id=admin_user.id,
+        organization_id=admin_org.id,
+        tool_type=ToolType.API.value,
+        display_name="[Tool Display Name]",
+        config=encrypted_config,
+        is_active=True,
+        is_shared=True
+    )
+
+    db.add(tool)
+    db.flush()  # Get ID
+
+    # Create organization_tool_access entries for all admin's orgs
+    admin_orgs = db.query(Organization).filter(Organization.owner_id == admin_user.id).all()
+    for org in admin_orgs:
+        access = OrganizationToolAccess(
+            organization_id=org.id,
+            tool_id=tool.id,
+            is_enabled=True
+        )
+        db.add(access)
+
+    db.commit()
+    db.refresh(tool)
+
+    print(f"✅ Created tool (ID: {tool.id})")
+    return tool
+
+
+def get_process_config(tool_id: int = None) -> dict:
+    """Get process configuration with all steps."""
+    return {
+        "steps": [
+            {
+                "step_name": "step_1",
+                "order": 1,
+                "step_type": "llm_analysis",
+                "model": "openai/gpt-4o-mini",
+                "system_prompt": "...",
+                "user_prompt_template": "...",
+                "temperature": 0.7,
+                "max_tokens": 2000,
+                "tool_references": [
+                    {
+                        "tool_id": tool_id,
+                        "variable_name": "tool_variable_name",
+                        "extraction_method": "natural_language",
+                        "extraction_config": {
+                            "context_window": 200
+                        }
+                    }
+                ] if tool_id else []
+            },
+            # ... more steps
+        ],
+        "estimated_cost": 0.05,
+        "estimated_duration_seconds": 300
+    }
+
+
+def create_process(db: Session):
+    """Main function to create the process."""
+    print("\nStep 1: Getting platform admin and organization...")
+    admin_user = get_platform_admin_user(db)
+    admin_org = get_or_create_admin_organization(db, admin_user)
+
+    # Get or create tools (if needed)
+    tool = None
+    if process_uses_tools:
+        print("\nStep 2: Getting or creating tools...")
+        tool = get_or_create_tool(db, admin_user, admin_org)
+
+    # Check if process already exists
+    existing_process = db.query(AnalysisType).filter(
+        AnalysisType.name == 'process_name'
+    ).first()
+
+    config = get_process_config(tool.id if tool else None)
+
+    if existing_process:
+        print(f"⚠️  Process already exists (ID: {existing_process.id})")
+        print("   Updating existing process...")
+        existing_process.config = config
+        existing_process.display_name = "[Process Display Name]"
+        # ... update other fields
+        flag_modified(existing_process, 'config')
+        db.commit()
+        db.refresh(existing_process)
+        process = existing_process
+    else:
+        process = AnalysisType(
+            name="process_name",
+            display_name="[Process Display Name]",
+            description="[Process description]",
+            version="1.0.0",
+            config=config,
+            is_system=True,
+            user_id=admin_user.id,
+            organization_id=admin_org.id,
+            is_active=1
+        )
+        db.add(process)
+        db.commit()
+        db.refresh(process)
+        print(f"✅ Created process: {process.display_name} (ID: {process.id})")
+
+    return process
+
+
+def main():
+    print("=" * 60)
+    print("Creating '[Process Name]' system process")
+    print("=" * 60)
+    
+    db: Session = SessionLocal()
+    try:
+        process = create_process(db)
+        print("\n" + "=" * 60)
+        print("✅ Success! Process created.")
+        print("=" * 60)
+        print(f"Process ID: {process.id}")
+        print(f"Steps: {len(process.config['steps'])}")
+    except Exception as e:
+        print("\n" + "=" * 60)
+        print("❌ Error during script execution:")
+        print("=" * 60)
+        print(str(e))
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        sys.exit(1)
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+**Key Script Requirements**:
+
+1. **Idempotency**: Scripts should be idempotent - safe to run multiple times. Check for existing tools/processes and update if they exist.
+2. **Error Handling**: Wrap main logic in try-except, rollback on error, print clear error messages.
+3. **Admin Context**: Always use platform admin user (`role='admin'`) and admin's organization.
+4. **Tool Management**: If process uses tools:
+   - Check if tool exists before creating
+   - Create `organization_tool_access` entries for all admin's orgs
+   - Use `encrypt_tool_config()` for sensitive credentials
+5. **Process Configuration**: Include complete step configuration with:
+   - Step names, order, types
+   - Prompts (system and user)
+   - Model settings (temperature, max_tokens)
+   - Tool references (if applicable)
+   - Estimated cost and duration
+
+**Deployment Workflow**:
+
+**Step 1: Local Development & Testing**
+```bash
+# 1. Create script in backend/scripts/
+# 2. Test syntax
+chmod +x backend/scripts/create_[process_name].py
+python -m py_compile backend/scripts/create_[process_name].py
+
+# 3. Activate virtual environment
+cd backend
+source .venv/bin/activate
+
+# 4. Run script locally
+python scripts/create_[process_name].py
+
+# 5. Verify in UI: Check that process appears in "Примеры процессов" tab
+# 6. Test process: Create a run and verify it executes correctly
+```
+
+**Step 2: Commit & Push**
+```bash
+# 1. Stage script
+git add backend/scripts/create_[process_name].py
+
+# 2. Commit with descriptive message
+git commit -m "Add script to create [Process Name] system process"
+
+# 3. Push to repository
+git push
+```
+
+**Step 3: Deploy to Production**
+```bash
+# 1. SSH to production server
+ssh rf-prod
+
+# 2. Pull latest changes
+cd /srv/research-flow
+git pull
+
+# 3. Activate virtual environment
+cd backend
+source .venv/bin/activate
+
+# 4. Run script on production
+python scripts/create_[process_name].py
+
+# 5. Verify: Check logs for success message
+# 6. Verify in production UI: Process should appear in "Примеры процессов" tab
+```
+
+**Example Scripts** (Reference Implementations):
+
+1. **`create_daily_analysis.py`**: Creates "Дневной анализ" process with Binance API tool
+   - Demonstrates: API tool creation, `fetch_market_data` step, tool references
+   - Uses: Binance API tool (CCXT adapter)
+
+2. **`create_equity_analysis.py`**: Creates "Анализ акций" process with Yahoo Finance API tool
+   - Demonstrates: Public API tool (no auth), market data formatting
+   - Uses: Yahoo Finance API tool (yfinance adapter)
+
+3. **`create_commodity_futures_analysis.py`**: Creates "Анализ товарных фьючерсов" process with Tinkoff Invest API tool
+   - Demonstrates: API tool with token authentication
+   - Uses: Tinkoff Invest API tool (Tinkoff adapter)
+
+4. **`create_crypto_analysis.py`**: Creates "Анализ криптовалют" process with Binance API tool
+   - Demonstrates: Reusing existing tool (Binance API)
+   - Uses: Binance API tool (shared with daily analysis)
+
+5. **`create_tour_operator_cities_selection.py`**: Creates "Подбор городов для туристического пакета" process
+   - Demonstrates: LLM-only process (no tools), variable dependencies
+   - Uses: No tools, pure LLM analysis with variable chaining
+
+**Common Patterns**:
+
+**Pattern 1: Process with Single API Tool**
+- Create/get API tool in `get_or_create_tool()`
+- Reference tool in `fetch_market_data` step (if needed)
+- Use tool variable in subsequent steps
+
+**Pattern 2: Process with Multiple Tools**
+- Create multiple tools sequentially
+- Reference each tool in appropriate steps
+- Each tool gets its own `tool_references` entry
+
+**Pattern 3: Process without Tools**
+- Skip tool creation
+- Use only LLM steps with variable dependencies
+- Example: Tour operator cities selection
+
+**Pattern 4: Reusing Existing Tools**
+- Check if tool exists by `display_name` and `tool_type`
+- If exists, use existing tool ID
+- If not, create new tool
+- Example: Crypto analysis reuses Binance API tool
+
+**Best Practices**:
+
+1. **Script Naming**: Use descriptive names: `create_[process_name].py` (e.g., `create_daily_analysis.py`)
+2. **Process Naming**: Use snake_case for `name` field: `daily_analysis`, `equity_analysis`
+3. **Display Names**: Use Russian for `display_name`: "Дневной анализ", "Анализ акций"
+4. **Idempotency**: Always check for existing tools/processes before creating
+5. **Error Messages**: Print clear, actionable error messages with context
+6. **Logging**: Print progress messages for each major step (✅ for success, ⚠️ for warnings)
+7. **Tool Encryption**: Always use `encrypt_tool_config()` for tools with credentials
+8. **Organization Access**: Create `organization_tool_access` entries for all admin's orgs
+9. **Testing**: Test locally before deploying to production
+10. **Documentation**: Include docstring explaining what the script does
+
+**Troubleshooting**:
+
+**Issue**: Script fails with "Platform admin user not found"
+- **Solution**: Ensure admin user exists: `db.query(User).filter(User.role == 'admin').first()`
+
+**Issue**: Tool creation fails with encryption error
+- **Solution**: Ensure `SESSION_SECRET` is set in `app/config_local.py`
+
+**Issue**: Process appears but tools are missing
+- **Solution**: Check that `organization_tool_access` entries were created for all admin's orgs
+
+**Issue**: Script works locally but fails on production
+- **Solution**: Check database connection, ensure virtual environment is activated, verify admin user exists on production
+
+**Quick Reference Commands**:
+
+```bash
+# Local testing
+cd backend && source .venv/bin/activate && python scripts/create_[name].py
+
+# Production deployment
+ssh rf-prod "cd /srv/research-flow/backend && source .venv/bin/activate && python scripts/create_[name].py"
+
+# Check existing processes
+ssh rf-prod "cd /srv/research-flow/backend && source .venv/bin/activate && python -c 'from app.core.database import SessionLocal; from app.models.analysis_type import AnalysisType; db = SessionLocal(); processes = db.query(AnalysisType).filter(AnalysisType.is_system == True).all(); [print(f\"{p.id}: {p.display_name}\") for p in processes]'"
+```
+
+**Future Enhancements**:
+
+- **Batch Script**: Create a master script that runs all process creation scripts in sequence
+- **Validation**: Add validation checks for step configuration before creating process
+- **Rollback**: Add ability to rollback process creation if errors occur
+- **Versioning**: Track process versions and allow updates without recreating
+- **Testing**: Automated tests for process creation scripts
 
 ### 12b) UI/UX Consistency & Translation
 

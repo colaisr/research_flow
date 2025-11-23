@@ -11,6 +11,7 @@ import { API_BASE_URL } from '@/lib/config'
 import Select from '@/components/Select'
 import VariableTextEditor, { VariableTextEditorHandle } from '@/components/VariableTextEditor'
 import Link from 'next/link'
+import { useAuth } from '@/hooks/useAuth'
 
 interface Model {
   id: number
@@ -98,6 +99,7 @@ async function createPipeline(request: {
   display_name: string
   description?: string | null
   config: PipelineConfig
+  is_system?: boolean
 }) {
   const { data } = await axios.post(
     `${API_BASE_URL}/api/analyses`,
@@ -111,6 +113,7 @@ async function updatePipeline(id: number, request: {
   display_name?: string
   description?: string | null
   config?: PipelineConfig
+  is_system?: boolean
 }) {
   const { data } = await axios.put(
     `${API_BASE_URL}/api/analyses/${id}`,
@@ -138,10 +141,12 @@ interface PipelineEditorProps {
 export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { isPlatformAdmin } = useAuth()
   const isNew = pipelineId === null
 
   const [pipelineName, setPipelineName] = useState('')
   const [pipelineDescription, setPipelineDescription] = useState('')
+  const [isSystemProcess, setIsSystemProcess] = useState(false)
   const [steps, setSteps] = useState<StepConfig[]>([])
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null)
   const [newStepName, setNewStepName] = useState('')
@@ -177,9 +182,11 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
     if (existingPipeline && !isNew) {
       setPipelineName(existingPipeline.display_name)
       setPipelineDescription(existingPipeline.description || '')
+      setIsSystemProcess(existingPipeline.is_system || false)
       setSteps(existingPipeline.config.steps || [])
     } else if (isNew) {
       // Initialize empty pipeline
+      setIsSystemProcess(false)
       setSteps([])
     }
   }, [existingPipeline, isNew])
@@ -193,7 +200,7 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (request: { display_name?: string; description?: string | null; config?: PipelineConfig }) =>
+    mutationFn: (request: { display_name?: string; description?: string | null; config?: PipelineConfig; is_system?: boolean }) =>
       updatePipeline(pipelineId!, request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
@@ -352,12 +359,14 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
         display_name: pipelineName,
         description: pipelineDescription || null,
         config,
+        is_system: isPlatformAdmin && isSystemProcess ? true : undefined,
       })
     } else {
       updateMutation.mutate({
         display_name: pipelineName,
         description: pipelineDescription || null,
         config,
+        is_system: isPlatformAdmin && isSystemProcess ? true : undefined,
       })
     }
   }
@@ -393,6 +402,28 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
               className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
+          {isPlatformAdmin && (
+            <div className="flex items-start p-4 bg-blue-50 border border-blue-200 rounded-md">
+              <input
+                type="checkbox"
+                id="is_system"
+                checked={isSystemProcess}
+                onChange={(e) => setIsSystemProcess(e.target.checked)}
+                className="mt-1 mr-3 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="is_system" className="text-sm text-gray-700 cursor-pointer flex-1">
+                <span className="font-medium">
+                  {isNew ? 'Создать как системный процесс' : 'Системный процесс'}
+                </span>
+                <span className="block text-xs text-gray-600 mt-1">
+                  {isNew 
+                    ? 'Системные процессы видны всем пользователям как примеры и могут быть скопированы'
+                    : 'Отметьте, чтобы сделать процесс видимым всем пользователям как пример. Снимите отметку, чтобы сделать его личным процессом.'
+                  }
+                </span>
+              </label>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-700">
               Описание
