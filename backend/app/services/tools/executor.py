@@ -108,6 +108,7 @@ class ToolExecutor:
         
         # Extract parameters using AI
         try:
+            logger.info(f"Starting AI extraction for tool {tool.display_name}, model={model}, has_llm_client={llm_client is not None}")
             params = self._extract_params_with_ai(
                 context_text=context_text,
                 tool=tool,
@@ -115,6 +116,7 @@ class ToolExecutor:
                 model=model,
                 llm_client=llm_client
             )
+            logger.info(f"AI extraction completed for {tool.display_name}, extracted params: {params}")
             
             # Execute tool
             result = self.execute_tool(tool, params)

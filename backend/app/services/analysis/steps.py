@@ -178,12 +178,16 @@ def _process_tool_references(
     
     # Get model from step_config for AI extraction (use same model as step)
     step_model = step_config.get("model")
+    logger.info(f"Processing tool references: step_model={step_model}, tool_references_count={len(tool_references)}")
     
     # Get LLM client for AI extraction (will be created in ToolExecutor if needed)
     llm_client = None
     if step_model:
         from app.services.llm.client import LLMClient
         llm_client = LLMClient(db=db)
+        logger.info(f"Created LLM client for AI extraction with model {step_model}")
+    else:
+        logger.warning(f"No model found in step_config, AI extraction will use default model")
     
     # Execute each tool reference sequentially
     for tool_ref in tool_references:
@@ -463,7 +467,7 @@ class DeltaAnalyzer(BaseAnalyzer):
         to identify dominance, anomalous delta, absorption, divergence, and where large 
         players are holding positions or absorbing aggression."""
     
-    def build_user_prompt(self, context: Dict[str, Any]) -> str:
+    def build_user_prompt(self, context: Dict[str, Any], step_config: Optional[Dict[str, Any]] = None) -> str:
         market_data: MarketData = context["market_data"]
         instrument = context["instrument"]
         timeframe = context["timeframe"]
