@@ -1436,10 +1436,17 @@ return owner_features
     - Default context_window: 200 chars ✅
   - [ ] **Advanced Tool Reference Configuration** (Not Implemented):
     - Multi-select dropdown for tools (currently simplified - all tools shown in palette)
-    - Extraction method selector (Natural Language / Explicit / Template) - only natural_language supported
-    - Extraction config UI (query_template, etc.) - not exposed in UI
+    - **Extraction Method Selector** (Natural Language / Explicit / Template):
+      - **Natural Language**: Автоматическое извлечение параметров из текста (текущая реализация)
+      - **Explicit**: Явное указание параметров в синтаксисе `{tool_name(param="value")}` (не реализовано)
+      - **Template**: Использование шаблонов с переменными `{variable}` (частично реализовано для Database)
+    - **Extraction Config UI**:
+      - `context_window` input (для Natural Language) - не экспонировано в UI
+      - `query_template` textarea (для Database/RAG Template method) - не экспонировано в UI
+      - `endpoint_template` input (для API Template method) - не реализовано
     - "Test Tool" button (opens test modal) - not implemented
     - "Create New Tool" button in step config - not implemented
+    - **See**: `docs/TOOL_REFERENCES_CONFIGURATION.md` for detailed explanation of extraction methods
 - [ ] **Test Run During Editing** (Not Implemented):
   - **"Test Step" Button**: Not implemented
   - **"Test Pipeline" Button**: Not implemented
