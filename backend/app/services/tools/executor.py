@@ -126,6 +126,194 @@ class ToolExecutor:
             logger.error(f"Tool execution failed for {tool.display_name}: {e}", exc_info=True)
             return f"[Tool {tool.display_name} execution failed: {str(e)}]"
     
+    def _extract_params_with_ai(
+        self,
+        context_text: str,
+        tool: UserTool,
+        step_context: Dict[str, Any],
+        model: Optional[str] = None,
+        llm_client: Optional[LLMClient] = None
+    ) -> Dict[str, Any]:
+        """Extract tool parameters using AI/LLM.
+        
+        Uses the same model as the step to extract parameters from context text.
+        Results are cached to optimize performance.
+        
+        Args:
+            context_text: Text around tool reference
+            tool: UserTool instance
+            step_context: Step context (instrument, timeframe, previous steps, etc.)
+            model: Model to use for extraction (should be same as step model)
+            llm_client: Optional LLMClient instance
+            
+        Returns:
+            Parameters dict for tool execution
+        """
+        if not model:
+            logger.warning(f"No model provided for AI extraction, using default")
+            model = "openai/gpt-4o-mini"  # Fallback to default
+        
+        # Check cache
+        cache_key = self._get_extraction_cache_key(context_text, step_context, tool.id, model)
+        if cache_key in _extraction_cache:
+            logger.debug(f"Using cached extraction result for tool {tool.display_name}")
+            return _extraction_cache[cache_key]
+        
+        # Create LLM client if not provided
+        if not llm_client:
+            if not self.db:
+                raise ValueError("Database session required for LLM client creation")
+            llm_client = LLMClient(db=self.db)
+        
+        # Build system prompt based on tool type
+        system_prompt = self._build_extraction_system_prompt(tool.tool_type)
+        
+        # Build user prompt
+        user_prompt = self._build_extraction_user_prompt(
+            context_text=context_text,
+            tool=tool,
+            step_context=step_context
+        )
+        
+        # Call LLM
+        try:
+            logger.info(f"Calling LLM for parameter extraction: tool={tool.display_name}, model={model}")
+            response = llm_client.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=0.1,  # Low temperature for consistent extraction
+                max_tokens=500
+            )
+            
+            content = response.get("content", "")
+            
+            # Parse JSON response
+            params = self._parse_extraction_response(content, tool.tool_type)
+            
+            # Cache result
+            _extraction_cache[cache_key] = params
+            
+            logger.info(f"Successfully extracted parameters for {tool.display_name}: {params}")
+            return params
+            
+        except Exception as e:
+            logger.error(f"AI extraction failed for {tool.display_name}: {e}", exc_info=True)
+            # Fallback to empty params (tool may have defaults)
+            return {}
+    
+    def _get_extraction_cache_key(
+        self,
+        context_text: str,
+        step_context: Dict[str, Any],
+        tool_id: int,
+        model: str
+    ) -> str:
+        """Generate cache key for extraction result."""
+        # Create hash from context text, step context, tool_id, and model
+        context_str = json.dumps({
+            "context_text": context_text,
+            "step_context": step_context,
+            "tool_id": tool_id,
+            "model": model
+        }, sort_keys=True)
+        return hashlib.md5(context_str.encode()).hexdigest()
+    
+    def _build_extraction_system_prompt(self, tool_type: str) -> str:
+        """Build system prompt for parameter extraction based on tool type."""
+        base_prompt = """You are a tool parameter extraction assistant. Your task is to extract parameters needed to execute a tool based on the context around the tool reference in a prompt.
+
+Rules:
+1. Analyze the context text around the tool reference
+2. Extract parameters needed for the tool type
+3. Validate parameters and provide guardrails (prevent SQL injection, validate formats)
+4. Return ONLY valid JSON, no explanations or markdown formatting
+5. If parameters cannot be extracted, return empty JSON object: {}
+
+Tool types:
+- API: Extract endpoint, method, params (instrument, timeframe, etc.)
+- Database: Convert natural language questions to valid SQL queries
+- RAG: Extract search query/question
+"""
+        
+        if tool_type == ToolType.API.value:
+            return base_prompt + """
+For API tools, extract parameters like:
+{"instrument": "BTC/USDT", "timeframe": "H1"}
+or
+{"endpoint": "/api/orders", "method": "GET", "params": {"customer_id": 123}}
+"""
+        elif tool_type == ToolType.DATABASE.value:
+            return base_prompt + """
+For Database tools, convert the question to SQL:
+{"query": "SELECT * FROM orders WHERE customer_id = 123"}
+
+IMPORTANT:
+- Only generate SELECT queries (no INSERT, UPDATE, DELETE, DROP, etc.)
+- Use parameterized queries where possible
+- Validate SQL syntax
+- If question is unclear, return empty query: {"query": ""}
+"""
+        elif tool_type == ToolType.RAG.value:
+            return base_prompt + """
+For RAG tools, extract the search query:
+{"query": "transactions from Tom Jankins on 21/5/2025"}
+"""
+        else:
+            return base_prompt
+    
+    def _build_extraction_user_prompt(
+        self,
+        context_text: str,
+        tool: UserTool,
+        step_context: Dict[str, Any]
+    ) -> str:
+        """Build user prompt for parameter extraction."""
+        step_context_json = json.dumps(step_context, ensure_ascii=False, indent=2)
+        
+        return f"""Context around tool reference:
+"{context_text}"
+
+Tool information:
+- Type: {tool.tool_type}
+- Name: {tool.display_name}
+- Variable name: {tool.display_name.lower().replace(' ', '_')}
+
+Available step context:
+{step_context_json}
+
+Extract parameters needed to execute this tool. Return ONLY valid JSON."""
+    
+    def _parse_extraction_response(self, content: str, tool_type: str) -> Dict[str, Any]:
+        """Parse LLM response and extract parameters."""
+        # Remove markdown code blocks if present
+        content = content.strip()
+        if content.startswith("```"):
+            # Extract JSON from code block
+            lines = content.split("\n")
+            json_lines = []
+            in_json = False
+            for line in lines:
+                if line.strip().startswith("```"):
+                    if "json" in line.lower():
+                        in_json = True
+                    elif in_json:
+                        break
+                    continue
+                if in_json:
+                    json_lines.append(line)
+            content = "\n".join(json_lines)
+        
+        try:
+            params = json.loads(content)
+            if not isinstance(params, dict):
+                logger.warning(f"LLM returned non-dict response: {params}")
+                return {}
+            return params
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {content[:200]}... Error: {e}")
+            return {}
+    
     def _extract_api_params(
         self,
         context_text: str,
