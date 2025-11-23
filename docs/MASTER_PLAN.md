@@ -1424,79 +1424,66 @@ return owner_features
   - If parameter extraction fails: Use fallback (empty query, default params)
   - Log tool execution errors for debugging
 
-**1.5.3) Frontend - Enhanced Pipeline Editor**
-- [ ] **Tool Reference UI in Step Configuration**:
-  - **Tool Selector Section**:
-    - Multi-select dropdown for tools (filtered by tool type if needed)
-    - Show tool display name, type, status
-    - "Create New Tool" button
-    - "Test Tool" button (opens test modal)
-  - **Tool Reference Configuration**:
-    - For each selected tool, show:
-      - Variable name (editable, defaults to tool display_name sanitized)
-      - Extraction method selector (Natural Language / Explicit / Template)
-      - Extraction config (if template method selected)
-      - Preview: How tool will be referenced in prompt (`{variable_name}`)
-  - **Variable Palette Enhancement**:
-    - Add "Tool References" section
-    - Show all tool variables: `{rag_bank_reports}`, `{crm_api}`, etc.
-    - Click-to-insert functionality
-    - Visual indicator: Which tools are already referenced in current prompt
-    - Tooltip: Shows tool type and extraction method
-- [ ] **Test Run During Editing**:
-  - **"Test Step" Button**:
-    - Execute current step with current configuration
-    - Show tool execution results
-    - Show formatted prompt (with tool results injected)
-    - Show LLM response preview
-    - Allow iteration without saving pipeline
-  - **"Test Pipeline" Button**:
-    - Execute entire pipeline up to current step
-    - Show all step outputs
-    - Show tool execution results at each step
-    - Useful for debugging tool references
-  - **Test Run UI**:
-    - Modal or side panel showing:
-      - Step-by-step execution log
-      - Tool execution results
-      - Prompt formatting (before/after tool injection)
-      - LLM responses
-      - Errors/warnings
-    - "Run Again" button for quick iteration
-    - "Save & Continue" button to save pipeline after testing
-- [ ] **UX Improvements**:
+**1.5.3) Frontend - Enhanced Pipeline Editor** ⚠️ **PARTIALLY COMPLETE**
+- [x] **Tool Reference UI in Step Configuration** (Simplified Implementation):
+  - **Variable Palette Enhancement** ✅:
+    - Shows all active tools as variables in palette ✅
+    - Tool variables displayed with green styling (`bg-green-50`, `text-green-700`) ✅
+    - Click-to-insert functionality ✅
+    - Automatically adds tool to `tool_references` when clicked ✅
+    - Variable name auto-generated from `display_name` (sanitized: lowercase, spaces to underscores) ✅
+    - Default extraction method: `natural_language` ✅
+    - Default context_window: 200 chars ✅
+  - [ ] **Advanced Tool Reference Configuration** (Not Implemented):
+    - Multi-select dropdown for tools (currently simplified - all tools shown in palette)
+    - Extraction method selector (Natural Language / Explicit / Template) - only natural_language supported
+    - Extraction config UI (query_template, etc.) - not exposed in UI
+    - "Test Tool" button (opens test modal) - not implemented
+    - "Create New Tool" button in step config - not implemented
+- [ ] **Test Run During Editing** (Not Implemented):
+  - **"Test Step" Button**: Not implemented
+  - **"Test Pipeline" Button**: Not implemented
+  - **Test Run UI**: Not implemented
+- [x] **Basic UX Improvements**:
   - **Visual Indicators**:
+    - Tool variables shown in Variable Palette with distinct styling ✅
+    - Tool type shown in tooltip (`{tool_name} (api)`) ✅
+  - [ ] **Advanced UX Improvements** (Not Implemented):
     - Highlight tool references in prompt editor
     - Show tool status (active/inactive) next to variable name
     - Show tool execution status during test runs
-  - **Smart Suggestions**:
     - Auto-suggest tool variables as user types `{`
     - Suggest relevant tools based on prompt content
-  - **Validation**:
-    - Warn if tool reference used but tool not selected in step config
-    - Warn if tool is inactive
-    - Warn if tool execution failed in test run
+  - [x] **Basic Validation**:
+    - Tool references automatically added when variable is clicked ✅
+    - Only active tools shown in palette ✅
 
-**1.5.4) Natural Language Extraction Implementation**
-- [ ] **API Tool Extraction** (Priority 1 - Can test immediately):
-  - Extract endpoint path, query params, or body data from prompt context
-  - Support API templates: `/api/orders?date={date}&customer={customer}`
-  - Replace template variables with values from prompt context
-  - Example: "Get latest prices from {binance_api} for {instrument}"
-    - Extracts: endpoint/params from prompt or uses tool's default endpoint
-    - Executes API call with instrument parameter
-- [ ] **Database Tool Extraction** (Priority 1 - Can test immediately):
-  - Extract SQL query or query parameters from prompt context
-  - Support query templates: `SELECT * FROM orders WHERE date = '{date}'`
-  - Replace template variables with values from prompt context
-  - Example: "Check orders from {orders_db}: get all orders for customer {customer_id}"
-    - Extracts: SQL query or uses query template
-- [ ] **RAG Tool Extraction** (Priority 2 - After Phase 2):
-  - Extract question/query from text around `{rag_tool_name}`
-  - Context window: ~200 chars before/after tool reference
-  - Use LLM to extract query if needed (fallback to simple text extraction)
-  - Example: "get all 21/5/2025 transactions from {rag_bank_reports} how much was received from Tom Jankins?"
-    - Extracted query: "get all 21/5/2025 transactions, how much was received from Tom Jankins"
+**1.5.4) Natural Language Extraction Implementation** ✅ **COMPLETE (API & Database), ⚠️ PARTIAL (RAG)**
+- [x] **API Tool Extraction** ✅:
+  - Extract instrument and timeframe from prompt context ✅
+  - Supports patterns: BTC/USDT, AAPL, H1, 1h, etc. ✅
+  - Removes tool variable names from context to avoid false matches ✅
+  - Falls back to step_context if not found in prompt ✅
+  - Example: "Get latest prices from {binance_api} for BTC/USDT on H1"
+    - Extracts: `instrument="BTC/USDT"`, `timeframe="H1"` ✅
+    - Executes API call with extracted parameters ✅
+  - [ ] **Advanced API Extraction** (Not Implemented):
+    - Extract endpoint path, query params, or body data from prompt context
+    - Support API templates: `/api/orders?date={date}&customer={customer}`
+- [x] **Database Tool Extraction** ✅:
+  - Extract SQL query from prompt context ✅
+  - Support query templates: `SELECT * FROM orders WHERE date = '{date}'` ✅
+  - Replace template variables with values from step context ✅
+  - Pattern matching for SQL keywords (SELECT, INSERT, UPDATE, etc.) ✅
+  - Example: "Check orders from {orders_db}: SELECT * FROM orders WHERE customer_id = 123"
+    - Extracts: SQL query from prompt ✅
+- [x] **RAG Tool Extraction** ⚠️ **Basic Implementation** (Full support after Phase 2):
+  - Extract question/query from text around `{rag_tool_name}` ✅ (Basic)
+  - Context window: 200 chars before/after tool reference ✅
+  - [ ] **Advanced RAG Extraction** (Not Implemented):
+    - Use LLM to extract query if needed (fallback to simple text extraction)
+    - Example: "get all 21/5/2025 transactions from {rag_bank_reports} how much was received from Tom Jankins?"
+      - Extracted query: "get all 21/5/2025 transactions, how much was received from Tom Jankins"
 
 **1.5.5) Example Use Cases & Testing with Existing Pipelines**
 
@@ -1537,30 +1524,28 @@ return owner_features
   ```
 
 **Testing Checklist for Phase 1.5**:
-- [ ] **API Tool Testing** (Phase 1 - Can test immediately):
-  - [ ] Can select API tools in step configuration
-  - [ ] API tool variables appear in variable palette
-  - [ ] Can insert API tool variables in prompt template
-  - [ ] Natural language extraction works for API tools
-  - [ ] API tool results are correctly injected into prompt
-  - [ ] Test Step button executes step with API tool references
-  - [ ] Test Pipeline button executes pipeline with API tool references
-  - [ ] Existing pipelines (e.g., "Daily Analysis") work with API tool references
-  - [ ] Results match expected outputs when using tool references vs. direct adapters
-- [ ] **Database Tool Testing** (Phase 1 - Can test immediately):
-  - [ ] Can select database tools in step configuration
-  - [ ] Database tool variables appear in variable palette
-  - [ ] Natural language extraction works for Database tools (SQL query extraction)
-  - [ ] Database tool results are correctly injected into prompt
-- [ ] **RAG Tool Testing** (Phase 2 - After RAG system is complete):
-  - [ ] Natural language extraction works for RAG tools
-  - [ ] RAG tool results are correctly injected into prompt
-  - [ ] Example: "get all 21/5/2025 transactions from {rag_bank_reports} how much was received from Tom Jankins?" works correctly
-- [ ] **General Testing**:
-  - [ ] Tool execution errors are handled gracefully
-  - [ ] Multiple tool references in same step work correctly
-  - [ ] Tool references work with other variables ({instrument}, {timeframe}, etc.)
-  - [ ] UI/UX improvements work well with existing pipelines
+- [x] **API Tool Testing** ✅ (Phase 1 - Core functionality complete):
+  - [x] API tool variables appear in variable palette ✅
+  - [x] Can insert API tool variables in prompt template ✅
+  - [x] Natural language extraction works for API tools ✅
+  - [x] API tool results are correctly injected into prompt ✅
+  - [x] Existing pipelines (e.g., "Daily Analysis") work with API tool references ✅
+  - [x] Results match expected outputs when using tool references vs. direct adapters ✅
+  - [ ] Test Step button executes step with API tool references (Not implemented)
+  - [ ] Test Pipeline button executes pipeline with API tool references (Not implemented)
+- [x] **Database Tool Testing** ✅ (Phase 1 - Core functionality complete):
+  - [x] Database tool variables appear in variable palette ✅
+  - [x] Natural language extraction works for Database tools (SQL query extraction) ✅
+  - [x] Database tool results are correctly injected into prompt ✅
+- [x] **RAG Tool Testing** ⚠️ (Phase 2 - Basic implementation, full support after Phase 2):
+  - [x] Basic natural language extraction works for RAG tools ✅
+  - [x] RAG tool results are correctly injected into prompt ✅
+  - [ ] Advanced extraction: "get all 21/5/2025 transactions from {rag_bank_reports} how much was received from Tom Jankins?" (Not fully implemented)
+- [x] **General Testing** ✅:
+  - [x] Tool execution errors are handled gracefully ✅
+  - [x] Multiple tool references in same step work correctly ✅
+  - [x] Tool references work with other variables ({step_name_output}, etc.) ✅
+  - [x] UI/UX improvements work well with existing pipelines ✅
 
 ---
 
