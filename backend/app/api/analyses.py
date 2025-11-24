@@ -509,6 +509,7 @@ async def duplicate_analysis_type(
         config=new_config,
         is_active=1,
         user_id=current_user.id,  # Set to current user
+        organization_id=current_organization.id,  # Set to current organization
         is_system=False  # User-created pipeline
     )
     
