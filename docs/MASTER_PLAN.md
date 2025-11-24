@@ -1454,8 +1454,15 @@ return owner_features
     - Supports custom_config override for testing unsaved changes
     - Shows execution results with input/output, tokens, cost, errors
     - Only available for saved pipelines (requires pipelineId)
+    - **Automatic Dependency Execution**: ✅ When testing a step that uses variables from previous steps (e.g., `{website_output}`), system automatically executes all dependent steps first
+      - Extracts dependencies from prompt template (finds `{step_name_output}` references)
+      - Recursively executes dependent steps before testing current step
+      - Adds results to `previous_steps` context automatically
+      - Prevents "Invalid variable" errors during step testing
+      - Example: Testing step 3 that uses `{website_output}` → automatically executes step "website" first → then tests step 3 with full context
   - **Bug Fixes**:
     - ✅ Fixed syntax error in `test_pipeline` endpoint (incorrect indentation in try block) - now fully functional
+    - ✅ Added default pipeline name generation to prevent "Enter process name" modal during testing
 - [x] **Basic UX Improvements**:
   - **Visual Indicators**:
     - Tool variables shown in Variable Palette with distinct styling ✅
