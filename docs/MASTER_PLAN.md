@@ -102,7 +102,7 @@ Constraints and preferences:
   - `rag_knowledge_bases`: id, organization_id (required), name, description, vector_db_type, embedding_model, document_count, created_at, updated_at
   - `rag_documents`: id, rag_id, title, content, file_path (nullable), metadata (JSON), embedding_status, created_at, updated_at
   - `available_models`: id, name, display_name, provider, description, max_tokens, cost_per_1k_tokens, is_enabled, has_failures, created_at, updated_at
-  - `schedules`: id, user_id, analysis_type_id, schedule_config (cron expression or interval), is_active, last_run_at, next_run_at, created_at, updated_at
+  - `schedules`: id, user_id, organization_id (required), analysis_type_id, schedule_type (daily/weekly/interval/cron), schedule_config (JSON with type-specific config), is_active, last_run_at, next_run_at, created_at, updated_at
 - `data_cache`: id, key, payload, fetched_at, ttl_seconds
   - `output_deliveries`: id, run_id, output_type (telegram/email/webhook/file), config (JSON), status, delivered_at, error_message
 
@@ -157,11 +157,13 @@ Constraints and preferences:
     - `GET /api/rags/{id}/documents` → list documents in RAG
     - `DELETE /api/rags/{id}/documents/{doc_id}` → delete document
     - `POST /api/rags/{id}/query` → test query RAG
-  - **Schedules**:
-    - `GET /api/schedules` → list user's scheduled analyses
-    - `POST /api/schedules` → create schedule
-    - `PUT /api/schedules/{id}` → update schedule
-    - `DELETE /api/schedules/{id}` → delete schedule
+  - **Schedules**: ✅ **COMPLETE**
+    - `GET /api/schedules` → list scheduled analyses for current organization
+    - `POST /api/schedules` → create schedule (requires analysis_type_id, schedule_type, schedule_config)
+    - `GET /api/schedules/{id}` → get schedule details
+    - `PUT /api/schedules/{id}` → update schedule (updates APScheduler job, recalculates next_run_at)
+    - `DELETE /api/schedules/{id}` → delete schedule (removes from APScheduler)
+    - `GET /api/schedules/stats` → get schedule statistics (total, active, next_run_in)
   - **Outputs**:
     - `POST /api/runs/{id}/export` → export/deliver Summary via configured output handlers (Telegram/email/webhook/file)
     - `GET /api/runs/{id}/summary` → get Summary content
@@ -201,10 +203,14 @@ Constraints and preferences:
     - Detail view: Step-by-step timeline with inputs/outputs
     - Export: Download results in various formats
     - Publish: Send results via configured output handlers
-  - **Schedules Page**:
-    - List view: All scheduled analyses
-    - Create Schedule: Configure when to run analyses
-    - Edit/Delete: Manage schedules
+  - **Schedules Page** (`/schedules`): ✅ **COMPLETE**
+    - Statistics cards: Total schedules, active schedules, next scheduled run
+    - List view: Table showing all scheduled analyses from current organization
+    - Schedule types: Daily (specific time), Weekly (day of week + time), Interval (every N minutes), Cron (cron expression)
+    - Create Schedule: Modal form for configuring schedule type and parameters
+    - Edit/Delete: Manage schedules with enable/disable toggle
+    - Real-time updates: Shows last run and next run timestamps
+    - Organization-scoped: Only shows schedules from current organization context
   - **Settings Page**:
     - LLM Models: Configure available models
     - Output Handlers: Configure Telegram, email, webhooks
@@ -2157,17 +2163,28 @@ return owner_features
 
 **Goal**: Add scheduling, advanced pipeline features, and polish.
 
-**5.1) Scheduling System**
-- [ ] **Schedules Table**:
-  - `schedules`: id, user_id, analysis_type_id, schedule_config (cron/interval), is_active, last_run_at, next_run_at
-- [ ] **Scheduler Integration**:
-  - APScheduler for cron/interval jobs
-  - Schedule management API
-  - UI for creating/managing schedules
-- [ ] **Schedule Execution**:
-  - Run analyses automatically
-  - Handle failures and retries
-  - Log schedule execution
+**5.1) Scheduling System** ✅ **COMPLETE**
+- [x] **Schedules Table**:
+  - `schedules`: id, user_id, organization_id (required), analysis_type_id, schedule_type (daily/weekly/interval/cron), schedule_config (JSON), is_active, last_run_at, next_run_at, created_at, updated_at
+  - Schedule types supported:
+    - **Daily**: `{ "time": "08:00" }` - Run at specific time every day
+    - **Weekly**: `{ "day_of_week": 0, "time": "11:00" }` - Run on specific day of week (0=Monday, 6=Sunday)
+    - **Interval**: `{ "interval_minutes": 60 }` - Run every N minutes
+    - **Cron**: `{ "cron_expression": "0 8 * * *" }` - Run using cron expression
+  - Organization-scoped: All schedules belong to organizations (complete separation)
+- [x] **Scheduler Integration**:
+  - APScheduler (`BackgroundScheduler`) integrated in backend
+  - Scheduler starts automatically on backend startup (PID-based lock ensures single instance)
+  - Schedule management API: `GET /api/schedules`, `POST /api/schedules`, `PUT /api/schedules/{id}`, `DELETE /api/schedules/{id}`, `GET /api/schedules/stats`
+  - UI for creating/managing schedules: `/schedules` page with statistics, table, and modal forms
+  - Schedule jobs automatically added/removed when schedules are created/updated/deleted
+- [x] **Schedule Execution**:
+  - Run analyses automatically via APScheduler jobs
+  - Each schedule job creates `AnalysisRun` with `trigger_type='scheduled'`
+  - Executes full pipeline execution (same as manual runs)
+  - Tracks `last_run_at` and calculates `next_run_at` automatically
+  - Scheduler service: `app/services/scheduler/scheduler_service.py`
+  - Error handling: Failed runs logged, scheduler continues with other schedules
 
 **5.2) Advanced Pipeline Features**
 - [ ] **Conditional Steps**:
@@ -2193,8 +2210,8 @@ return owner_features
   - Cost analysis
 
 **Testing Checklist for Phase 5**:
-- [ ] Can create schedules
-- [ ] Schedules execute automatically
+- [x] Can create schedules ✅
+- [x] Schedules execute automatically ✅
 - [ ] Conditional steps work
 - [ ] Analytics display correctly
 - [ ] Cost tracking accurate
