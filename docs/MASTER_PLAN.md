@@ -172,6 +172,16 @@ Constraints and preferences:
     - `GET /api/health` → health probe
 
 - Frontend (Next.js)
+  - **Dashboard Page (`/dashboard`)**: ✅ **REDESIGNED**
+    - Welcome header with personalized greeting
+    - Statistics cards: Pipelines total (with active count), Runs total (with monthly count), Success rate percentage, Total cost (with monthly breakdown)
+    - Quick actions: Create process, Run analysis, Manage tools
+    - Recent runs: Last 5 runs with status, cost, and timestamps
+    - Status overview sidebar: Running/queued jobs indicator, success/failure counts, active processes count
+    - Process preview: Quick links to user's processes (up to 6), link to view all
+    - Real-time updates: Polls runs every 5 seconds, stats every 30 seconds
+    - Empty states: Helpful messages and CTAs when no data exists
+    - Responsive design: Mobile (single column), Tablet (2-column), Desktop (3-4 column grids)
   - **Analyses Page**: 
     - List view: All user's analysis flows (cards with name, description, last run, status)
     - Create/Edit: Pipeline editor with step-by-step configuration
@@ -215,6 +225,14 @@ Constraints and preferences:
   - User info (email, role badge if admin)
   - Logout button
 - **Home (`/`)**: Landing page with product overview, quick stats, recent activity, quick actions
+- **Dashboard (`/dashboard`)**: ✅ **REDESIGNED** - Main user dashboard after login
+  - Personalized welcome header with user's name
+  - Key metrics at a glance: Pipelines, Runs, Success Rate, Cost
+  - Quick action buttons: Create process, Run analysis, Manage tools
+  - Recent activity: Last 5 runs with status indicators
+  - Status overview: Running jobs, success/failure counts
+  - Process preview: Quick access to user's processes
+  - All text in Russian, matching app design system
 - **Analyses (`/analyses`)**: Create and manage analysis flows
   - List view: Cards showing analysis flows from current organization ONLY
   - Complete separation: No visibility of analyses from other organizations
@@ -349,6 +367,47 @@ Constraints and preferences:
   - Test semantic search queries
   - See retrieved documents and relevance scores
   - Preview how RAG will be used in analysis steps
+
+**Dashboard Page (`/dashboard`):** ✅ **REDESIGNED**
+- **Welcome Section**:
+  - Personalized greeting with user's name
+  - Prominent "Create Process" CTA button
+  - Brief description of platform purpose
+- **Statistics Cards** (4-column responsive grid):
+  - **Pipelines Card**: Total pipelines count with active count, link to all processes
+  - **Runs Card**: Total runs with monthly count, link to all runs
+  - **Success Rate Card**: Percentage of successful runs
+  - **Cost Card**: Total cost with monthly breakdown
+  - Each card has colored icon background (blue, green, emerald, purple)
+  - Hover effects and transitions
+- **Quick Actions Section**:
+  - Three action cards with icons:
+    - Create Process: Opens pipeline editor
+    - Run Analysis: Links to analyses page
+    - Manage Tools: Links to tools page
+  - Dashed border cards with hover effects
+- **Recent Runs Section** (2/3 width):
+  - Last 5 runs displayed as cards
+  - Shows: Run ID, instrument, timeframe, status badge, cost, relative timestamp
+  - Click to view run details
+  - Empty state with CTA to create first run
+- **Status Overview Sidebar** (1/3 width):
+  - Running/queued jobs indicator with spinner
+  - Success/failure counts
+  - Active processes count
+  - Link to view all runs
+- **Process Preview Section**:
+  - Grid of user's processes (up to 6)
+  - Shows process name and description
+  - Link to view all processes if more than 6
+- **Design Features**:
+  - Light theme with white cards, gray borders
+  - Consistent spacing and typography
+  - Color-coded status badges
+  - Smooth hover transitions
+  - Real-time polling (runs: 5s, stats: 30s)
+  - Smart date formatting (relative time with fallback)
+  - Currency formatting with 4 decimal places
 
 **Runs Page (`/runs`):**
 - Dashboard view with filters (analysis type, status, date range)
