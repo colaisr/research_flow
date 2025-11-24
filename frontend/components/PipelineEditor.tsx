@@ -858,31 +858,83 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
         return
       }
       
-      console.log('[handleTestPipeline] Calling testPipeline:', { pipelineId: testPipelineId, config })
-      const result = await testPipeline(testPipelineId, config)
-      console.log('[handleTestPipeline] Test result:', result)
-      
-      // Update step results for FlowDiagram
+      // Execute steps sequentially with real-time UI updates
       const newStepResults = new Map<number, any>()
-      if (result.steps) {
-        result.steps.forEach((step: any, index: number) => {
-          newStepResults.set(index, {
-            step_name: step.step_name,
-            status: step.error ? 'error' : 'completed',
-            result: step.output,
-            error: step.error,
-            tokens: step.tokens_used,
-            cost: step.cost_est,
-            model: step.model,
-          })
-        })
+      let totalCost = 0.0
+      let totalTokens = 0
+      let hasError = false
+      
+      // Set execution state to running
+      setExecutionState('running')
+      
+      // Execute each step sequentially
+      for (let stepIndex = 0; stepIndex < updatedSteps.length; stepIndex++) {
+        try {
+          // Update current executing step index
+          setCurrentExecutingStepIndex(stepIndex)
+          
+          // Mark step as running
+          const runningResult = {
+            step_name: updatedSteps[stepIndex].step_name,
+            status: 'running' as const,
+          }
+          newStepResults.set(stepIndex, runningResult)
+          setStepResults(new Map(newStepResults))
+          
+          console.log(`[handleTestPipeline] Testing step ${stepIndex}:`, { pipelineId: testPipelineId, stepIndex, config })
+          
+          // Test this step (will automatically execute dependencies)
+          const stepResult = await testStep(testPipelineId, stepIndex, config)
+          console.log(`[handleTestPipeline] Step ${stepIndex} result:`, stepResult)
+          
+          // Update step result
+          const completedResult = {
+            step_name: stepResult.step_name,
+            status: stepResult.error ? ('error' as const) : ('completed' as const),
+            result: stepResult.output,
+            error: stepResult.error,
+            tokens: stepResult.tokens_used,
+            cost: stepResult.cost_est,
+            model: stepResult.model,
+          }
+          newStepResults.set(stepIndex, completedResult)
+          setStepResults(new Map(newStepResults))
+          
+          totalCost += stepResult.cost_est || 0
+          totalTokens += stepResult.tokens_used || 0
+          
+          if (stepResult.error) {
+            hasError = true
+            // Continue with remaining steps even if one fails
+          }
+        } catch (error: any) {
+          console.error(`[handleTestPipeline] Error testing step ${stepIndex}:`, error)
+          const errorResult = {
+            step_name: updatedSteps[stepIndex].step_name,
+            status: 'error' as const,
+            error: error.response?.data?.detail || error.message || 'Unknown error',
+          }
+          newStepResults.set(stepIndex, errorResult)
+          setStepResults(new Map(newStepResults))
+          hasError = true
+          // Continue with remaining steps
+        }
       }
-      setStepResults(newStepResults)
+      
+      // Finalize execution state
       setExecutionState('completed')
       setCurrentExecutingStepIndex(undefined)
       
-      // Also show in modal for now (will be removed later)
-      setTestResult({ ...result, isPipeline: true })
+      // Show final result in modal
+      const finalResult = {
+        steps: Array.from(newStepResults.values()),
+        total_cost: totalCost,
+        total_tokens: totalTokens,
+        status: hasError ? 'failed' : 'succeeded',
+        error: hasError ? 'Some steps failed' : null,
+        isPipeline: true,
+      }
+      setTestResult(finalResult)
     } catch (error: any) {
       console.error('[handleTestPipeline] Error:', error)
       setExecutionState('idle')
