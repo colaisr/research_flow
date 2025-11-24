@@ -15,7 +15,10 @@ from app.core.auth import create_session, delete_session, get_current_user_depen
 from app.services.organization import get_user_personal_organization
 from app.services.organization import create_personal_organization
 from app.services.feature import FEATURES, set_user_feature
-from datetime import datetime
+from app.services.email import send_verification_email
+from datetime import datetime, timedelta
+import secrets
+from app.core.config import EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS
 
 router = APIRouter()
 security = HTTPBearer()
@@ -45,6 +48,10 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     full_name: str | None = None
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
 
 
 class UserResponse(BaseModel):
@@ -82,6 +89,13 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
+        )
+    
+    # Check if email is verified
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email address not verified. Please check your email and click the verification link."
         )
     
     # Create session
@@ -213,7 +227,13 @@ async def register(
             detail="User with this email already exists"
         )
     
+    # Generate 3-digit verification code
+    import random
+    verification_code = f"{random.randint(100, 999)}"  # 3-digit code: 100-999
+    code_expires = datetime.utcnow() + timedelta(hours=EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS)
+    
     # Create new user with default role 'user' (platform-level)
+    # User starts as unverified (email_verified=False)
     hashed_password = hash_password(request.password)
     new_user = User(
         email=request.email,
@@ -221,7 +241,10 @@ async def register(
         full_name=request.full_name,
         is_active=True,
         is_admin=False,  # Deprecated, use role instead
-        role='user'  # Default platform role (regular user)
+        role='user',  # Default platform role (regular user)
+        email_verified=False,
+        email_verification_token=verification_code,
+        email_verification_token_expires=code_expires
     )
     
     db.add(new_user)
@@ -251,12 +274,88 @@ async def register(
     db.commit()
     db.refresh(new_user)
     
-    # Auto-login after registration
-    # Get the personal organization that was just created
-    personal_org = get_user_personal_organization(db, new_user.id)
+    # Send verification email (don't fail registration if email fails)
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        email_sent = send_verification_email(
+            email=new_user.email,
+            token=verification_code,
+            user_name=new_user.full_name
+        )
+        if not email_sent:
+            logger.warning(f"Failed to send verification email to {new_user.email}, but user was created")
+    except Exception as e:
+        logger.error(f"Error sending verification email to {new_user.email}: {str(e)}", exc_info=True)
+    
+    # Don't auto-login after registration - user must verify email first
+    # Return success response indicating email verification is required
+    return UserResponse(
+        id=new_user.id,
+        email=new_user.email,
+        full_name=new_user.full_name,
+        is_admin=new_user.is_admin,
+        role=new_user.role,
+        created_at=new_user.created_at
+    )
+
+
+@router.post("/verify-email", response_model=dict)
+async def verify_email(
+    request: VerifyEmailRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    """Verify user's email address using 3-digit verification code."""
+    return await _verify_email_token(request.token, response, db)
+
+
+async def _verify_email_token(
+    token: str,
+    response: Response,
+    db: Session
+) -> dict:
+    """Internal function to verify email token."""
+    # Find user by verification token
+    user = db.query(User).filter(
+        User.email_verification_token == token
+    ).first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid verification token"
+        )
+    
+    # Check if token has expired
+    if user.email_verification_token_expires and user.email_verification_token_expires < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification token has expired. Please request a new verification email."
+        )
+    
+    # Check if already verified
+    if user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address is already verified"
+        )
+    
+    # Verify email
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_token_expires = None
+    
+    db.commit()
+    db.refresh(user)
+    
+    # Auto-login after verification
+    # Get the personal organization
+    personal_org = get_user_personal_organization(db, user.id)
     organization_id = personal_org.id if personal_org else None
     
-    session_token = create_session(new_user.id, new_user.email, new_user.is_admin, new_user.role, organization_id)
+    session_token = create_session(user.id, user.email, user.is_admin, user.role, organization_id)
     response.set_cookie(
         key="researchflow_session",
         value=session_token,
@@ -267,11 +366,73 @@ async def register(
         path="/",
     )
     
-    return UserResponse(
-        id=new_user.id,
-        email=new_user.email,
-        full_name=new_user.full_name,
-        is_admin=new_user.is_admin,
-        role=new_user.role,
-        created_at=new_user.created_at
-    )
+    return {
+        "success": True,
+        "message": "Email verified successfully",
+        "user": UserResponse(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            is_admin=user.is_admin,
+            role=user.role,
+            created_at=user.created_at
+        )
+    }
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/resend-verification", response_model=dict)
+async def resend_verification_email(
+    request: ResendVerificationRequest,
+    db: Session = Depends(get_db)
+):
+    """Resend verification email to user."""
+    # Find user by email
+    user = db.query(User).filter(User.email == request.email).first()
+    
+    if not user:
+        # Don't reveal if user exists or not (security best practice)
+        return {
+            "success": True,
+            "message": "If the email address exists and is not verified, a verification email has been sent."
+        }
+    
+    # Check if already verified
+    if user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address is already verified"
+        )
+    
+    # Generate new 3-digit verification code
+    import random
+    verification_code = f"{random.randint(100, 999)}"  # 3-digit code: 100-999
+    code_expires = datetime.utcnow() + timedelta(hours=EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS)
+    
+    user.email_verification_token = verification_code
+    user.email_verification_token_expires = code_expires
+    
+    db.commit()
+    db.refresh(user)
+    
+    # Send verification email
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        email_sent = send_verification_email(
+            email=user.email,
+            token=verification_code,
+            user_name=user.full_name
+        )
+        if not email_sent:
+            logger.warning(f"Failed to send verification email to {user.email}")
+    except Exception as e:
+        logger.error(f"Error sending verification email to {user.email}: {str(e)}")
+    
+    return {
+        "success": True,
+        "message": "If the email address exists and is not verified, a verification email has been sent."
+    }

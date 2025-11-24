@@ -771,8 +771,77 @@ Users can create any flow they need - the platform is domain-agnostic.
 - Environment
   - Backend binds to `0.0.0.0:8000`
   - Frontend binds to `0.0.0.0:3000`; API base URL is centralized in `frontend/lib/config.ts` and automatically matches the current hostname (e.g., `http://localhost:8000` when visiting `http://localhost:3000`). For local scripts (`start_all.sh`), prefer `http://localhost:3000` consistently.
-  - Reverse proxy optional for MVP; can add Nginx/Caddy later for TLS/domains
+  - **Production**: Nginx reverse proxy configured for `researchflow.ru` with SSL (see Section 9a)
   - MySQL connection configured in `app/config_local.py` (local dev DB and prod DB endpoints)
+
+### 9a) Production Domain Setup (researchflow.ru) ✅ **IMPLEMENTED**
+
+**Status**: Production domain `researchflow.ru` is fully configured and operational.
+
+**Domain Configuration**:
+- **Domain**: `researchflow.ru` and `www.researchflow.ru`
+- **Server IP**: `84.54.30.222`
+- **DNS Records**: 
+  - `@.researchflow.ru` → `84.54.30.222` (A record)
+  - `www.researchflow.ru` → `84.54.30.222` (A record)
+- **SSL Certificate**: Let's Encrypt (auto-renewing, expires 2026-02-22)
+
+**Infrastructure Setup**:
+- **Nginx Reverse Proxy**: Installed and configured
+  - Routes HTTP (port 80) → HTTPS (port 443)
+  - Proxies `/` → `http://localhost:3000` (frontend)
+  - Proxies `/api` → `http://localhost:8000` (backend)
+  - Proxies `/health` → `http://localhost:8000/health` (health check)
+  - Configuration: `/etc/nginx/sites-available/researchflow.ru`
+- **SSL/TLS**: 
+  - Let's Encrypt certificate installed via Certbot
+  - Auto-renewal configured via systemd timer
+  - TLS 1.2/1.3 protocols enabled
+  - Security headers configured (X-Frame-Options, X-Content-Type-Options, etc.)
+- **Firewall**: UFW enabled
+  - Ports open: 80 (HTTP), 443 (HTTPS), 22 (SSH)
+  - Ports 3000 and 8000 not exposed externally (only via Nginx)
+
+**Application Configuration**:
+- **Frontend** (`/srv/research-flow/frontend/.env.production`):
+  - `NEXT_PUBLIC_API_BASE_URL=https://researchflow.ru/api`
+  - Frontend rebuilt with production API URL
+- **Backend** (`/srv/research-flow/backend/app/main.py`):
+  - CORS origins updated to include:
+    - `https://researchflow.ru`
+    - `https://www.researchflow.ru`
+    - `http://localhost:3000` (dev)
+    - `http://127.0.0.1:3000` (dev)
+
+**Access URLs**:
+- **Production Site**: `https://researchflow.ru`
+- **Production Site (www)**: `https://www.researchflow.ru`
+- **API Endpoint**: `https://researchflow.ru/api/*`
+- **Health Check**: `https://researchflow.ru/health`
+
+**Setup Process** (Completed):
+1. ✅ Installed Nginx reverse proxy
+2. ✅ Created Nginx configuration for domain
+3. ✅ Installed Certbot for SSL certificate management
+4. ✅ Obtained Let's Encrypt SSL certificate (auto-configured Nginx)
+5. ✅ Configured firewall (UFW) to allow HTTP/HTTPS traffic
+6. ✅ Updated frontend `.env.production` with HTTPS API URL
+7. ✅ Rebuilt frontend with new configuration
+8. ✅ Updated backend CORS settings for production domain
+9. ✅ Restarted all services (backend, frontend, Nginx)
+10. ✅ Verified HTTPS access, API endpoints, and SSL certificate
+
+**Maintenance**:
+- **SSL Renewal**: Automatic via Certbot timer (checks daily, renews 30 days before expiration)
+- **Nginx Logs**: `/var/log/nginx/access.log` and `/var/log/nginx/error.log`
+- **Service Management**:
+  ```bash
+  sudo systemctl status nginx
+  sudo systemctl restart nginx
+  sudo certbot renew --dry-run  # Test SSL renewal
+  ```
+
+**Documentation**: See `docs/DOMAIN_SETUP_PRODUCTION.md` for detailed setup guide and troubleshooting.
 
 ### 10a) Authentication and User Accounts
 

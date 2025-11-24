@@ -24,9 +24,9 @@ export default function RegisterPage() {
       return response
     },
     onSuccess: (data) => {
-      // User is auto-logged in after registration
-      // Redirect to dashboard
-      router.push('/dashboard')
+      // User is not auto-logged in - must verify email first
+      // Redirect to verification message page
+      router.push('/register/success')
     },
     onError: (err: any) => {
       setError(err.response?.data?.detail || 'Registration failed')

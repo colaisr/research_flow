@@ -526,4 +526,246 @@ class AnalysisPipeline:
                 logger.error(f"Failed to update run status to FAILED: {str(commit_error)}")
                 db.rollback()
             raise
+    
+    def _extract_step_dependencies(self, template: str, all_steps: List[Tuple[str, BaseAnalyzer, Dict[str, Any]]]) -> List[int]:
+        """Extract step indices that this step depends on based on variable references.
+        
+        Args:
+            template: User prompt template string
+            all_steps: List of all steps (step_name, analyzer, step_config)
+            
+        Returns:
+            List of step indices (0-based) that need to be executed before this step
+        """
+        dependencies = []
+        # Find all {step_name_output} references in template
+        import re
+        pattern = r'\{(\w+)_output\}'
+        matches = re.findall(pattern, template)
+        
+        for var_name in matches:
+            # Find step with this name
+            for idx, (step_name, _, _) in enumerate(all_steps):
+                if step_name == var_name:
+                    dependencies.append(idx)
+                    break
+        
+        return dependencies
+    
+    def test_step(
+        self,
+        step_index: int,
+        config: Dict[str, Any],
+        context: Dict[str, Any],
+        db: Session,
+    ) -> Dict[str, Any]:
+        """Test a single step without saving to database.
+        Automatically executes dependent steps first.
+        
+        Args:
+            step_index: Index of step to test (0-based)
+            config: Pipeline configuration dict with "steps" array
+            context: Context dictionary with instrument, timeframe, market_data, previous_steps
+            db: Database session (for tool execution)
+            
+        Returns:
+            Dict with step execution results: {
+                "step_name": str,
+                "input": str,
+                "output": str,
+                "model": str,
+                "tokens_used": int,
+                "cost_est": float,
+                "error": Optional[str]
+            }
+        """
+        # Initialize LLM client
+        if not self.llm_client:
+            self.llm_client = LLMClient(db=db)
+        
+        # Build steps from config
+        steps = self._build_steps_from_config(config)
+        
+        if step_index < 0 or step_index >= len(steps):
+            raise ValueError(f"Step index {step_index} out of range (0-{len(steps)-1})")
+        
+        step_name, analyzer, step_config = steps[step_index]
+        
+        # Ensure previous_steps exists in context
+        if "previous_steps" not in context:
+            context["previous_steps"] = {}
+        
+        # Extract dependencies from step template
+        template = step_config.get("user_prompt_template", "")
+        dependencies = self._extract_step_dependencies(template, steps)
+        
+        # Execute dependent steps first (recursively)
+        for dep_index in dependencies:
+            if dep_index >= step_index:
+                # Skip if dependency is after current step (invalid reference)
+                logger.warning(f"Step {step_name} references step at index {dep_index} which comes after it. Skipping dependency execution.")
+                continue
+            
+            dep_step_name = steps[dep_index][0]
+            
+            # Check if already executed
+            if dep_step_name not in context["previous_steps"]:
+                logger.info(f"Auto-executing dependent step {dep_step_name} (index {dep_index}) for step {step_name}")
+                # Recursively execute dependency
+                dep_result = self.test_step(dep_index, config, context, db)
+                # Add result to previous_steps
+                context["previous_steps"][dep_step_name] = {
+                    "output": dep_result.get("output", ""),
+                    "tokens_used": dep_result.get("tokens_used", 0),
+                    "cost_est": dep_result.get("cost_est", 0.0),
+                }
+        
+        try:
+            # Build context section if include_context is configured
+            enhanced_context = self._build_context_for_step(context, step_config, steps)
+            
+            # Add db session to context for tool execution
+            enhanced_context["_db_session"] = db
+            
+            # Run the step
+            step_result = analyzer.analyze(
+                context=enhanced_context,
+                llm_client=self.llm_client,
+                step_config=step_config,
+            )
+            
+            # Convert input to string if it's a dict (from analyze method)
+            input_value = step_result.get("input", "")
+            if isinstance(input_value, dict):
+                # Format as readable string
+                system_prompt = input_value.get("system_prompt", "")
+                user_prompt = input_value.get("user_prompt", "")
+                input_value = f"System: {system_prompt}\n\nUser: {user_prompt}"
+            
+            return {
+                "step_name": step_name,
+                "input": input_value,
+                "output": step_result.get("output", ""),
+                "model": step_result.get("model"),
+                "tokens_used": step_result.get("tokens_used", 0),
+                "cost_est": step_result.get("cost_est", 0.0),
+                "error": None
+            }
+        except Exception as e:
+            logger.error(f"Test step {step_name} failed: {e}", exc_info=True)
+            return {
+                "step_name": step_name,
+                "input": "",
+                "output": "",
+                "model": None,
+                "tokens_used": 0,
+                "cost_est": 0.0,
+                "error": str(e)
+            }
+    
+    def test_pipeline(
+        self,
+        config: Dict[str, Any],
+        context: Dict[str, Any],
+        db: Session,
+    ) -> Dict[str, Any]:
+        """Test entire pipeline without saving to database.
+        
+        Args:
+            config: Pipeline configuration dict with "steps" array
+            context: Context dictionary with instrument, timeframe, market_data, previous_steps
+            db: Database session (for tool execution)
+            
+        Returns:
+            Dict with pipeline execution results: {
+                "steps": List[Dict[str, Any]],  # Same format as test_step result
+                "total_cost": float,
+                "total_tokens": int,
+                "status": str,  # "succeeded" or "failed"
+                "error": Optional[str]
+            }
+        """
+        # Initialize LLM client
+        if not self.llm_client:
+            self.llm_client = LLMClient(db=db)
+        
+        # Build steps from config
+        steps = self._build_steps_from_config(config)
+        
+        results = []
+        total_cost = 0.0
+        total_tokens = 0
+        status = "succeeded"
+        error = None
+        
+        # Track previous step outputs for context
+        test_context = context.copy()
+        test_context["previous_steps"] = {}
+        
+        # Run each step
+        for step_name, analyzer, step_config in steps:
+            try:
+                # Build context section if include_context is configured
+                enhanced_context = self._build_context_for_step(test_context, step_config, steps)
+                
+                # Add db session to context for tool execution
+                enhanced_context["_db_session"] = db
+                
+                # Run the step
+                step_result = analyzer.analyze(
+                    context=enhanced_context,
+                    llm_client=self.llm_client,
+                    step_config=step_config,
+                )
+                
+                # Add step output to previous_steps for next steps
+                test_context["previous_steps"][step_name] = {
+                    "output": step_result.get("output", "")
+                }
+                
+                # Convert input to string if it's a dict (from analyze method)
+                input_value = step_result.get("input", "")
+                if isinstance(input_value, dict):
+                    # Format as readable string
+                    system_prompt = input_value.get("system_prompt", "")
+                    user_prompt = input_value.get("user_prompt", "")
+                    input_value = f"System: {system_prompt}\n\nUser: {user_prompt}"
+                
+                result = {
+                    "step_name": step_name,
+                    "input": input_value,
+                    "output": step_result.get("output", ""),
+                    "model": step_result.get("model"),
+                    "tokens_used": step_result.get("tokens_used", 0),
+                    "cost_est": step_result.get("cost_est", 0.0),
+                    "error": None
+                }
+                results.append(result)
+                
+                total_cost += result["cost_est"]
+                total_tokens += result["tokens_used"]
+                
+            except Exception as e:
+                logger.error(f"Test pipeline step {step_name} failed: {e}", exc_info=True)
+                result = {
+                    "step_name": step_name,
+                    "input": "",
+                    "output": "",
+                    "model": None,
+                    "tokens_used": 0,
+                    "cost_est": 0.0,
+                    "error": str(e)
+                }
+                results.append(result)
+                status = "failed"
+                error = str(e)
+                # Continue with remaining steps even if one fails
+        
+        return {
+            "steps": results,
+            "total_cost": total_cost,
+            "total_tokens": total_tokens,
+            "status": status,
+            "error": error
+        }
 

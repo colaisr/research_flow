@@ -17,6 +17,9 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)  # Deprecated, use role instead
     role = Column(String(50), nullable=False, default='user')  # 'admin' (platform admin) or 'user' (regular user)
+    email_verified = Column(Boolean, default=False, nullable=False)
+    email_verification_token = Column(String(255), nullable=True, index=True)
+    email_verification_token_expires = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

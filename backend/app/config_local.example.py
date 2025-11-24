@@ -29,3 +29,18 @@ SESSION_SECRET = "CHANGE_ME_RANDOM_SECRET_FOR_SIGNING"  # keep only on the serve
 ENABLE_TELEGRAM_AUTO_SEND = False
 ENABLE_BACKTESTING = False
 
+# Email (SMTP) Configuration
+# For Beget hosting, use smtp.beget.com or smtp.timeweb.ru
+SMTP_HOST = "smtp.beget.com"  # or "smtp.timeweb.ru" depending on your hosting
+SMTP_PORT = 465  # 465 for SSL, 587 for TLS
+SMTP_USE_TLS = False  # Set to True if using port 587
+SMTP_USE_SSL = True  # Set to True if using port 465
+SMTP_USERNAME = "registration@researchflow.ru"  # Your email address
+SMTP_PASSWORD = "YOUR_EMAIL_PASSWORD"  # Email account password
+SMTP_FROM_EMAIL = "registration@researchflow.ru"  # From address
+SMTP_FROM_NAME = "Research Flow"  # Display name
+
+# Email verification
+EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS = 24  # Token expires after 24 hours
+FRONTEND_BASE_URL = "http://localhost:3000"  # Change to https://researchflow.ru in production
+
