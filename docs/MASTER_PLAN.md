@@ -1444,10 +1444,18 @@ return owner_features
     - "Test Tool" button (opens test modal) - not implemented
     - "Create New Tool" button in step config - not implemented
     - **See**: `docs/TOOL_REFERENCES_CONFIGURATION.md` for detailed explanation of extraction methods
-- [ ] **Test Run During Editing** (Not Implemented):
-  - **"Test Step" Button**: Not implemented
-  - **"Test Pipeline" Button**: Not implemented
-  - **Test Run UI**: Not implemented
+- [x] **Test Run During Editing** ✅ **COMPLETE**:
+  - **"Test Step" Button**: ✅ Implemented - Tests single step without saving to database
+  - **"Test Pipeline" Button**: ✅ Implemented - Tests entire pipeline without saving to database
+  - **Test Run UI**: ✅ Implemented - TestResults component displays results in modal with expandable steps
+  - **Backend Endpoints**: ✅ `POST /api/analyses/{id}/test-step` and `POST /api/analyses/{id}/test-pipeline`
+  - **Features**:
+    - Gets current text from editors before testing (same as save)
+    - Supports custom_config override for testing unsaved changes
+    - Shows execution results with input/output, tokens, cost, errors
+    - Only available for saved pipelines (requires pipelineId)
+  - **Bug Fixes**:
+    - ✅ Fixed syntax error in `test_pipeline` endpoint (incorrect indentation in try block) - now fully functional
 - [x] **Basic UX Improvements**:
   - **Visual Indicators**:
     - Tool variables shown in Variable Palette with distinct styling ✅
@@ -1532,8 +1540,8 @@ return owner_features
   - [x] API tool results are correctly injected into prompt ✅
   - [x] Existing pipelines (e.g., "Daily Analysis") work with API tool references ✅
   - [x] Results match expected outputs when using tool references vs. direct adapters ✅
-  - [ ] Test Step button executes step with API tool references (Not implemented)
-  - [ ] Test Pipeline button executes pipeline with API tool references (Not implemented)
+  - [x] Test Step button executes step with API tool references ✅
+  - [x] Test Pipeline button executes pipeline with API tool references ✅
 - [x] **Database Tool Testing** ✅ (Phase 1 - Core functionality complete):
   - [x] Database tool variables appear in variable palette ✅
   - [x] Natural language extraction works for Database tools (SQL query extraction) ✅

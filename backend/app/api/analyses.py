@@ -517,3 +517,286 @@ async def duplicate_analysis_type(
     db.refresh(new_analysis)
     
     return new_analysis
+
+
+class TestStepRequest(BaseModel):
+    """Request model for testing a single step."""
+    step_index: int  # 0-based index of step to test
+    custom_config: Optional[Dict[str, Any]] = None  # Optional custom config override
+    instrument: str = "N/A"  # Default for pipelines that don't need market data
+    timeframe: str = "N/A"  # Default for pipelines that don't need market data
+    tool_id: Optional[int] = None  # Optional tool for market data fetch
+
+
+class TestPipelineRequest(BaseModel):
+    """Request model for testing entire pipeline."""
+    custom_config: Optional[Dict[str, Any]] = None  # Optional custom config override
+    instrument: str = "N/A"  # Default for pipelines that don't need market data
+    timeframe: str = "N/A"  # Default for pipelines that don't need market data
+    tool_id: Optional[int] = None  # Optional tool for market data fetch
+
+
+class TestStepResponse(BaseModel):
+    """Response model for test step execution."""
+    step_name: str
+    input: str
+    output: str
+    model: Optional[str] = None
+    tokens_used: int = 0
+    cost_est: float = 0.0
+    error: Optional[str] = None
+
+
+class TestPipelineResponse(BaseModel):
+    """Response model for test pipeline execution."""
+    steps: List[TestStepResponse]
+    total_cost: float = 0.0
+    total_tokens: int = 0
+    status: str  # "succeeded" or "failed"
+    error: Optional[str] = None
+
+
+@router.post("/{analysis_type_id}/test-step", response_model=TestStepResponse)
+async def test_step(
+    analysis_type_id: int,
+    request: TestStepRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
+):
+    """Test a single step of a pipeline without saving to database.
+    
+    This endpoint allows users to test individual steps during pipeline editing.
+    """
+    try:
+        from app.services.analysis.pipeline import AnalysisPipeline
+        
+        logger.info(f"[test_step] Starting test for analysis_type_id={analysis_type_id}, step_index={request.step_index}, user_id={current_user.id}, org_id={current_organization.id}")
+        
+        # Load analysis type
+        analysis_type = db.query(AnalysisType).filter(
+            AnalysisType.id == analysis_type_id,
+            AnalysisType.organization_id == current_organization.id
+        ).first()
+        
+        if not analysis_type:
+            raise HTTPException(status_code=404, detail="Analysis type not found")
+        
+        # Check access: user must own the analysis or it must be a system process
+        if not analysis_type.is_system and analysis_type.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this analysis")
+        
+        # Get config: use custom_config if provided, otherwise use analysis_type.config
+        config = request.custom_config if request.custom_config else analysis_type.config
+        
+        if not config or "steps" not in config:
+            raise HTTPException(status_code=400, detail="Invalid pipeline configuration")
+        
+        # Prepare context for step execution
+        # Check if this pipeline needs market data
+        needs_market_data = request.instrument != 'N/A' and request.timeframe != 'N/A'
+        market_data = None
+        
+        if needs_market_data:
+            if request.tool_id:
+                # Use ToolExecutor to fetch data from user-configured tool
+                from app.models.user_tool import UserTool
+                from app.models.organization_tool_access import OrganizationToolAccess
+                from app.services.tools import ToolExecutor
+                
+                tool = db.query(UserTool).filter(UserTool.id == request.tool_id).first()
+                if not tool:
+                    raise HTTPException(status_code=404, detail=f"Tool {request.tool_id} not found")
+                
+                # Check ownership
+                if tool.user_id != current_user.id:
+                    raise HTTPException(status_code=403, detail="You do not own this tool")
+                
+                # Check if tool is active
+                if not tool.is_active:
+                    raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not active")
+                
+                # Check if tool is enabled for current organization
+                if tool.is_shared:
+                    access = db.query(OrganizationToolAccess).filter(
+                        OrganizationToolAccess.organization_id == current_organization.id,
+                        OrganizationToolAccess.tool_id == tool.id
+                    ).first()
+                    
+                    if access and not access.is_enabled:
+                        raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
+                
+                # Execute tool to fetch market data
+                executor = ToolExecutor(db=db)
+                tool_params = {
+                    'instrument': request.instrument,
+                    'timeframe': request.timeframe,
+                    'limit': 500
+                }
+                tool_result = executor.execute_tool(tool, tool_params)
+                
+                # Convert tool result to MarketData format
+                pipeline = AnalysisPipeline()
+                market_data = pipeline._convert_tool_result_to_market_data(tool_result, request.instrument, request.timeframe)
+            else:
+                # Fallback to DataService (backward compatibility)
+                from app.services.data.adapters import DataService
+                data_service = DataService(db=db)
+                market_data = data_service.fetch_market_data(
+                    instrument=request.instrument,
+                    timeframe=request.timeframe,
+                    use_cache=True
+                )
+        
+        # Build context
+        context = {
+            "instrument": request.instrument,
+            "timeframe": request.timeframe,
+            "market_data": market_data,
+            "previous_steps": {},  # For single step test, no previous steps
+        }
+        
+        # Execute test step
+        pipeline = AnalysisPipeline()
+        result = pipeline.test_step(
+            step_index=request.step_index,
+            config=config,
+            context=context,
+            db=db
+        )
+        
+        logger.info(f"[test_step] Test completed successfully for analysis_type_id={analysis_type_id}, step_index={request.step_index}")
+        return TestStepResponse(**result)
+    except HTTPException:
+        # Re-raise HTTP exceptions (they already have proper status codes)
+        raise
+    except Exception as e:
+        logger.error(f"[test_step] Error testing step: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/{analysis_type_id}/test-pipeline", response_model=TestPipelineResponse)
+async def test_pipeline(
+    analysis_type_id: int,
+    request: TestPipelineRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
+):
+    """Test entire pipeline without saving to database.
+    
+    This endpoint allows users to test complete pipelines during editing.
+    """
+    try:
+        from app.services.analysis.pipeline import AnalysisPipeline
+        
+        logger.info(f"[test_pipeline] Starting test for analysis_type_id={analysis_type_id}, user_id={current_user.id}, org_id={current_organization.id}")
+        
+        # Load analysis type
+        analysis_type = db.query(AnalysisType).filter(
+            AnalysisType.id == analysis_type_id,
+            AnalysisType.organization_id == current_organization.id
+        ).first()
+        
+        if not analysis_type:
+            raise HTTPException(status_code=404, detail="Analysis type not found")
+        
+        # Check access: user must own the analysis or it must be a system process
+        if not analysis_type.is_system and analysis_type.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this analysis")
+        
+        # Get config: use custom_config if provided, otherwise use analysis_type.config
+        config = request.custom_config if request.custom_config else analysis_type.config
+        
+        if not config or "steps" not in config:
+            raise HTTPException(status_code=400, detail="Invalid pipeline configuration")
+        
+        # Prepare context for pipeline execution
+        # Check if this pipeline needs market data
+        needs_market_data = request.instrument != 'N/A' and request.timeframe != 'N/A'
+        market_data = None
+        
+        if needs_market_data:
+            if request.tool_id:
+                # Use ToolExecutor to fetch data from user-configured tool
+                from app.models.user_tool import UserTool
+                from app.models.organization_tool_access import OrganizationToolAccess
+                from app.services.tools import ToolExecutor
+                
+                tool = db.query(UserTool).filter(UserTool.id == request.tool_id).first()
+                if not tool:
+                    raise HTTPException(status_code=404, detail=f"Tool {request.tool_id} not found")
+                
+                # Check ownership
+                if tool.user_id != current_user.id:
+                    raise HTTPException(status_code=403, detail="You do not own this tool")
+                
+                # Check if tool is active
+                if not tool.is_active:
+                    raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not active")
+                
+                # Check if tool is enabled for current organization
+                if tool.is_shared:
+                    access = db.query(OrganizationToolAccess).filter(
+                        OrganizationToolAccess.organization_id == current_organization.id,
+                        OrganizationToolAccess.tool_id == tool.id
+                    ).first()
+                    
+                    if access and not access.is_enabled:
+                        raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
+                
+                # Execute tool to fetch market data
+                executor = ToolExecutor(db=db)
+                tool_params = {
+                    'instrument': request.instrument,
+                    'timeframe': request.timeframe,
+                    'limit': 500
+                }
+                tool_result = executor.execute_tool(tool, tool_params)
+                
+                # Convert tool result to MarketData format
+                pipeline = AnalysisPipeline()
+                market_data = pipeline._convert_tool_result_to_market_data(tool_result, request.instrument, request.timeframe)
+            else:
+                # Fallback to DataService (backward compatibility)
+                from app.services.data.adapters import DataService
+                data_service = DataService(db=db)
+                market_data = data_service.fetch_market_data(
+                    instrument=request.instrument,
+                    timeframe=request.timeframe,
+                    use_cache=True
+                )
+        
+        # Build context
+        context = {
+            "instrument": request.instrument,
+            "timeframe": request.timeframe,
+            "market_data": market_data,
+            "previous_steps": {},
+        }
+        
+        # Execute test pipeline
+        pipeline = AnalysisPipeline()
+        result = pipeline.test_pipeline(
+            config=config,
+            context=context,
+            db=db
+        )
+        
+        # Convert steps to response format
+        steps_response = [TestStepResponse(**step) for step in result["steps"]]
+        
+        logger.info(f"[test_pipeline] Test completed successfully for analysis_type_id={analysis_type_id}")
+        return TestPipelineResponse(
+            steps=steps_response,
+            total_cost=result["total_cost"],
+            total_tokens=result["total_tokens"],
+            status=result["status"],
+            error=result.get("error")
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions (they already have proper status codes)
+        raise
+    except Exception as e:
+        logger.error(f"[test_pipeline] Error testing pipeline: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
