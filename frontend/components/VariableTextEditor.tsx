@@ -17,6 +17,7 @@ interface TextSegment {
 export interface VariableTextEditorHandle {
   insertVariable: (variable: string) => void
   getCurrentText: () => string
+  selectAll: () => void
 }
 
 const VariableTextEditor = forwardRef<VariableTextEditorHandle, VariableTextEditorProps>(
@@ -406,10 +407,29 @@ const VariableTextEditor = forwardRef<VariableTextEditorHandle, VariableTextEdit
     }
   }, [])
 
-  // Expose insertVariable and getCurrentText methods via ref
+  // Select all text in the editor
+  const selectAll = () => {
+    if (!editorRef.current) return
+    
+    editorRef.current.focus()
+    
+    // Wait a bit for focus to settle, then select all
+    setTimeout(() => {
+      if (!editorRef.current) return
+      
+      const selection = window.getSelection()
+      const range = document.createRange()
+      range.selectNodeContents(editorRef.current)
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    }, 10)
+  }
+
+  // Expose insertVariable, getCurrentText, and selectAll methods via ref
   useImperativeHandle(ref, () => ({
     insertVariable,
-    getCurrentText: getTextFromEditor
+    getCurrentText: getTextFromEditor,
+    selectAll
   }), [])
 
   return (
