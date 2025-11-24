@@ -681,6 +681,12 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
         estimated_duration_seconds: 20 * steps.length,
       }
 
+      if (!testPipelineId) {
+        alert('Ошибка: не удалось получить ID процесса для тестирования')
+        setIsTestingStep(false)
+        return
+      }
+      
       console.log('[handleTestStep] Calling testStep:', { pipelineId: testPipelineId, stepIndex, config })
       const result = await testStep(testPipelineId, stepIndex, config)
       console.log('[handleTestStep] Test result:', result)
@@ -844,6 +850,14 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
         estimated_duration_seconds: 20 * steps.length,
       }
 
+      if (!testPipelineId) {
+        alert('Ошибка: не удалось получить ID процесса для тестирования')
+        setIsTestingPipeline(false)
+        setExecutionState('idle')
+        setCurrentExecutingStepIndex(undefined)
+        return
+      }
+      
       console.log('[handleTestPipeline] Calling testPipeline:', { pipelineId: testPipelineId, config })
       const result = await testPipeline(testPipelineId, config)
       console.log('[handleTestPipeline] Test result:', result)
