@@ -35,5 +35,16 @@ def get_db():
     try:
         yield db
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception as e:
+            # If connection is already lost, just log and continue
+            # This prevents errors when MySQL connection is lost during query execution
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error closing database session (connection may be lost): {str(e)}")
+            try:
+                db.rollback()
+            except Exception:
+                pass  # Ignore rollback errors if connection is already lost
 
