@@ -177,9 +177,10 @@ async def startup_event():
         try:
             from app.services.scheduler.scheduler_service import start_scheduler
             start_scheduler()
-            logger.info("Scheduler started successfully")
+            logger.info("✅ Scheduler started successfully")
         except Exception as e:
-            logger.warning(f"Could not start scheduler: {e}")
+            import traceback
+            logger.error(f"❌ Could not start scheduler: {e}\n{traceback.format_exc()}")
         
         # Start Telegram bot polling
         db = SessionLocal()
