@@ -339,7 +339,7 @@ export default function LandingPage() {
             <div>
               <h4 className="text-white font-semibold mb-4">Связаться</h4>
               <ul className="space-y-2 text-sm">
-                <li>support@researchflow.com</li>
+                <li>support@researchflow.ru</li>
                 <li>Москва · Санкт-Петербург · Онлайн</li>
               </ul>
             </div>
