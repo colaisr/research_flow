@@ -199,7 +199,7 @@ async function testPipeline(
       payload,
       { 
         withCredentials: true,
-        timeout: 120000, // 120 seconds timeout for full pipeline
+        timeout: 300000, // 300 seconds (5 minutes) timeout for full pipeline - pipelines can have many steps
       }
     )
     return data
