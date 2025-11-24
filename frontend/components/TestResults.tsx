@@ -7,15 +7,15 @@ interface TestStepResult {
   input: string
   output: string
   model: string | null
-  tokens_used: number
-  cost_est: number
+  tokens_used?: number | null
+  cost_est?: number | null
   error: string | null
 }
 
 interface TestPipelineResult {
   steps: TestStepResult[]
-  total_cost: number
-  total_tokens: number
+  total_cost?: number | null
+  total_tokens?: number | null
   status: 'succeeded' | 'failed'
   error: string | null
 }
@@ -50,8 +50,8 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
               <h2 className="text-xl font-semibold text-gray-900">Результаты теста пайплайна</h2>
               <div className="mt-1 flex gap-4 text-sm text-gray-600">
                 <span>Шагов: {pipelineResult.steps.length}</span>
-                <span>Токенов: {pipelineResult.total_tokens.toLocaleString()}</span>
-                <span>Стоимость: ${pipelineResult.total_cost.toFixed(4)}</span>
+                <span>Токенов: {pipelineResult.total_tokens != null ? pipelineResult.total_tokens.toLocaleString() : '0'}</span>
+                <span>Стоимость: ${pipelineResult.total_cost != null ? pipelineResult.total_cost.toFixed(4) : '0.0000'}</span>
                 <span className={`font-medium ${pipelineResult.status === 'succeeded' ? 'text-green-600' : 'text-red-600'}`}>
                   {pipelineResult.status === 'succeeded' ? '✓ Успешно' : '✗ Ошибка'}
                 </span>
@@ -107,8 +107,8 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
                     )}
                   </div>
                   <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <span>{step.tokens_used.toLocaleString()} токенов</span>
-                    <span>${step.cost_est.toFixed(4)}</span>
+                    <span>{step.tokens_used != null ? step.tokens_used.toLocaleString() : '0'} токенов</span>
+                    <span>${step.cost_est != null ? step.cost_est.toFixed(4) : '0.0000'}</span>
                     <svg
                       className={`w-5 h-5 transition-transform ${expandedSteps.has(index) ? 'rotate-180' : ''}`}
                       fill="none"
@@ -176,8 +176,8 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
             <div className="mt-1 flex gap-4 text-sm text-gray-600">
               <span>Шаг: {stepResult.step_name}</span>
               {stepResult.model && <span>Модель: {stepResult.model}</span>}
-              <span>Токенов: {stepResult.tokens_used.toLocaleString()}</span>
-              <span>Стоимость: ${stepResult.cost_est.toFixed(4)}</span>
+              <span>Токенов: {stepResult.tokens_used != null ? stepResult.tokens_used.toLocaleString() : '0'}</span>
+              <span>Стоимость: ${stepResult.cost_est != null ? stepResult.cost_est.toFixed(4) : '0.0000'}</span>
               {stepResult.error ? (
                 <span className="font-medium text-red-600">✗ Ошибка</span>
               ) : (
