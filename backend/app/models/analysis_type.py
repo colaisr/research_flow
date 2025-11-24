@@ -12,7 +12,7 @@ class AnalysisType(Base):
     __tablename__ = "analysis_types"
     
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False, unique=True)  # e.g., "daystart", "intraday_smc"
+    name = Column(String(100), nullable=False)  # Display name - not unique, users can have multiple processes with same name
     display_name = Column(String(200), nullable=False)  # e.g., "Daystart Analysis"
     description = Column(Text, nullable=True)
     version = Column(String(20), default="1.0.0")  # e.g., "1.2.0"

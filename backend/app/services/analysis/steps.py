@@ -39,11 +39,24 @@ def format_user_prompt_template(
     previous_steps = context.get("previous_steps", {})
     
     # Process tool references first (before standard variable replacement)
-    if step_config and "tool_references" in step_config and step_config["tool_references"]:
+    # Check if step_config has tool_references (even if empty array)
+    has_tool_references_config = step_config and "tool_references" in step_config
+    tool_references_list = step_config.get("tool_references", []) if has_tool_references_config else []
+    
+    if has_tool_references_config and tool_references_list:
         if not db:
             logger.warning("tool_references found in step_config but db session not provided, skipping tool execution")
+            # Replace tool references with error message
+            for tool_ref in tool_references_list:
+                variable_name = tool_ref.get("variable_name")
+                if variable_name:
+                    template = template.replace(f"{{{variable_name}}}", f"[Tool {variable_name} execution skipped: db session not provided]")
         else:
             template = _process_tool_references(template, step_config, context, db)
+    elif has_tool_references_config and not tool_references_list:
+        # tool_references exists but is empty - this shouldn't happen, but log it
+        potential_tool_refs = re.findall(r'\{([a-z_]+)\}', template.lower())
+        logger.warning(f"tool_references exists in step_config but is empty. Template contains potential tool references: {potential_tool_refs}")
     
     # Get number of candles from step_config if available, otherwise use defaults based on step type
     num_candles = None
@@ -114,6 +127,28 @@ def format_user_prompt_template(
             flags=re.IGNORECASE
         )
     
+    # Before formatting, check if there are any tool references that weren't replaced
+    # This can happen if tool_references weren't processed or tool execution failed
+    # Extract all {variable} patterns from template
+    remaining_tool_refs = re.findall(r'\{([^}]+)\}', template)
+    if remaining_tool_refs:
+        # Check if any of them look like tool references (not standard variables)
+        standard_vars = ['instrument', 'timeframe', 'market_data_summary'] + [f'{step}_output' for step in standard_steps]
+        for step_name in previous_steps.keys():
+            if step_name not in standard_steps:
+                standard_vars.append(f'{step_name}_output')
+        
+        # If step_config has tool_references, add them to available vars for better error message
+        tool_var_names = []
+        if step_config and "tool_references" in step_config:
+            tool_var_names = [ref.get("variable_name") for ref in step_config.get("tool_references", []) if ref.get("variable_name")]
+        
+        for var in remaining_tool_refs:
+            if var not in standard_vars and var not in tool_var_names:
+                # This might be a tool reference that wasn't processed
+                logger.warning(f"Found potential tool reference '{var}' in template that wasn't replaced. "
+                             f"Tool references: {tool_var_names}, Standard vars: {standard_vars[:5]}...")
+    
     # Format template with all variables
     # Note: Tool results already have braces escaped, so they won't interfere with format()
     try:
@@ -133,12 +168,40 @@ def format_user_prompt_template(
             if step_name not in standard_steps:
                 available_vars.append(f'{step_name}_output')
         
-        raise ValueError(
+        # Add tool variable names if available
+        if step_config and "tool_references" in step_config:
+            tool_var_names = [ref.get("variable_name") for ref in step_config.get("tool_references", []) if ref.get("variable_name")]
+            available_vars.extend(tool_var_names)
+        
+        error_msg = (
             f"Invalid variable '{invalid_var}' in prompt template. "
             f"Available variables: {', '.join(sorted(set(available_vars)))}. "
-            f"Use {{instrument}} for instrument symbol, {{timeframe}} for timeframe, "
+        )
+        
+        # Check if it's a tool reference that wasn't processed
+        if step_config and "tool_references" in step_config:
+            tool_refs = step_config.get("tool_references", [])
+            tool_var_names = [ref.get("variable_name") for ref in tool_refs if ref.get("variable_name")]
+            if invalid_var in tool_var_names:
+                error_msg += (
+                    f"\nNote: '{invalid_var}' is a tool reference but wasn't processed. "
+                    f"This might indicate that tool execution failed or db session was not provided. Check logs for details."
+                )
+        else:
+            # Check if variable name looks like a tool reference (contains 'api', 'db', 'rag', etc.)
+            if any(keyword in invalid_var.lower() for keyword in ['api', 'db', 'rag', 'tool']):
+                error_msg += (
+                    f"\nNote: '{invalid_var}' looks like a tool reference. "
+                    f"Make sure you've added the tool to 'tool_references' in step configuration "
+                    f"by clicking the tool variable in the variable palette."
+                )
+        
+        error_msg += (
+            f"\nUse {{instrument}} for instrument symbol, {{timeframe}} for timeframe, "
             f"and {{step_name}}_output for any previous step output."
         )
+        
+        raise ValueError(error_msg)
     
     return formatted
 
@@ -165,6 +228,7 @@ def _process_tool_references(
     from app.models.user_tool import UserTool
     
     tool_references = step_config.get("tool_references", [])
+    logger.info(f"Processing {len(tool_references)} tool reference(s)")
     tool_executor = ToolExecutor(db=db)
     
     # Build step context for tool execution
@@ -178,14 +242,12 @@ def _process_tool_references(
     
     # Get model from step_config for AI extraction (use same model as step)
     step_model = step_config.get("model")
-    logger.info(f"Processing tool references: step_model={step_model}, tool_references_count={len(tool_references)}")
     
     # Get LLM client for AI extraction (will be created in ToolExecutor if needed)
     llm_client = None
     if step_model:
         from app.services.llm.client import LLMClient
         llm_client = LLMClient(db=db)
-        logger.info(f"Created LLM client for AI extraction with model {step_model}")
     else:
         logger.warning(f"No model found in step_config, AI extraction will use default model")
     
@@ -216,6 +278,8 @@ def _process_tool_references(
         
         # Execute tool with context (AI-based extraction)
         try:
+            if f'{{{variable_name}}}' not in template:
+                logger.error(f"Tool reference {{{variable_name}}} not found in template")
             tool_result = tool_executor.execute_tool_with_context(
                 tool=tool,
                 prompt_text=template,

@@ -1360,70 +1360,66 @@ return owner_features
 - Need to adjust: Editor, pipeline representation, results representation, terminology
 - Phase 1.5 includes initial UI improvements, but broader modernization may be needed in separate phase
 
-**1.5.1) Tool Input/Parameter System**
-- [ ] **AI-Based Tool Parameter Extraction**:
-  - **Архитектура**: AI/LLM извлекает параметры из промпта для всех типов инструментов
-  - **Монолитность**: Используется тот же model, что выбран в step (для совместимости с локальными LLM)
-  - **Прозрачность**: Нет конфигурации для пользователя - все работает автоматически
-  - **Кэширование**: Результаты extraction кэшируются для оптимизации
-  - **Guardrails**: AI валидирует параметры и защищает от ошибок (SQL injection, etc.)
+**1.5.1) Tool Input/Parameter System** ✅ **COMPLETE**
+- [x] **AI-Based Tool Parameter Extraction** ✅:
+  - **Архитектура**: AI/LLM извлекает параметры из промпта для всех типов инструментов ✅
+  - **Монолитность**: Используется тот же model, что выбран в step (для совместимости с локальными LLM) ✅
+  - **Прозрачность**: Нет конфигурации для пользователя - все работает автоматически ✅
+  - **Кэширование**: Результаты extraction кэшируются для оптимизации ✅
+  - **Guardrails**: AI валидирует параметры и защищает от ошибок (SQL injection, etc.) ✅
   - **Примеры**:
-    - RAG tool: AI извлекает query из текста вокруг `{rag_bank_reports}`
-    - Database tool: AI конвертирует вопрос в SQL запрос
-    - API tool: AI извлекает endpoint/params из промпта
+    - RAG tool: AI извлекает query из текста вокруг `{rag_bank_reports}` ✅
+    - Database tool: AI конвертирует вопрос в SQL запрос ✅
+    - API tool: AI извлекает endpoint/params из промпта ✅
   - **См. детали**: `docs/AI_TOOL_EXTRACTION_ARCHITECTURE.md`
-- [ ] **Tool Execution Context**:
-  - Each tool receives: step context (instrument, timeframe, previous step outputs)
-  - AI pre-step анализирует контекст вокруг tool reference и извлекает параметры
-  - RAG tools: AI извлекает question/query из промпта, выполняет semantic search
-  - Database tools: AI конвертирует вопрос в SQL запрос
-  - API tools: AI извлекает endpoint/params из промпта
-- [ ] **Tool Result Formatting**:
-  - Tool results formatted as text/JSON based on tool type
-  - RAG: Formatted as "Relevant context: ..." with document excerpts
-  - Database: Formatted as table or JSON
-  - API: Formatted as JSON or text response
+- [x] **Tool Execution Context** ✅:
+  - Each tool receives: step context (instrument, timeframe, previous step outputs) ✅
+  - AI pre-step анализирует контекст вокруг tool reference и извлекает параметры ✅
+  - RAG tools: AI извлекает question/query из промпта, выполняет semantic search ✅
+  - Database tools: AI конвертирует вопрос в SQL запрос ✅
+  - API tools: AI извлекает endpoint/params из промпта ✅
+- [x] **Tool Result Formatting** ✅:
+  - Tool results formatted as text/JSON based on tool type ✅
+  - RAG: Formatted as "Relevant context: ..." with document excerpts ✅
+  - Database: Formatted as table or JSON ✅
+  - API: Formatted as JSON or text response ✅
 
-**1.5.2) Backend - Tool Execution in Steps**
-- [ ] **Step Config Enhancement**:
-  - Add `tool_references` array to `StepConfig`:
+**1.5.2) Backend - Tool Execution in Steps** ✅ **COMPLETE**
+- [x] **Step Config Enhancement** ✅:
+  - Add `tool_references` array to `StepConfig` ✅:
     ```json
     {
       "tool_references": [
         {
           "tool_id": 5,
-          "variable_name": "rag_bank_reports",
-          "extraction_method": "natural_language", // or "explicit", "template"
-          "extraction_config": {
-            "query_template": "get all {date} transactions",
-            "context_window": 200 // chars before/after tool reference
-          }
+          "variable_name": "rag_bank_reports"
         }
       ]
     }
     ```
-- [ ] **Prompt Processing Enhancement**:
+    - **Note**: `extraction_method` and `extraction_config` removed - AI-based extraction is automatic ✅
+- [x] **Prompt Processing Enhancement** ✅:
   - Modify `format_user_prompt_template()` to:
-    1. Detect tool references in template (e.g., `{rag_bank_reports}`)
+    1. Detect tool references in template (e.g., `{rag_bank_reports}`) ✅
     2. For each tool reference:
-       - Extract parameters from prompt context (natural language extraction)
-       - Execute tool with extracted parameters
-       - Replace `{tool_name}` with formatted tool result
-    3. Continue with standard variable replacement
-- [ ] **Tool Execution Engine Enhancement**:
-  - Add `execute_tool_with_context()` method:
-    - Accepts: tool, step context, prompt text, tool reference config
-    - Extracts parameters based on extraction method
-    - Executes tool
-    - Formats and returns result
-  - **Natural Language Extraction**:
-    - For RAG: Extract question from text around tool reference
-    - For Database: Extract query or use query template with prompt context
-    - For API: Extract endpoint/params or use API template
-- [ ] **Error Handling**:
-  - If tool execution fails: Show error in step output
-  - If parameter extraction fails: Use fallback (empty query, default params)
-  - Log tool execution errors for debugging
+       - Extract parameters from prompt context using AI ✅
+       - Execute tool with extracted parameters ✅
+       - Replace `{tool_name}` with formatted tool result ✅
+    3. Continue with standard variable replacement ✅
+- [x] **Tool Execution Engine Enhancement** ✅:
+  - Add `execute_tool_with_context()` method ✅:
+    - Accepts: tool, step context, prompt text, tool variable name ✅
+    - Extracts parameters using AI (same model as step) ✅
+    - Executes tool ✅
+    - Formats and returns result ✅
+  - **AI-Based Extraction** ✅:
+    - For RAG: Extract question from text around tool reference ✅
+    - For Database: Extract SQL query from prompt context ✅
+    - For API: Extract instrument/timeframe/params from prompt context ✅
+- [x] **Error Handling** ✅:
+  - If tool execution fails: Show error in step output ✅
+  - If parameter extraction fails: Use fallback (empty query, default params) ✅
+  - Log tool execution errors for debugging ✅
 
 **1.5.3) Frontend - Enhanced Pipeline Editor** ⚠️ **PARTIALLY COMPLETE**
 - [x] **Tool Reference UI in Step Configuration** (Simplified Implementation):
@@ -1466,32 +1462,29 @@ return owner_features
     - Tool references automatically added when variable is clicked ✅
     - Only active tools shown in palette ✅
 
-**1.5.4) Natural Language Extraction Implementation** ✅ **COMPLETE (API & Database), ⚠️ PARTIAL (RAG)**
+**1.5.4) AI-Based Extraction Implementation** ✅ **COMPLETE**
 - [x] **API Tool Extraction** ✅:
-  - Extract instrument and timeframe from prompt context ✅
+  - AI extracts instrument and timeframe from prompt context ✅
   - Supports patterns: BTC/USDT, AAPL, H1, 1h, etc. ✅
-  - Removes tool variable names from context to avoid false matches ✅
+  - Uses same LLM model as step for consistency ✅
   - Falls back to step_context if not found in prompt ✅
   - Example: "Get latest prices from {binance_api} for BTC/USDT on H1"
-    - Extracts: `instrument="BTC/USDT"`, `timeframe="H1"` ✅
+    - AI extracts: `instrument="BTC/USDT"`, `timeframe="H1"` ✅
     - Executes API call with extracted parameters ✅
-  - [ ] **Advanced API Extraction** (Not Implemented):
-    - Extract endpoint path, query params, or body data from prompt context
-    - Support API templates: `/api/orders?date={date}&customer={customer}`
+  - **CCXT Adapter**: Handles nested params structure from AI extraction ✅
 - [x] **Database Tool Extraction** ✅:
-  - Extract SQL query from prompt context ✅
-  - Support query templates: `SELECT * FROM orders WHERE date = '{date}'` ✅
+  - AI extracts SQL query from prompt context ✅
+  - Supports query templates: `SELECT * FROM orders WHERE date = '{date}'` ✅
   - Replace template variables with values from step context ✅
   - Pattern matching for SQL keywords (SELECT, INSERT, UPDATE, etc.) ✅
   - Example: "Check orders from {orders_db}: SELECT * FROM orders WHERE customer_id = 123"
-    - Extracts: SQL query from prompt ✅
-- [x] **RAG Tool Extraction** ⚠️ **Basic Implementation** (Full support after Phase 2):
-  - Extract question/query from text around `{rag_tool_name}` ✅ (Basic)
+    - AI extracts: SQL query from prompt ✅
+- [x] **RAG Tool Extraction** ✅:
+  - AI extracts question/query from text around `{rag_tool_name}` ✅
   - Context window: 200 chars before/after tool reference ✅
-  - [ ] **Advanced RAG Extraction** (Not Implemented):
-    - Use LLM to extract query if needed (fallback to simple text extraction)
-    - Example: "get all 21/5/2025 transactions from {rag_bank_reports} how much was received from Tom Jankins?"
-      - Extracted query: "get all 21/5/2025 transactions, how much was received from Tom Jankins"
+  - Uses same LLM model as step for consistency ✅
+  - Example: "get all 21/5/2025 transactions from {rag_bank_reports} how much was received from Tom Jankins?"
+    - AI extracts query: "get all 21/5/2025 transactions, how much was received from Tom Jankins" ✅
 
 **1.5.5) Example Use Cases & Testing with Existing Pipelines**
 

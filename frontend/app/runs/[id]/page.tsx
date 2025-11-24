@@ -279,7 +279,7 @@ export default function RunDetailPage() {
             </h1>
             {run.analysis_type_config && (
               <p className="text-sm text-gray-500 mt-1">
-                {run.analysis_type_config.steps?.length || 0} шагов • {run.instrument !== 'N/A' ? `${run.instrument} • ${run.timeframe}` : 'Нет рыночных данных'}
+                {run.analysis_type_config.steps?.length || 0} шагов
               </p>
             )}
           </div>

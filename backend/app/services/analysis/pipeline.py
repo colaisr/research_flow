@@ -90,6 +90,14 @@ class AnalysisPipeline:
                 logger.warning(f"Step config missing step_name, skipping: {step_config}")
                 continue
             
+            # Log step config summary
+            tool_refs_count = len(step_config.get('tool_references', []))
+            if tool_refs_count > 0:
+                logger.info(f"Building step {step_name}: {tool_refs_count} tool reference(s)")
+            
+            # Log step config to debug tool_references
+            logger.info(f"_build_steps_from_config: step_name={step_name}, step_config_keys={list(step_config.keys())}, has_tool_references={'tool_references' in step_config}, tool_references={step_config.get('tool_references')}")
+            
             # Get analyzer class from map, or use generic analyzer
             analyzer_class = STEP_ANALYZER_MAP.get(step_name, GenericLLMAnalyzer)
             analyzer_instance = analyzer_class()
@@ -340,6 +348,12 @@ class AnalysisPipeline:
             config = custom_config
             if not config and run.analysis_type:
                 config = run.analysis_type.config
+                # Log config summary
+                if config and "steps" in config:
+                    for idx, step_config in enumerate(config["steps"]):
+                        tool_refs_count = len(step_config.get('tool_references', []))
+                        if tool_refs_count > 0:
+                            logger.info(f"Loaded step {idx} ({step_config.get('step_name')}): {tool_refs_count} tool reference(s)")
             
             if not config:
                 raise ValueError("No configuration available for analysis run")

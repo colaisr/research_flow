@@ -108,7 +108,6 @@ class ToolExecutor:
         
         # Extract parameters using AI
         try:
-            logger.info(f"Starting AI extraction for tool {tool.display_name}, model={model}, has_llm_client={llm_client is not None}")
             params = self._extract_params_with_ai(
                 context_text=context_text,
                 tool=tool,
@@ -698,9 +697,18 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         adapter = CCXTAdapter(exchange_name=exchange_name)
         
         # Extract parameters for fetch_ohlcv
-        instrument = params.get('instrument') if params else None
-        timeframe = params.get('timeframe', 'H1') if params else 'H1'
-        limit = params.get('limit', 500) if params else 500
+        # AI extraction may return params in nested format: {'params': {'instrument': ...}}
+        # or flat format: {'instrument': ...}
+        if params and 'params' in params and isinstance(params['params'], dict):
+            # Nested format from AI extraction
+            actual_params = params['params']
+        else:
+            # Flat format
+            actual_params = params or {}
+        
+        instrument = actual_params.get('instrument')
+        timeframe = actual_params.get('timeframe', 'H1')
+        limit = actual_params.get('limit', 500)
         
         if not instrument:
             raise ValueError("CCXT adapter requires 'instrument' parameter")

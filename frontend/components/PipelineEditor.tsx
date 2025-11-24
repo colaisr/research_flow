@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -182,10 +182,21 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   // Initialize from existing pipeline
   useEffect(() => {
     if (existingPipeline && !isNew) {
+      console.log('[useEffect] Loading existing pipeline:', {
+        id: existingPipeline.id,
+        name: existingPipeline.display_name,
+        steps_count: existingPipeline.config.steps?.length || 0,
+        steps: existingPipeline.config.steps?.map(s => ({
+          step_name: s.step_name,
+          user_prompt_template: s.user_prompt_template?.substring(0, 100),
+          tool_references: s.tool_references
+        })) || []
+      })
       setPipelineName(existingPipeline.display_name)
       setPipelineDescription(existingPipeline.description || '')
       setIsSystemProcess(existingPipeline.is_system || false)
       setSteps(existingPipeline.config.steps || [])
+      console.log('[useEffect] Pipeline loaded, steps set:', existingPipeline.config.steps?.length || 0)
     } else if (isNew) {
       // Initialize empty pipeline
       setIsSystemProcess(false)
@@ -320,9 +331,45 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   }
 
   const updateStep = (index: number, updates: Partial<StepConfig>) => {
-    const newSteps = [...steps]
-    newSteps[index] = { ...newSteps[index], ...updates }
-    setSteps(newSteps)
+    console.log(`[updateStep] Updating step ${index}:`, { 
+      updates, 
+      currentStep: steps[index],
+      updatesHasToolRefs: 'tool_references' in updates,
+      updatesToolRefs: updates.tool_references,
+      currentToolRefs: steps[index]?.tool_references,
+      updatesKeys: Object.keys(updates)
+    })
+    
+    // Use functional update to always work with latest state
+    setSteps((prevSteps) => {
+      const newSteps = [...prevSteps]
+      const currentStep = newSteps[index]
+      
+      // Only merge updates that are explicitly provided (not undefined)
+      // This prevents overwriting existing fields like tool_references when they're not in updates
+      const filteredUpdates: Partial<StepConfig> = {}
+      for (const key in updates) {
+        if (updates[key] !== undefined) {
+          filteredUpdates[key] = updates[key]
+        }
+      }
+      
+      // Preserve tool_references if they exist and are not being explicitly updated
+      if (!('tool_references' in filteredUpdates) && currentStep?.tool_references) {
+        // Keep existing tool_references if not being updated
+        filteredUpdates.tool_references = currentStep.tool_references
+      }
+      
+      newSteps[index] = { ...currentStep, ...filteredUpdates }
+      console.log(`[updateStep] Step ${index} after update (functional):`, { 
+        newStep: newSteps[index],
+        hasToolRefs: 'tool_references' in newSteps[index],
+        toolRefs: newSteps[index].tool_references,
+        filteredUpdatesKeys: Object.keys(filteredUpdates),
+        preservedToolRefs: !('tool_references' in updates) && currentStep?.tool_references ? 'YES' : 'NO'
+      })
+      return newSteps
+    })
   }
 
   const savePipeline = () => {
@@ -331,29 +378,84 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
       alert('Введите название процесса')
       return
     }
-    if (steps.length === 0) {
-      alert('Добавьте хотя бы один шаг')
-      return
+    // Allow saving pipeline without steps - user can add steps later
+
+    // Validate variable references only if there are steps
+    if (steps.length > 0) {
+      const validation = validateReordering(steps)
+      if (!validation.isValid) {
+        setSaveWarning(validation.warnings)
+        return
+      }
     }
 
-    // Validate variable references
-    const validation = validateReordering(steps)
-    if (!validation.isValid) {
-      setSaveWarning(validation.warnings)
+    // Before saving, sync all editor values to state
+    // This ensures we capture the latest text from contentEditable DOM
+    const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+    const updatedSteps = [...steps]
+    let hasUpdates = false
+    
+    if (refs) {
+      refs.forEach((ref, stepIndex) => {
+        if (ref?.current && updatedSteps[stepIndex]) {
+          // Get current text directly from editor DOM
+          const currentText = ref.current.getCurrentText()
+          if (currentText !== updatedSteps[stepIndex].user_prompt_template) {
+            updatedSteps[stepIndex] = {
+              ...updatedSteps[stepIndex],
+              user_prompt_template: currentText
+            }
+            hasUpdates = true
+          }
+        }
+      })
+    }
+    
+    // If we got updates from editors, update state first
+    if (hasUpdates) {
+      setSteps(updatedSteps)
+      // Wait a tick for state updates to propagate, then save
+      setTimeout(() => {
+        performSave(updatedSteps)
+      }, 0)
       return
     }
+    
+    performSave(steps)
+  }
 
-    // Ensure all steps have order
-    const orderedSteps = steps.map((step, index) => ({
-      ...step,
-      order: step.order || index + 1,
-    }))
+  const performSave = (stepsToSave: StepConfig[]) => {
+    // Ensure all steps have order and deduplicate tool_references
+    const orderedSteps = stepsToSave.map((step, index) => {
+      // Deduplicate tool_references by tool_id
+      // Always include tool_references (even if empty array) to ensure it's saved
+      const deduplicatedToolRefs = step.tool_references && step.tool_references.length > 0
+        ? step.tool_references.filter((ref, idx, arr) => 
+            arr.findIndex(r => r.tool_id === ref.tool_id) === idx
+          )
+        : []
+      
+      return {
+        ...step,
+        order: step.order || index + 1,
+        tool_references: deduplicatedToolRefs, // Always include, even if empty
+      }
+    })
 
     const config: PipelineConfig = {
       steps: orderedSteps,
       estimated_cost: 0.1 * steps.length, // Rough estimate
       estimated_duration_seconds: 20 * steps.length, // Rough estimate
     }
+
+    // Debug: Log what we're saving
+    console.log('[savePipeline] Saving config:', JSON.stringify(config, null, 2))
+    console.log('[savePipeline] Steps with tool_references:', orderedSteps.map(s => ({
+      step_name: s.step_name,
+      user_prompt_template_preview: s.user_prompt_template?.substring(0, 100),
+      tool_references: s.tool_references,
+      has_tool_references: !!s.tool_references && s.tool_references.length > 0
+    })))
 
     if (isNew) {
       createMutation.mutate({
@@ -553,10 +655,20 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
           onConfirm={() => {
             setSaveWarning(null)
             // Continue with save
-            const orderedSteps = steps.map((step, index) => ({
-              ...step,
-              order: step.order || index + 1,
-            }))
+            const orderedSteps = steps.map((step, index) => {
+              // Deduplicate tool_references by tool_id
+              const deduplicatedToolRefs = step.tool_references 
+                ? step.tool_references.filter((ref, idx, arr) => 
+                    arr.findIndex(r => r.tool_id === ref.tool_id) === idx
+                  )
+                : undefined
+              
+              return {
+                ...step,
+                order: step.order || index + 1,
+                tool_references: deduplicatedToolRefs,
+              }
+            })
 
             const config: PipelineConfig = {
               steps: orderedSteps,
@@ -720,7 +832,8 @@ function VariableTextEditorWrapper({
   const editorRef = useRef<VariableTextEditorHandle>(null)
   
   // Store ref in a global map for VariablePalette access
-  useEffect(() => {
+  // Use useLayoutEffect for synchronous registration before paint
+  useLayoutEffect(() => {
     if (!(window as any).variableEditorRefs) {
       (window as any).variableEditorRefs = new Map()
     }
@@ -967,14 +1080,18 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
   const previousSteps = allSteps.slice(0, currentStepIndex)
   const currentStep = allSteps[currentStepIndex]
   
+  // Use currentStep from allSteps instead of step prop to ensure we have the latest state
+  const activeStep = currentStep || step
+  
   // Standard variables (removed trading-specific: instrument, timeframe, market_data_summary)
   // These are only relevant for trading pipelines and are handled automatically by the backend
   const standardVars: Array<{ name: string; desc: string }> = []
   
   // Previous step outputs
-  const stepOutputVars = previousSteps.map(step => ({
+  const stepOutputVars = previousSteps.map((step, index) => ({
     name: `{${step.step_name}_output}`,
     desc: `Вывод из шага "${step.step_name}"`,
+    uniqueKey: `step-output-${index}-${step.step_name}`, // Unique key for React
   }))
   
   // All available tools as variables (simplified - no configuration needed)
@@ -997,8 +1114,40 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
   
   // Handle tool variable click - automatically add to tool_references if not already there
   const handleToolVariableClick = (toolVar: { toolId: number; name: string; variableName: string }, editorRef?: React.RefObject<VariableTextEditorHandle>) => {
-    // Check if tool is already in tool_references
-    const existingRef = (step.tool_references || []).find(ref => ref.tool_id === toolVar.toolId)
+    console.log('[handleToolVariableClick] Called:', { toolVar, activeStep: activeStep, currentStepIndex, activeStepToolRefs: activeStep.tool_references })
+    
+    // Note: We allow multiple uses of the same variable in the prompt
+    // (e.g., "take cups from {binance_api} and take cups from {binance_api}")
+    // Only ensure tool_references is set if not already present
+    
+    // Insert variable FIRST (before updating state to avoid re-render issues)
+    // Try to get ref directly if not available through prop
+    let actualRef = editorRef?.current
+    if (!actualRef && editorRef) {
+      // Fallback: try to get ref directly from global map
+      const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+      const directRef = refs?.get(currentStepIndex)
+      actualRef = directRef?.current || null
+    }
+    
+    if (actualRef) {
+      actualRef.insertVariable(toolVar.name)
+    } else {
+      // If ref is not available, update state first and retry insertion in next render
+      // This handles the case where the component hasn't fully mounted yet
+      setTimeout(() => {
+        const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+        const retryRef = refs?.get(currentStepIndex)?.current
+        if (retryRef) {
+          retryRef.insertVariable(toolVar.name)
+        }
+      }, 0)
+    }
+    
+    // Then update tool_references (after insertion to avoid re-render blocking insertion)
+    const existingRef = (activeStep.tool_references || []).find(ref => ref.tool_id === toolVar.toolId)
+    
+    console.log('[handleToolVariableClick] Checking existing ref:', { existingRef, currentRefs: activeStep.tool_references })
     
     if (!existingRef) {
       // Add tool reference (simplified format - no extraction_method or extraction_config)
@@ -1007,13 +1156,12 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
         variable_name: toolVar.variableName
         // extraction_method and extraction_config removed - AI-based extraction is automatic
       }
-      const newRefs = [...(step.tool_references || []), newRef]
+      const currentRefs = activeStep.tool_references || []
+      const newRefs = [...currentRefs, newRef]
+      console.log('[handleToolVariableClick] Adding tool reference:', { newRef, currentRefs, newRefs, callingOnUpdate: true })
       onUpdate({ tool_references: newRefs })
-    }
-    
-    // Insert variable into prompt
-    if (editorRef?.current) {
-      editorRef.current.insertVariable(toolVar.name)
+    } else {
+      console.log('[handleToolVariableClick] Tool reference already exists, skipping')
     }
   }
   
@@ -1042,7 +1190,7 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
               const ref = editorRef ? editorRef(currentStepIndex) : undefined
               return (
                 <button
-                  key={v.name}
+                  key={v.uniqueKey || v.name}
                   type="button"
                   onClick={() => onInsertVariable(v.name, ref)}
                   className="text-xs px-2 py-0.5 bg-purple-50 hover:bg-purple-100 rounded border border-purple-200 text-purple-700 font-mono cursor-pointer transition-colors"

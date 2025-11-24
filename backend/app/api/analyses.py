@@ -1,6 +1,7 @@
 """
 API endpoints for analysis types.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Cookie
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -14,6 +15,7 @@ from app.models.organization import Organization
 from app.models.organization_tool_access import OrganizationToolAccess
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class AnalysisTypeResponse(BaseModel):
@@ -153,6 +155,8 @@ async def create_analysis_type(
     - Regular users can only create user pipelines (is_system=False)
     - Platform admins can create system processes (is_system=True) which are visible to all users
     """
+    logger.info(f"create_analysis_type: START - request.name={request.name}, request.config keys={list(request.config.keys()) if request.config else None}, steps_count={len(request.config.get('steps', [])) if request.config else 0}")
+    
     # Validate: Only platform admins can create system processes
     is_system = request.is_system or False
     if is_system and not current_user.is_platform_admin():
@@ -161,28 +165,29 @@ async def create_analysis_type(
             detail="Only platform admins can create system processes"
         )
     
-    # Check if name already exists
-    # For system processes, check globally; for user processes, check in organization
+    # Check if name already exists (only for system processes)
+    # User processes can have duplicate names - name is just a display label, not a unique identifier
+    # System processes should have unique names globally (they're visible to all users)
     if is_system:
         existing = db.query(AnalysisType).filter(
             AnalysisType.name == request.name,
-            AnalysisType.is_system == True
+            AnalysisType.is_system == True,
+            AnalysisType.is_active == 1  # Only check active processes
         ).first()
-    else:
-        existing = db.query(AnalysisType).filter(
-            AnalysisType.name == request.name,
-            AnalysisType.organization_id == current_organization.id
-        ).first()
-    
-    if existing:
-        if is_system:
+        if existing:
             raise HTTPException(status_code=400, detail="System process with this name already exists")
-        else:
-            raise HTTPException(status_code=400, detail="Analysis type with this name already exists in this organization")
     
     # Validate config structure
+    logger.info(f"create_analysis_type: request.name={request.name}, request.config keys={list(request.config.keys()) if request.config else None}, steps_count={len(request.config.get('steps', [])) if request.config else 0}")
+    if request.config and "steps" in request.config and request.config.get("steps"):
+        logger.info(f"create_analysis_type: first step tool_references={request.config['steps'][0].get('tool_references') if request.config['steps'] else 'N/A'}")
+    
     if "steps" not in request.config:
+        logger.error(f"create_analysis_type: Config missing 'steps' array. Config keys: {list(request.config.keys()) if request.config else None}, full config: {request.config}")
         raise HTTPException(status_code=400, detail="Config must contain 'steps' array")
+    
+    # Allow empty steps array (user can add steps later)
+    # No validation for empty steps - user can add steps after creation
     
     # Create new analysis type
     analysis_type = AnalysisType(
@@ -263,11 +268,12 @@ async def update_analysis_type(
                 detail="Only platform admins can change system process flag"
             )
         
-        # If converting to system process, check for name conflicts globally
+        # If converting to system process, check for name conflicts globally (only active processes)
         if request.is_system and not analysis_type.is_system:
             existing_system = db.query(AnalysisType).filter(
                 AnalysisType.name == analysis_type.name,
                 AnalysisType.is_system == True,
+                AnalysisType.is_active == 1,  # Only check active processes
                 AnalysisType.id != analysis_type.id
             ).first()
             if existing_system:
@@ -412,8 +418,11 @@ async def duplicate_analysis_type(
     # Create a copy with a new name
     new_name = f"{source_analysis.name}_copy_{current_user.id}_{int(datetime.now().timestamp())}"
     
-    # Check if name already exists
-    existing = db.query(AnalysisType).filter(AnalysisType.name == new_name).first()
+    # Check if name already exists (only active processes)
+    existing = db.query(AnalysisType).filter(
+        AnalysisType.name == new_name,
+        AnalysisType.is_active == 1  # Only check active processes
+    ).first()
     if existing:
         # Add timestamp if name collision
         new_name = f"{new_name}_{int(datetime.now().timestamp())}"
