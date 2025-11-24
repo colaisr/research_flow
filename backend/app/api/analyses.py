@@ -575,14 +575,17 @@ async def test_step(
         logger.info(f"[test_step] Starting test for analysis_type_id={analysis_type_id}, step_index={request.step_index}, user_id={current_user.id}, org_id={current_organization.id}")
         
         # Load analysis type
-        # Allow both: current org's pipelines + system pipelines (visible to all)
+        # Allow: current org's pipelines + system pipelines (visible to all) + user's own pipelines (even if org_id is NULL)
         analysis_type = db.query(AnalysisType).filter(
             AnalysisType.id == analysis_type_id
         ).filter(
-            (AnalysisType.organization_id == current_organization.id) | (AnalysisType.is_system == True)
+            (AnalysisType.organization_id == current_organization.id) | 
+            (AnalysisType.is_system == True) |
+            (AnalysisType.user_id == current_user.id)  # Allow user's own pipelines even if org_id is NULL
         ).first()
         
         if not analysis_type:
+            logger.error(f"[test_step] Analysis type {analysis_type_id} not found for user {current_user.id}, org {current_organization.id}")
             raise HTTPException(status_code=404, detail="Analysis type not found")
         
         # Check access: user must own the analysis or it must be a system process
@@ -696,14 +699,17 @@ async def test_pipeline(
         logger.info(f"[test_pipeline] Starting test for analysis_type_id={analysis_type_id}, user_id={current_user.id}, org_id={current_organization.id}")
         
         # Load analysis type
-        # Allow both: current org's pipelines + system pipelines (visible to all)
+        # Allow: current org's pipelines + system pipelines (visible to all) + user's own pipelines (even if org_id is NULL)
         analysis_type = db.query(AnalysisType).filter(
             AnalysisType.id == analysis_type_id
         ).filter(
-            (AnalysisType.organization_id == current_organization.id) | (AnalysisType.is_system == True)
+            (AnalysisType.organization_id == current_organization.id) | 
+            (AnalysisType.is_system == True) |
+            (AnalysisType.user_id == current_user.id)  # Allow user's own pipelines even if org_id is NULL
         ).first()
         
         if not analysis_type:
+            logger.error(f"[test_pipeline] Analysis type {analysis_type_id} not found for user {current_user.id}, org {current_organization.id}")
             raise HTTPException(status_code=404, detail="Analysis type not found")
         
         # Check access: user must own the analysis or it must be a system process
