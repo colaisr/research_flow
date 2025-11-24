@@ -169,10 +169,10 @@ export default function VerifyEmailPage() {
 
             <button
               type="submit"
-              disabled={code.length !== 3 || status === 'loading' || status === 'success'}
+              disabled={code.length !== 3}
               className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {status === 'loading' ? 'Проверка...' : status === 'success' ? 'Успешно!' : 'Подтвердить'}
+              Подтвердить
             </button>
           </form>
 
