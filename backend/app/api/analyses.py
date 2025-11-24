@@ -575,9 +575,11 @@ async def test_step(
         logger.info(f"[test_step] Starting test for analysis_type_id={analysis_type_id}, step_index={request.step_index}, user_id={current_user.id}, org_id={current_organization.id}")
         
         # Load analysis type
+        # Allow both: current org's pipelines + system pipelines (visible to all)
         analysis_type = db.query(AnalysisType).filter(
-            AnalysisType.id == analysis_type_id,
-            AnalysisType.organization_id == current_organization.id
+            AnalysisType.id == analysis_type_id
+        ).filter(
+            (AnalysisType.organization_id == current_organization.id) | (AnalysisType.is_system == True)
         ).first()
         
         if not analysis_type:
@@ -694,9 +696,11 @@ async def test_pipeline(
         logger.info(f"[test_pipeline] Starting test for analysis_type_id={analysis_type_id}, user_id={current_user.id}, org_id={current_organization.id}")
         
         # Load analysis type
+        # Allow both: current org's pipelines + system pipelines (visible to all)
         analysis_type = db.query(AnalysisType).filter(
-            AnalysisType.id == analysis_type_id,
-            AnalysisType.organization_id == current_organization.id
+            AnalysisType.id == analysis_type_id
+        ).filter(
+            (AnalysisType.organization_id == current_organization.id) | (AnalysisType.is_system == True)
         ).first()
         
         if not analysis_type:
