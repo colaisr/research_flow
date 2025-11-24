@@ -10,7 +10,7 @@ import Link from 'next/link'
 export default function VerifyEmailPage() {
   const router = useRouter()
   const [code, setCode] = useState('')
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState<string>('')
 
   const verifyMutation = useMutation({
