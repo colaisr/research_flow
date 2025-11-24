@@ -11,9 +11,17 @@ if not MYSQL_DSN:
 
 engine = create_engine(
     MYSQL_DSN,
-    pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_pre_ping=True,  # Verify connections before using
+    pool_recycle=300,  # Recycle connections after 5 minutes (MySQL default wait_timeout is often 8 hours, but some servers have shorter timeouts)
+    pool_size=10,  # Number of connections to maintain
+    max_overflow=20,  # Maximum overflow connections
+    pool_timeout=30,  # Timeout for getting connection from pool
     echo=False,  # Set to True for SQL debugging
+    connect_args={
+        "connect_timeout": 10,  # Connection timeout in seconds
+        "read_timeout": 30,  # Read timeout in seconds
+        "write_timeout": 30,  # Write timeout in seconds
+    } if "pymysql" in MYSQL_DSN else {}
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
