@@ -33,9 +33,11 @@ def start_scheduler():
     scheduler = get_scheduler()
     if not scheduler.running:
         scheduler.start()
-        logger.info("Scheduler started")
+        logger.info("✅ Scheduler started")
         # Load all active schedules
         load_all_schedules()
+    else:
+        logger.debug("Scheduler already running")
 
 
 def stop_scheduler():
@@ -224,6 +226,11 @@ def execute_schedule(schedule_id: int):
 def add_schedule_job(schedule: Schedule):
     """Add a schedule job to the scheduler."""
     scheduler = get_scheduler()
+    # Ensure scheduler is running
+    if not scheduler.running:
+        scheduler.start()
+        logger.info("✅ Scheduler started (via add_schedule_job)")
+    
     job_id = f"schedule_{schedule.id}"
     
     # Remove existing job if any
