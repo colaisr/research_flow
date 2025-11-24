@@ -12,6 +12,8 @@ import Select from '@/components/Select'
 import VariableTextEditor, { VariableTextEditorHandle } from '@/components/VariableTextEditor'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
+import TestResults from '@/components/TestResults'
+import FlowDiagram from '@/components/FlowDiagram'
 
 interface Model {
   id: number
@@ -125,6 +127,106 @@ async function updatePipeline(id: number, request: {
   return data
 }
 
+async function testStep(
+  analysisTypeId: number,
+  stepIndex: number,
+  customConfig: PipelineConfig,
+  instrument: string = 'N/A',
+  timeframe: string = 'N/A',
+  toolId?: number
+) {
+  const url = `${API_BASE_URL}/api/analyses/${analysisTypeId}/test-step`
+  const payload = {
+    step_index: stepIndex,
+    custom_config: customConfig,
+    instrument,
+    timeframe,
+    tool_id: toolId,
+  }
+  console.log('[testStep] Request:', { url, payload, API_BASE_URL })
+  try {
+    const { data } = await axios.post(
+      url,
+      payload,
+      { 
+        withCredentials: true,
+        timeout: 60000, // 60 seconds timeout for LLM calls
+      }
+    )
+    return data
+  } catch (error: any) {
+    console.error('[testStep] Request failed:', {
+      url,
+      error: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      code: error.code,
+      stack: error.stack,
+    })
+    
+    // Provide more context for network errors
+    if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      console.error('[testStep] Network error details:', {
+        API_BASE_URL,
+        url,
+        hostname: typeof window !== 'undefined' ? window.location.hostname : 'N/A',
+        protocol: typeof window !== 'undefined' ? window.location.protocol : 'N/A',
+      })
+    }
+    
+    throw error
+  }
+}
+
+async function testPipeline(
+  analysisTypeId: number,
+  customConfig: PipelineConfig,
+  instrument: string = 'N/A',
+  timeframe: string = 'N/A',
+  toolId?: number
+) {
+  const url = `${API_BASE_URL}/api/analyses/${analysisTypeId}/test-pipeline`
+  const payload = {
+    custom_config: customConfig,
+    instrument,
+    timeframe,
+    tool_id: toolId,
+  }
+  console.log('[testPipeline] Request:', { url, payload, API_BASE_URL })
+  try {
+    const { data } = await axios.post(
+      url,
+      payload,
+      { 
+        withCredentials: true,
+        timeout: 120000, // 120 seconds timeout for full pipeline
+      }
+    )
+    return data
+  } catch (error: any) {
+    console.error('[testPipeline] Request failed:', {
+      url,
+      error: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      code: error.code,
+      stack: error.stack,
+    })
+    
+    // Provide more context for network errors
+    if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      console.error('[testPipeline] Network error details:', {
+        API_BASE_URL,
+        url,
+        hostname: typeof window !== 'undefined' ? window.location.hostname : 'N/A',
+        protocol: typeof window !== 'undefined' ? window.location.protocol : 'N/A',
+      })
+    }
+    
+    throw error
+  }
+}
+
 // Default step template - all steps are the same, just with different prompts
 const DEFAULT_STEP_TEMPLATE: Partial<StepConfig> = {
   step_type: 'llm_analysis',
@@ -140,11 +242,14 @@ interface PipelineEditorProps {
   pipelineId: number | null // null for new pipeline
 }
 
-export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
+export default function PipelineEditor({ pipelineId: initialPipelineId }: PipelineEditorProps) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { isPlatformAdmin } = useAuth()
-  const isNew = pipelineId === null
+  
+  // Track current pipeline ID (may change after auto-save during testing)
+  const [currentPipelineId, setCurrentPipelineId] = useState<number | null>(initialPipelineId)
+  const isNew = currentPipelineId === null
 
   const [pipelineName, setPipelineName] = useState('')
   const [pipelineDescription, setPipelineDescription] = useState('')
@@ -154,6 +259,13 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   const [newStepName, setNewStepName] = useState('')
   const [reorderWarning, setReorderWarning] = useState<{ warnings: string[]; newSteps: StepConfig[] } | null>(null)
   const [saveWarning, setSaveWarning] = useState<string[] | null>(null)
+  const [testResult, setTestResult] = useState<any>(null)
+  const [isTestingStep, setIsTestingStep] = useState(false)
+  const [isTestingPipeline, setIsTestingPipeline] = useState(false)
+  const [executionState, setExecutionState] = useState<'idle' | 'running' | 'completed'>('idle')
+  const [stepResults, setStepResults] = useState<Map<number, { step_name: string; status: 'idle' | 'running' | 'completed' | 'error' | 'waiting'; result?: string; error?: string; tokens?: number; cost?: number; model?: string }>>(new Map())
+  const [currentExecutingStepIndex, setCurrentExecutingStepIndex] = useState<number | undefined>(undefined)
+  const newStepInputRef = useRef<HTMLInputElement>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -174,10 +286,17 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   })
 
   const { data: existingPipeline, isLoading } = useQuery({
-    queryKey: ['analysis-type', pipelineId],
-    queryFn: () => fetchAnalysisType(pipelineId!),
-    enabled: !isNew && pipelineId !== null,
+    queryKey: ['analysis-type', currentPipelineId],
+    queryFn: () => fetchAnalysisType(currentPipelineId!),
+    enabled: !isNew && currentPipelineId !== null,
   })
+
+  // Sync currentPipelineId with prop when it changes
+  useEffect(() => {
+    if (initialPipelineId !== null && initialPipelineId !== currentPipelineId) {
+      setCurrentPipelineId(initialPipelineId)
+    }
+  }, [initialPipelineId])
 
   // Initialize from existing pipeline
   useEffect(() => {
@@ -197,27 +316,38 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
       setIsSystemProcess(existingPipeline.is_system || false)
       setSteps(existingPipeline.config.steps || [])
       console.log('[useEffect] Pipeline loaded, steps set:', existingPipeline.config.steps?.length || 0)
-    } else if (isNew) {
-      // Initialize empty pipeline
+    } else if (isNew && !pipelineName.trim()) {
+      // Initialize empty pipeline with default name
       setIsSystemProcess(false)
       setSteps([])
+      // Set default name for new pipeline
+      const now = new Date()
+      const timestamp = now.toLocaleString('ru-RU', { 
+        year: 'numeric', 
+        month: '2-digit', 
+        day: '2-digit', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }).replace(/[\/\s:]/g, '_')
+      setPipelineName(`Новый процесс ${timestamp}`)
     }
   }, [existingPipeline, isNew])
 
   const createMutation = useMutation({
     mutationFn: createPipeline,
     onSuccess: (data) => {
+      setCurrentPipelineId(data.id)
       queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
-      router.push(`/pipelines/${data.id}/edit`)
+      window.history.replaceState({}, '', `/pipelines/${data.id}/edit`)
     },
   })
 
   const updateMutation = useMutation({
     mutationFn: (request: { display_name?: string; description?: string | null; config?: PipelineConfig; is_system?: boolean }) =>
-      updatePipeline(pipelineId!, request),
+      updatePipeline(currentPipelineId!, request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
-      queryClient.invalidateQueries({ queryKey: ['analysis-type', pipelineId] })
+      queryClient.invalidateQueries({ queryKey: ['analysis-type', currentPipelineId] })
     },
   })
 
@@ -236,6 +366,11 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
     setSteps([...steps, newStep])
     setNewStepName('')
     setSelectedStepIndex(steps.length)
+    
+    // Remove focus from input field
+    if (newStepInputRef.current) {
+      newStepInputRef.current.blur()
+    }
   }
 
   // Extract variable references from a prompt template
@@ -349,8 +484,9 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
       // This prevents overwriting existing fields like tool_references when they're not in updates
       const filteredUpdates: Partial<StepConfig> = {}
       for (const key in updates) {
-        if (updates[key] !== undefined) {
-          filteredUpdates[key] = updates[key]
+        const typedKey = key as keyof StepConfig
+        if (updates[typedKey] !== undefined) {
+          filteredUpdates[typedKey] = updates[typedKey]
         }
       }
       
@@ -424,6 +560,335 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
     performSave(steps)
   }
 
+  const handleTestStep = async (stepIndex: number) => {
+    setIsTestingStep(true)
+    
+    // If pipeline is not saved yet, save it first
+    let testPipelineId = currentPipelineId
+    if (!testPipelineId) {
+      // Use default name if empty
+      let nameToUse = pipelineName.trim()
+      if (!nameToUse) {
+        const now = new Date()
+        const timestamp = now.toLocaleString('ru-RU', { 
+          year: 'numeric', 
+          month: '2-digit', 
+          day: '2-digit', 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }).replace(/[\/\s:]/g, '_')
+        nameToUse = `Новый процесс ${timestamp}`
+        setPipelineName(nameToUse)
+      }
+      
+      // Save pipeline first
+      try {
+        // Get current text from editors
+        const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+        const updatedSteps = [...steps]
+        
+        if (refs) {
+          refs.forEach((ref, idx) => {
+            if (ref?.current && updatedSteps[idx]) {
+              const currentText = ref.current.getCurrentText()
+              if (currentText !== updatedSteps[idx].user_prompt_template) {
+                updatedSteps[idx] = {
+                  ...updatedSteps[idx],
+                  user_prompt_template: currentText
+                }
+              }
+            }
+          })
+        }
+
+        const orderedSteps = updatedSteps.map((step, idx) => {
+          const deduplicatedToolRefs = step.tool_references && step.tool_references.length > 0
+            ? step.tool_references.filter((ref, index, arr) => 
+                arr.findIndex(r => r.tool_id === ref.tool_id) === index
+              )
+            : []
+          
+          return {
+            ...step,
+            order: step.order || idx + 1,
+            tool_references: deduplicatedToolRefs,
+          }
+        })
+
+        const config: PipelineConfig = {
+          steps: orderedSteps,
+          estimated_cost: 0.1 * steps.length,
+          estimated_duration_seconds: 20 * steps.length,
+        }
+
+        const createResult = await createPipeline({
+          name: pipelineName.toLowerCase().replace(/\s+/g, '_'),
+          display_name: pipelineName,
+          description: pipelineDescription || null,
+          config,
+          is_system: isPlatformAdmin && isSystemProcess ? true : undefined,
+        })
+        
+        testPipelineId = createResult.id
+        setCurrentPipelineId(createResult.id)
+        // Update state but don't redirect - we want to continue with testing
+        queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
+        // Update URL without navigation to preserve state
+        window.history.replaceState({}, '', `/pipelines/${createResult.id}/edit`)
+      } catch (error: any) {
+        console.error('[handleTestStep] Error saving pipeline:', error)
+        let errorMessage = 'Неизвестная ошибка при сохранении'
+        
+        if (error.response) {
+          errorMessage = error.response.data?.detail || error.response.data?.message || `HTTP ${error.response.status}`
+        } else if (error.message) {
+          errorMessage = error.message
+        }
+        
+        alert(`Ошибка сохранения процесса: ${errorMessage}`)
+        setIsTestingStep(false)
+        return
+      }
+    }
+    try {
+      // Get current text from editors (same as save)
+      const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+      const updatedSteps = [...steps]
+      
+      if (refs) {
+        refs.forEach((ref, idx) => {
+          if (ref?.current && updatedSteps[idx]) {
+            const currentText = ref.current.getCurrentText()
+            if (currentText !== updatedSteps[idx].user_prompt_template) {
+              updatedSteps[idx] = {
+                ...updatedSteps[idx],
+                user_prompt_template: currentText
+              }
+            }
+          }
+        })
+      }
+
+      // Get current config from updated state
+      const config: PipelineConfig = {
+        steps: updatedSteps.map((step, idx) => ({
+          ...step,
+          order: step.order || idx + 1,
+          tool_references: step.tool_references || [],
+        })),
+        estimated_cost: 0.1 * steps.length,
+        estimated_duration_seconds: 20 * steps.length,
+      }
+
+      console.log('[handleTestStep] Calling testStep:', { pipelineId: testPipelineId, stepIndex, config })
+      const result = await testStep(testPipelineId, stepIndex, config)
+      console.log('[handleTestStep] Test result:', result)
+      
+      // Update step result in FlowDiagram
+      const newStepResults = new Map(stepResults)
+      newStepResults.set(stepIndex, {
+        step_name: result.step_name,
+        status: result.error ? 'error' : 'completed',
+        result: result.output,
+        error: result.error,
+        tokens: result.tokens_used,
+        cost: result.cost_est,
+        model: result.model,
+      })
+      setStepResults(newStepResults)
+      
+      // Also show in modal for now (will be removed later)
+      setTestResult({ ...result, isPipeline: false })
+    } catch (error: any) {
+      console.error('[handleTestStep] Error:', error)
+      let errorMessage = 'Неизвестная ошибка'
+      
+      if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+        errorMessage = `Не удалось подключиться к серверу. Проверьте, что бэкенд запущен на ${API_BASE_URL}`
+      } else if (error.response) {
+        errorMessage = error.response.data?.detail || error.response.data?.message || `HTTP ${error.response.status}: ${error.response.statusText}`
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      alert(`Ошибка тестирования шага: ${errorMessage}`)
+    } finally {
+      setIsTestingStep(false)
+    }
+  }
+
+  const handleTestPipeline = async () => {
+    // If pipeline is not saved yet, save it first
+    let testPipelineId = currentPipelineId
+    if (!testPipelineId) {
+      // Use default name if empty
+      let nameToUse = pipelineName.trim()
+      if (!nameToUse) {
+        const now = new Date()
+        const timestamp = now.toLocaleString('ru-RU', { 
+          year: 'numeric', 
+          month: '2-digit', 
+          day: '2-digit', 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }).replace(/[\/\s:]/g, '_')
+        nameToUse = `Новый процесс ${timestamp}`
+        setPipelineName(nameToUse)
+      }
+      
+      // Save pipeline first
+      try {
+        // Get current text from editors
+        const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+        const updatedSteps = [...steps]
+        
+        if (refs) {
+          refs.forEach((ref, idx) => {
+            if (ref?.current && updatedSteps[idx]) {
+              const currentText = ref.current.getCurrentText()
+              if (currentText !== updatedSteps[idx].user_prompt_template) {
+                updatedSteps[idx] = {
+                  ...updatedSteps[idx],
+                  user_prompt_template: currentText
+                }
+              }
+            }
+          })
+        }
+
+        const orderedSteps = updatedSteps.map((step, idx) => {
+          const deduplicatedToolRefs = step.tool_references && step.tool_references.length > 0
+            ? step.tool_references.filter((ref, index, arr) => 
+                arr.findIndex(r => r.tool_id === ref.tool_id) === index
+              )
+            : []
+          
+          return {
+            ...step,
+            order: step.order || idx + 1,
+            tool_references: deduplicatedToolRefs,
+          }
+        })
+
+        const config: PipelineConfig = {
+          steps: orderedSteps,
+          estimated_cost: 0.1 * steps.length,
+          estimated_duration_seconds: 20 * steps.length,
+        }
+
+        const createResult = await createPipeline({
+          name: nameToUse.toLowerCase().replace(/\s+/g, '_'),
+          display_name: nameToUse,
+          description: pipelineDescription || null,
+          config,
+          is_system: isPlatformAdmin && isSystemProcess ? true : undefined,
+        })
+        
+        testPipelineId = createResult.id
+        setCurrentPipelineId(createResult.id)
+        queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
+        window.history.replaceState({}, '', `/pipelines/${createResult.id}/edit`)
+      } catch (error: any) {
+        console.error('[handleTestPipeline] Error saving pipeline:', error)
+        let errorMessage = 'Неизвестная ошибка при сохранении'
+        
+        if (error.response) {
+          errorMessage = error.response.data?.detail || error.response.data?.message || `HTTP ${error.response.status}`
+        } else if (error.message) {
+          errorMessage = error.message
+        }
+        
+        alert(`Ошибка сохранения процесса: ${errorMessage}`)
+        return
+      }
+    }
+
+    if (steps.length === 0) {
+      alert('Добавьте хотя бы один шаг для тестирования')
+      return
+    }
+
+    setIsTestingPipeline(true)
+    setExecutionState('running')
+    setStepResults(new Map())
+    setCurrentExecutingStepIndex(0)
+    
+    try {
+      // Get current text from editors (same as save)
+      const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+      const updatedSteps = [...steps]
+      
+      if (refs) {
+        refs.forEach((ref, idx) => {
+          if (ref?.current && updatedSteps[idx]) {
+            const currentText = ref.current.getCurrentText()
+            if (currentText !== updatedSteps[idx].user_prompt_template) {
+              updatedSteps[idx] = {
+                ...updatedSteps[idx],
+                user_prompt_template: currentText
+              }
+            }
+          }
+        })
+      }
+
+      // Get current config from updated state
+      const config: PipelineConfig = {
+        steps: updatedSteps.map((step, idx) => ({
+          ...step,
+          order: step.order || idx + 1,
+          tool_references: step.tool_references || [],
+        })),
+        estimated_cost: 0.1 * steps.length,
+        estimated_duration_seconds: 20 * steps.length,
+      }
+
+      console.log('[handleTestPipeline] Calling testPipeline:', { pipelineId: testPipelineId, config })
+      const result = await testPipeline(testPipelineId, config)
+      console.log('[handleTestPipeline] Test result:', result)
+      
+      // Update step results for FlowDiagram
+      const newStepResults = new Map<number, any>()
+      if (result.steps) {
+        result.steps.forEach((step: any, index: number) => {
+          newStepResults.set(index, {
+            step_name: step.step_name,
+            status: step.error ? 'error' : 'completed',
+            result: step.output,
+            error: step.error,
+            tokens: step.tokens_used,
+            cost: step.cost_est,
+            model: step.model,
+          })
+        })
+      }
+      setStepResults(newStepResults)
+      setExecutionState('completed')
+      setCurrentExecutingStepIndex(undefined)
+      
+      // Also show in modal for now (will be removed later)
+      setTestResult({ ...result, isPipeline: true })
+    } catch (error: any) {
+      console.error('[handleTestPipeline] Error:', error)
+      setExecutionState('idle')
+      setCurrentExecutingStepIndex(undefined)
+      
+      let errorMessage = 'Неизвестная ошибка'
+      
+      if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+        errorMessage = `Не удалось подключиться к серверу. Проверьте, что бэкенд запущен на ${API_BASE_URL}`
+      } else if (error.response) {
+        errorMessage = error.response.data?.detail || error.response.data?.message || `HTTP ${error.response.status}: ${error.response.statusText}`
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      alert(`Ошибка тестирования пайплайна: ${errorMessage}`)
+    } finally {
+      setIsTestingPipeline(false)
+    }
+  }
+
   const performSave = (stepsToSave: StepConfig[]) => {
     // Ensure all steps have order and deduplicate tool_references
     const orderedSteps = stepsToSave.map((step, index) => {
@@ -457,7 +922,7 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
       has_tool_references: !!s.tool_references && s.tool_references.length > 0
     })))
 
-    if (isNew) {
+    if (isNew || !currentPipelineId) {
       createMutation.mutate({
         name: pipelineName.toLowerCase().replace(/\s+/g, '_'),
         display_name: pipelineName,
@@ -487,148 +952,150 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Pipeline Metadata */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold mb-4 text-gray-900">
-          Метаданные процесса
-        </h2>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700">
-              Название процесса *
-            </label>
-            <input
-              type="text"
-              value={pipelineName}
-              onChange={(e) => setPipelineName(e.target.value)}
-              placeholder="Например: Мой анализ"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 80px)' }}>
+      {/* Header - Minimal Metadata */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-4 flex-1 min-w-0">
+          <button
+            onClick={() => router.push('/analyses')}
+            className="text-gray-600 hover:text-gray-900 mr-2 flex-shrink-0"
+            title="Назад к анализам"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <input
+            type="text"
+            value={pipelineName}
+            onChange={(e) => setPipelineName(e.target.value)}
+            placeholder={isNew ? "Название нового процесса..." : "Название процесса..."}
+            className="text-xl font-semibold bg-transparent border-none outline-none focus:ring-0 text-gray-900 placeholder-gray-400 flex-1 min-w-0"
+          />
           {isPlatformAdmin && (
-            <div className="flex items-start p-4 bg-blue-50 border border-blue-200 rounded-md">
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer flex-shrink-0">
               <input
                 type="checkbox"
-                id="is_system"
                 checked={isSystemProcess}
                 onChange={(e) => setIsSystemProcess(e.target.checked)}
-                className="mt-1 mr-3 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
               />
-              <label htmlFor="is_system" className="text-sm text-gray-700 cursor-pointer flex-1">
-                <span className="font-medium">
-                  {isNew ? 'Создать как системный процесс' : 'Системный процесс'}
-                </span>
-                <span className="block text-xs text-gray-600 mt-1">
-                  {isNew 
-                    ? 'Системные процессы видны всем пользователям как примеры и могут быть скопированы'
-                    : 'Отметьте, чтобы сделать процесс видимым всем пользователям как пример. Снимите отметку, чтобы сделать его личным процессом.'
-                  }
-                </span>
-              </label>
-            </div>
-          )}
-          <div>
-            <label className="block text-sm font-medium mb-2 text-gray-700">
-              Описание
+              <span>Системный</span>
             </label>
-            <textarea
-              value={pipelineDescription}
-              onChange={(e) => setPipelineDescription(e.target.value)}
-              placeholder="Опишите, что делает этот процесс..."
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+          )}
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <button
+            onClick={savePipeline}
+            disabled={createMutation.isPending || updateMutation.isPending}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+          >
+            {createMutation.isPending || updateMutation.isPending ? 'Сохранение...' : isNew ? 'Создать' : 'Сохранить'}
+          </button>
+          <button
+            onClick={() => router.push('/analyses')}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+          >
+            Отмена
+          </button>
         </div>
       </div>
 
-      {/* Pipeline Steps */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">
-            Шаги процесса ({steps.length})
-          </h2>
-          <div className="flex gap-2">
-            <button
-              onClick={savePipeline}
-              disabled={createMutation.isPending || updateMutation.isPending}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
-            >
-              {createMutation.isPending || updateMutation.isPending ? 'Сохранение...' : isNew ? 'Создать процесс' : 'Сохранить'}
-            </button>
-            <button
-              onClick={() => router.push('/analyses')}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
-            >
-              Отмена
-            </button>
+      {/* Split View: Step Builder (Left) + Execution View (Right) */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Panel: Step Builder */}
+        <div className="w-1/2 border-r border-gray-200 flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Шаги процесса ({steps.length})
+            </h2>
+
+            {steps.length === 0 ? (
+              <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+                <p className="text-gray-600 mb-4">Пока нет шагов. Добавьте первый шаг ниже, чтобы начать.</p>
+              </div>
+            ) : (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={steps.map((_, index) => index.toString())}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-3">
+                    {steps.map((step, index) => (
+                      <SortableStepItem
+                        key={index}
+                        step={step}
+                        index={index}
+                        selectedStepIndex={selectedStepIndex}
+                        enabledModels={enabledModels}
+                        allSteps={steps}
+                    tools={tools}
+                    pipelineId={currentPipelineId}
+                    onSelect={() => {
+                          // One step at a time: if clicking a different step, expand it and collapse others
+                          if (selectedStepIndex === index) {
+                            setSelectedStepIndex(null)
+                          } else {
+                            setSelectedStepIndex(index)
+                          }
+                        }}
+                        onRemove={() => removeStep(index)}
+                        onUpdate={(updates) => updateStep(index, updates)}
+                        onTestStep={handleTestStep}
+                        isTestingStep={isTestingStep}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
+
+          {/* Add Step - Always visible at bottom */}
+          <div className="p-6 pt-0 border-t border-gray-200 bg-white flex-shrink-0">
+            <div className="flex gap-2 items-center">
+              <input
+                ref={newStepInputRef}
+                type="text"
+                value={newStepName}
+                onChange={(e) => setNewStepName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newStepName.trim()) {
+                    addStep()
+                  }
+                }}
+                placeholder="Название нового шага (нажмите Enter для добавления)"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <button
+                onClick={() => addStep()}
+                disabled={!newStepName.trim()}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Добавить
+              </button>
+            </div>
           </div>
         </div>
 
-        {steps.length === 0 ? (
-          <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
-            <p className="text-gray-600 mb-4">Пока нет шагов. Добавьте первый шаг ниже, чтобы начать.</p>
-          </div>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={steps.map((_, index) => index.toString())}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-3">
-                {steps.map((step, index) => (
-                  <SortableStepItem
-                    key={index}
-                    step={step}
-                    index={index}
-                    selectedStepIndex={selectedStepIndex}
-                    enabledModels={enabledModels}
-                    allSteps={steps}
-                    tools={tools}
-                    onSelect={() => setSelectedStepIndex(selectedStepIndex === index ? null : index)}
-                    onRemove={() => removeStep(index)}
-                    onUpdate={(updates) => updateStep(index, updates)}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        )}
-
-        {/* Add Step - Always after last step */}
-        <div className="mt-6 p-3 bg-gray-50 rounded-lg border border-gray-200">
-          <div className="flex gap-2 items-center">
-            <input
-              type="text"
-              value={newStepName}
-              onChange={(e) => setNewStepName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newStepName.trim()) {
-                  addStep()
-                }
-              }}
-              placeholder="Название нового шага (нажмите Enter для добавления)"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-            <button
-              onClick={() => addStep()}
-              disabled={!newStepName.trim()}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-1"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Добавить
-            </button>
-          </div>
-          <p className="mt-2 text-xs text-gray-500">
-            Все шаги одинаковы по структуре - они отличаются только промптами. Настройте промпты после добавления шага.
-          </p>
+        {/* Right Panel: Execution View */}
+        <div className="w-1/2 flex flex-col bg-gray-50">
+          <FlowDiagram
+            steps={steps}
+            executionState={executionState}
+            stepResults={stepResults}
+            currentStepIndex={currentExecutingStepIndex}
+            onTestPipeline={handleTestPipeline}
+            onStepClick={(index) => setSelectedStepIndex(index)}
+            isTestingPipeline={isTestingPipeline}
+          />
         </div>
       </div>
 
@@ -696,6 +1163,15 @@ export default function PipelineEditor({ pipelineId }: PipelineEditorProps) {
           cancelText="Отмена"
         />
       )}
+
+      {/* Test Results Modal */}
+      {testResult && (
+        <TestResults
+          result={testResult}
+          onClose={() => setTestResult(null)}
+          isPipeline={testResult.isPipeline}
+        />
+      )}
     </div>
   )
 }
@@ -708,9 +1184,12 @@ interface SortableStepItemProps {
   enabledModels: Model[]
   allSteps: StepConfig[]
   tools: Tool[]
+  pipelineId: number | null
   onSelect: () => void
   onRemove: () => void
   onUpdate: (updates: Partial<StepConfig>) => void
+  onTestStep: (stepIndex: number) => void
+  isTestingStep: boolean
 }
 
 function SortableStepItem({
@@ -720,9 +1199,12 @@ function SortableStepItem({
   enabledModels,
   allSteps,
   tools,
+  pipelineId,
   onSelect,
   onRemove,
   onUpdate,
+  onTestStep,
+  isTestingStep,
 }: SortableStepItemProps) {
   const {
     attributes,
@@ -799,8 +1281,11 @@ function SortableStepItem({
           stepIndex={index}
           allSteps={allSteps}
           enabledModels={enabledModels}
-            tools={tools}
+          tools={tools}
           onUpdate={onUpdate}
+          pipelineId={pipelineId}
+          onTestStep={onTestStep}
+          isTestingStep={isTestingStep}
         />
       )}
     </div>
@@ -815,6 +1300,9 @@ interface StepConfigurationPanelProps {
   enabledModels: Model[]
   tools: Tool[]
   onUpdate: (updates: Partial<StepConfig>) => void
+  pipelineId: number | null
+  onTestStep: (stepIndex: number) => void
+  isTestingStep: boolean
 }
 
 // Wrapper component to manage editor ref
@@ -854,12 +1342,27 @@ function VariableTextEditorWrapper({
   )
 }
 
-function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tools, onUpdate }: StepConfigurationPanelProps) {
+function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tools, onUpdate, pipelineId, onTestStep, isTestingStep }: StepConfigurationPanelProps) {
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const editorRef = useRef<VariableTextEditorHandle>(null)
   const availableStepNames = allSteps
     .slice(0, stepIndex)
     .map(s => s.step_name)
     .filter(name => name !== step.step_name)
+  
+  // Auto-focus and select all text when panel opens
+  useEffect(() => {
+    // Get ref from global map
+    const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
+    const ref = refs?.get(stepIndex)
+    
+    if (ref?.current) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        ref.current?.selectAll()
+      }, 50)
+    }
+  }, [stepIndex]) // Only when stepIndex changes (panel opens)
 
   // Get model display info for summary
   const currentModel = enabledModels.find(m => m.name === step.model)
@@ -1059,6 +1562,35 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
             </div>
           </div>
         )}
+
+        {/* Test Step Button - Always visible */}
+        <div className="pt-4 border-t border-gray-200">
+          <button
+            onClick={() => onTestStep(stepIndex)}
+            disabled={isTestingStep}
+            className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center justify-center gap-2"
+          >
+            {isTestingStep ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Тестирование шага...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Тест шага
+              </>
+            )}
+          </button>
+          {!pipelineId && (
+            <p className="mt-2 text-xs text-gray-500 text-center">
+              Пайплайн будет автоматически сохранен перед тестированием
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )
