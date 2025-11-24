@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useRequireAuth } from '@/hooks/useAuth'
+import { useEffect } from 'react'
+import { useAuth } from '@/hooks/useAuth'
 import { API_BASE_URL } from '@/lib/config'
 
 interface AnalysisType {
@@ -87,7 +88,14 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { isLoading: authLoading, user } = useRequireAuth()
+  const { isLoading: authLoading, user, isAuthenticated } = useAuth()
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      router.push('/login')
+    }
+  }, [authLoading, isAuthenticated, router])
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats'],
