@@ -485,8 +485,9 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
       const filteredUpdates: Partial<StepConfig> = {}
       for (const key in updates) {
         const typedKey = key as keyof StepConfig
-        if (updates[typedKey] !== undefined) {
-          filteredUpdates[typedKey] = updates[typedKey]
+        const value = updates[typedKey]
+        if (value !== undefined) {
+          ;(filteredUpdates as any)[typedKey] = value
         }
       }
       
