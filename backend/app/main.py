@@ -3,7 +3,7 @@ FastAPI application entry point.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, runs, auth, instruments, analyses, settings, user_settings, admin, organizations, tools
+from app.api import health, runs, auth, instruments, analyses, settings, user_settings, admin, organizations, tools, schedules
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.services.telegram.bot_handler import start_bot_polling, stop_bot_polling
@@ -24,6 +24,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",      # Frontend dev server (127.0.0.1)
         "http://45.144.177.203:3000",  # Old production frontend
         "http://84.54.30.222:3000",    # Production frontend (rf-prod)
+        "https://researchflow.ru",     # Production domain
+        "https://www.researchflow.ru", # Production domain (www)
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -41,6 +43,7 @@ app.include_router(user_settings.router, prefix="/api/user-settings", tags=["use
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(organizations.router, prefix="/api", tags=["organizations"])
 app.include_router(tools.router, prefix="/api", tags=["tools"])
+app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
 
 
 def _acquire_polling_lock() -> tuple[bool, object]:
@@ -150,50 +153,63 @@ def _release_polling_lock(lock_file):
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    # Start Telegram bot polling to handle /start commands
-    # Only start polling in one process to avoid conflicts
-    # With uvicorn workers, each worker runs startup, so we use a PID-based lock
     import os
     import logging
     import atexit
     logger = logging.getLogger(__name__)
     
-    # Try to acquire lock
+    # Start scheduler (only in one process to avoid conflicts)
     lock_acquired, lock_file = _acquire_polling_lock()
     
-    if not lock_acquired:
-        logger.info("Bot polling already active in another process, skipping")
-        return
-    
-    # Store lock file globally so it stays open
-    import app.main as main_module
-    main_module._polling_lock_file = lock_file
-    
-    # Register cleanup on exit
-    def release_lock():
-        _release_polling_lock(main_module._polling_lock_file)
-        if hasattr(main_module, '_polling_lock_file'):
+    if lock_acquired:
+        # Store lock file globally so it stays open
+        import app.main as main_module
+        main_module._polling_lock_file = lock_file
+        
+        # Register cleanup on exit
+        def release_lock():
+            _release_polling_lock(main_module._polling_lock_file)
+            if hasattr(main_module, '_polling_lock_file'):
+                main_module._polling_lock_file = None
+        atexit.register(release_lock)
+        
+        # Start scheduler
+        try:
+            from app.services.scheduler.scheduler_service import start_scheduler
+            start_scheduler()
+            logger.info("Scheduler started successfully")
+        except Exception as e:
+            logger.warning(f"Could not start scheduler: {e}")
+        
+        # Start Telegram bot polling
+        db = SessionLocal()
+        try:
+            await start_bot_polling(db)
+            logger.info("Telegram bot polling started successfully")
+        except Exception as e:
+            logger.warning(f"Could not start Telegram bot polling: {e}")
+            # Release lock if polling failed
+            _release_polling_lock(lock_file)
             main_module._polling_lock_file = None
-    atexit.register(release_lock)
-    
-    # Start polling
-    db = SessionLocal()
-    try:
-        await start_bot_polling(db)
-        logger.info("Telegram bot polling started successfully")
-    except Exception as e:
-        logger.warning(f"Could not start Telegram bot polling: {e}")
-        # Release lock if polling failed
-        _release_polling_lock(lock_file)
-        main_module._polling_lock_file = None
-    finally:
-        db.close()
+        finally:
+            db.close()
+    else:
+        logger.info("Services already active in another process, skipping")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
     await stop_bot_polling()
+    
+    # Stop scheduler
+    try:
+        from app.services.scheduler.scheduler_service import stop_scheduler
+        stop_scheduler()
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error stopping scheduler: {e}")
     
     # Release lock file if we have it
     try:

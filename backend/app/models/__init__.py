@@ -19,6 +19,7 @@ from app.models.data_cache import DataCache
 from app.models.settings import AvailableModel, AvailableDataSource, AppSettings
 from app.models.platform_settings import PlatformSettings
 from app.models.audit_log import AuditLog
+from app.models.schedule import Schedule
 
 __all__ = [
     "User",
@@ -41,5 +42,6 @@ __all__ = [
     "AppSettings",
     "PlatformSettings",
     "AuditLog",
+    "Schedule",
 ]
 
