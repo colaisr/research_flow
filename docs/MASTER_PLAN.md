@@ -1935,29 +1935,30 @@ return owner_features
 
 ---
 
-**2.1) Database Schema**
+**2.1) Database Schema** ✅ **COMPLETE**
 
-- [ ] **RAG Knowledge Bases Table** (`rag_knowledge_bases`):
+- [x] **RAG Knowledge Bases Table** (`rag_knowledge_bases`):
   - `id`: Primary key
   - `organization_id`: Foreign key to `organizations.id` (required) - RAGs belong to organizations
   - `name`: String - RAG name
   - `description`: Text - RAG description
   - `vector_db_type`: String (default: "chromadb")
   - `embedding_model`: String (default from config, e.g., "openai/text-embedding-3-small")
+  - `min_similarity_score`: Float (nullable) - Minimum similarity threshold for query results (default: 1.2)
   - `document_count`: Integer (default: 0)
   - `created_at`, `updated_at`: Timestamps
 
-- [ ] **RAG Documents Table** (`rag_documents`):
+- [x] **RAG Documents Table** (`rag_documents`):
   - `id`: Primary key
   - `rag_id`: Foreign key to `rag_knowledge_bases.id`
   - `title`: String - Document title (filename or user-provided)
   - `content`: Text - Extracted text content (full text, truncated for preview)
   - `file_path`: String (nullable) - Relative path to original file (e.g., "rag_documents/rag_1/doc_1.pdf")
-  - `metadata`: JSON - Document metadata (file size, upload date, etc.)
-  - `embedding_status`: Enum (pending/completed/failed)
+  - `document_metadata`: JSON - Document metadata (file size, upload date, etc.) - Note: renamed from 'metadata' (reserved in SQLAlchemy)
+  - `embedding_status`: Enum (pending/processing/completed/failed)
   - `created_at`, `updated_at`: Timestamps
 
-- [ ] **RAG Access Table** (`rag_access`):
+- [x] **RAG Access Table** (`rag_access`):
   - `id`: Primary key
   - `rag_id`: Foreign key to `rag_knowledge_bases.id`
   - `user_id`: Foreign key to `users.id`
@@ -1991,33 +1992,33 @@ return owner_features
 
 ---
 
-**2.2) Vector DB Setup & Embedding Service**
+**2.2) Vector DB Setup & Embedding Service** ✅ **COMPLETE**
 
-- [ ] **ChromaDB Setup**:
+- [x] **ChromaDB Setup**:
   - Install `chromadb` package
   - Create abstraction layer (`VectorDB` interface) for easy migration to Qdrant later
   - Implement ChromaDB backend (`ChromaDBBackend`)
   - Collections stored in: `{STORAGE_BASE_PATH}/rag_vectors/rag_{id}/`
   - One ChromaDB collection per RAG knowledge base
 
-- [ ] **Embedding Generation Service**:
+- [x] **Embedding Generation Service**:
   - Use OpenAI `text-embedding-3-small` via OpenRouter (default)
   - Configured in `config_local.py` (dev) or production config
   - Not user-selectable (transparent to user)
   - Later: Replace with on-premise LLM
   - Generate embeddings for document chunks (500-1000 tokens, 100-200 overlap)
 
-- [ ] **Abstraction Layer**:
+- [x] **Abstraction Layer**:
   - `VectorDBBackend` abstract base class
   - `ChromaDBBackend` implementation (MVP)
-  - `QdrantBackend` implementation (future)
+  - `QdrantBackend` implementation (future - placeholder)
   - Switch backend via configuration: `VECTOR_DB_BACKEND=chromadb`
 
 ---
 
-**2.3) Storage Service & File Management**
+**2.3) Storage Service & File Management** ✅ **COMPLETE**
 
-- [ ] **Storage Configuration**:
+- [x] **Storage Configuration**:
   - Add `STORAGE_BASE_PATH` to `config_local.py` and `config.py`
   - Default: Relative path `"data"` (works everywhere)
   - Can be absolute path in production: `"/srv/research-flow/backend/data"`
@@ -2025,57 +2026,57 @@ return owner_features
     - `{STORAGE_BASE_PATH}/rag_vectors/` - ChromaDB collections
     - `{STORAGE_BASE_PATH}/rag_documents/` - Original uploaded files
 
-- [ ] **Storage Service**:
-  - Create abstraction layer (`StorageBackend` interface)
-  - Implement filesystem backend (`FilesystemStorage`) - MVP
-  - Future: MinIO backend (`MinIOStorage`) for scalability
+- [x] **Storage Service**:
+  - Create abstraction layer (`RAGStorage` class)
+  - Implement filesystem backend (MVP) - `RAGStorage` class
+  - Future: MinIO backend (`MinIOStorage`) for scalability (abstraction ready)
   - Store relative paths in database (portable)
   - Resolve absolute paths at runtime
 
-- [ ] **File Operations**:
-  - Upload: Save original files to `rag_documents/{rag_id}/doc_{id}_{filename}`
-  - Download: Retrieve original files
-  - Delete: Remove files from storage and database
+- [x] **File Operations**:
+  - Upload: Save original files to `rag_documents/{rag_id}/doc_{id}_{filename}` (helper methods ready)
+  - Download: Retrieve original files (path resolution ready)
+  - Delete: Remove files from storage and database (delete methods implemented)
   - File storage required for UX (users need to see/manage documents)
 
 ---
 
-**2.4) Document Processing**
+**2.4) Document Processing** ✅ **COMPLETE**
 
-- [ ] **Document Processing Libraries**:
-  - `pypdf2` or `pdfplumber` - PDF text extraction
+- [x] **Document Processing Libraries**:
+  - `pdfplumber` - PDF text extraction
   - `python-docx` - DOCX text extraction
   - `beautifulsoup4` - HTML/URL content extraction
-  - `httpx` - URL fetching
+  - `httpx` - URL fetching (already in requirements)
 
-- [ ] **Text Extraction**:
+- [x] **Text Extraction**:
   - Extract text from PDF/DOCX/TXT files
   - Extract text from HTML (URL import)
-  - Store full text in `rag_documents.content`
-  - Truncate to 10,000 chars for preview
+  - Store full text in `rag_documents.content` (ready for API)
+  - Truncate to 10,000 chars for preview (`get_text_preview` method)
 
-- [ ] **Document Chunking**:
-  - Chunk size: 500-1000 tokens (configurable per RAG, default: 800)
+- [x] **Document Chunking**:
+  - Chunk size: 500-1000 tokens (configurable, default: 800)
   - Chunk overlap: 100-200 tokens (default: 150)
-  - Simple fixed-size chunks with overlap (MVP)
-  - Future: Semantic chunking (split at paragraph/section boundaries)
+  - Smart chunking: Tries to break at paragraph/sentence boundaries
+  - Returns chunks with metadata (chunk_index, positions)
 
-- [ ] **Embedding Generation**:
-  - Generate embeddings for each chunk
-  - Store embeddings in ChromaDB collection
-  - Update `embedding_status` (pending → processing → completed/failed)
-  - Async processing (background tasks) for large documents
+- [x] **Embedding Generation**:
+  - Embedding service ready (`EmbeddingService.generate_embeddings_batch`)
+  - Can generate embeddings for chunks
+  - Store embeddings in ChromaDB collection (ready)
+  - Update `embedding_status` (pending → processing → completed/failed) - to be handled in API
 
-- [ ] **URL Import**:
-  - Fetch content from URLs
-  - Extract text from HTML (remove nav, footer, ads)
-  - Process as documents (no file stored, `file_path = null`)
+- [x] **URL Import**:
+  - Fetch content from URLs (`extract_text_from_url`)
+  - Extract text from HTML (removes nav, footer, ads)
+  - Process as documents (no file stored, `file_path = null`) - ready for API
 
 ---
 
-**2.5) Backend - RAG Management API**
+**2.5) Backend - RAG Management API** ✅ **COMPLETE**
 
-- [ ] **RAG CRUD Endpoints**:
+- [x] **RAG CRUD Endpoints**:
   - `GET /api/rags` - List RAGs from current organization (filtered by user role)
   - `POST /api/rags` - Create RAG (creates empty RAG + RAG tool, 1:1 relationship)
     - Body: `{name, description}` (no model selection)
@@ -2086,14 +2087,14 @@ return owner_features
   - `DELETE /api/rags/{id}` - Delete RAG (Owner only)
     - Deletes all files, embeddings, ChromaDB collection
 
-- [ ] **Sharing & Access Control Endpoints**:
+- [x] **Sharing & Access Control Endpoints**:
   - `POST /api/rags/{id}/share` - Share RAG (assign roles) (Owner only)
     - Body: `{user_id, role}` (editor/file_manager/viewer)
     - User chooses sharing option: "File Management Only" → File Manager, "Full Editor Access" → Editor, "View Only" → Viewer
   - `GET /api/rags/{id}/access` - List users with access (Owner only)
   - `DELETE /api/rags/{id}/access/{user_id}` - Remove user access (Owner only)
 
-- [ ] **Document Management Endpoints**:
+- [x] **Document Management Endpoints**:
   - `POST /api/rags/{id}/documents` - Upload document (Owner/Editor/File Manager)
     - FormData: `file`, `title` (optional)
     - Saves file, extracts text, chunks, generates embeddings (async)
@@ -2107,13 +2108,13 @@ return owner_features
   - `GET /api/rags/{id}/download/{doc_id}` - Download original file (all roles)
   - `POST /api/rags/{id}/documents/{doc_id}/reprocess` - Re-extract/re-embed (Owner/Editor)
 
-- [ ] **RAG Query Endpoint**:
+- [x] **RAG Query Endpoint**:
   - `POST /api/rags/{id}/query` - Query RAG with semantic search (Owner/Editor/Viewer)
     - Body: `{query: "text query"}`
-    - Returns: Relevant document chunks with relevance scores
+  - Returns: Relevant document chunks with relevance scores
     - Token/cost counts to Owner's account
 
-- [ ] **Role-Based Access Control**:
+- [x] **Role-Based Access Control**:
   - Check user role before allowing operations
   - Return 403 Forbidden if user doesn't have permission
   - Organization-scoped: All endpoints filter by current organization context
@@ -2149,45 +2150,66 @@ return owner_features
 
 ---
 
-**2.7) Frontend - RAG Management UI**
+**2.7) Frontend - RAG Management UI** ✅ **COMPLETE**
 
-- [ ] **RAGs List Page** (`/rags` or `/tools/rags`):
-  - List all RAGs from current organization
-  - Create new RAG button
+- [x] **RAGs List Page** (`/tools` - RAGs managed through Tools page):
+  - RAGs appear in Tools list alongside other tools
   - RAG cards: name, document count, last updated
-  - Actions: Edit, Delete, Open Editor
+  - Actions: Open Editor, Delete
   - Organization-scoped (only current org visible)
+  - **Note**: No separate "Edit" button - name editing done directly in editor
 
-- [ ] **Create RAG Page** (`/rags/new`):
+- [x] **Create RAG Page** (`/rags/new`):
   - Simple form: Name, description
   - No model selection (transparent to user)
   - Creates empty RAG + RAG tool
   - Redirects to RAG Editor
 
-- [ ] **RAG Editor Page** (`/rags/{id}`) - Split View Layout:
-  - **Left Panel (30%)**: Files Management
-    - File list with status indicators (pending/processing/completed/failed)
+- [x] **RAG Editor Page** (`/rags/{id}`) - Optimized Split View Layout:
+  - **Compact Header**: Reduced padding, horizontal layout, inline name editing
+  - **Left Panel (32%)**: Files Management
+    - Compact document cards with status badges (text-based, not checkmarks)
+    - Search functionality for filtering documents
     - Upload area (drag-and-drop, URL import, bulk upload)
     - File operations (view, download, remove, re-process)
-    - Bulk operations (select multiple, bulk delete)
+    - Bulk operations (checkbox selection, bulk delete)
     - RAG status (document count, last updated)
     - Role-based UI: Hide operations based on user role
-  - **Right Panel (70%)**: Chat Interface
+  - **Right Panel (68%)**: Chat Interface
     - Conversational chat (session-based history)
-    - Query input
+    - **Collapsible Filter Settings**: Similarity threshold control (collapsed by default, shows current value in header)
+      - Slider interface (Strict ↔ Soft filter)
+      - Visual feedback with current value badge
+      - Toggle to enable/disable filter
+      - Saves automatically on change
+    - Query input with clear button
     - Response with retrieved documents + scores
     - Document sources (which files contributed)
     - Clear chat button
     - Role-based UI: Hide chat for File Manager role
   - **Additional Features**:
-    - Document preview/editor (view/edit extracted text) - Modal or side panel
+    - Document preview/editor (view/edit extracted text) - Modal
     - Bulk operations UI (checkbox selection, bulk actions)
+    - **UX Optimizations**:
+      - Compact layout for better space utilization
+      - Status badges use text ("Готово", "Ошибка") instead of symbols to avoid confusion with checkboxes
+      - Filter settings collapsible to save vertical space
+      - All UI text in Russian
+      - Responsive design with proper overflow handling
 
-- [ ] **Role-Based UI Restrictions**:
+- [x] **Role-Based UI Restrictions**:
   - Owner: Full access (all UI elements visible)
   - Editor: Can manage files + query (chat visible)
   - File Manager: Can only manage files (chat hidden)
   - Viewer: Can only query (file management hidden)
+
+- [x] **UX/UI Improvements**:
+  - **Space Optimization**: Reduced header padding, compact document cards, optimized panel widths (32%/68%)
+  - **Filter UX**: Collapsible similarity threshold control with slider interface, clear value display
+  - **Status Indicators**: Text-based badges ("Готово", "Ошибка", "Ожидание", "Обработка") instead of symbols
+  - **Layout**: Editor fits screen height without page-level scrolling (only panels scroll independently)
+  - **Translation**: All user-facing text in Russian
+  - **Design Consistency**: Matches application design system (light theme, consistent spacing, hover effects)
 
 ---
 
