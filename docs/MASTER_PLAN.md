@@ -1891,90 +1891,341 @@ return owner_features
 
 ---
 
-#### Phase 2: RAG System (Knowledge Bases)
+#### Phase 2: RAG System (Knowledge Bases) ✅ **PLANNED**
 
-**Goal**: Enable users to create and manage knowledge bases for use in analysis steps.
+**Goal**: Enable users to create and manage knowledge bases for use in analysis steps. Build a standalone RAG management system (like "notebook LLM") where users can create knowledge bases, upload/manage documents, and query them directly.
+
+**Implementation Strategy**: Two-part approach
+- **Part 1**: RAG Management (Standalone System) - Complete RAG management system
+- **Part 2**: RAG Integration in Flows - Use RAGs in analysis pipelines
+
+---
+
+**Key Decisions Made**:
+
+**RAG Tool Creation**:
+- Flow: Create Tool → Select RAG → Form (name, description) → Create → Redirect to Editor
+- No model selection in UI (transparent to user, configured in dev/prod)
+- RAG Tool = RAG Knowledge Base (1:1 relationship)
+- Embedding model: OpenAI `text-embedding-3-small` via OpenRouter (default, configured in config)
+
+**RAG Editor UI/UX**:
+- Layout: Split view (30% files panel, 70% chat interface) - like Notebook LLM
+- Design process: UX design first, then UI design, multiple iterations
+- Additional features: Document preview/editor, Bulk operations
+- Chat interface: Conversational (session-based history, clears on reload)
+
+**Roles & Permissions**:
+- Four roles: Owner, Editor, File Manager, Viewer
+- Sharing options: User chooses when sharing (File Management Only vs Full Editor Access vs View Only)
+- Token/cost: Counts to Owner's account (not the user who queries)
+- Detailed permissions matrix: See roles section below
+
+**Organization & Context**:
+- Organization-scoped: RAGs belong to organizations (same as other tools)
+- Flow execution: Uses organization context (same as flow)
+- Duplication logic: Same as other tools (RAG tools copied when duplicating system flows)
+- Access control: All org members can access (based on role), no explicit sharing needed within org
+
+**Storage & Infrastructure**:
+- File storage: Store original files (required for UX)
+- Storage backend: Filesystem (MVP), abstraction layer for MinIO migration
+- Vector DB: ChromaDB (MVP), abstraction layer for Qdrant migration
+- Storage path: Configurable via `STORAGE_BASE_PATH` (relative or absolute)
+
+---
 
 **2.1) Database Schema**
-- [ ] **RAG Knowledge Bases Table**:
-  - `rag_knowledge_bases`: id, organization_id (required), name, description, vector_db_type, embedding_model, document_count, created_at, updated_at
-  - Note: RAGs belong to organizations (user's personal org or shared org)
-- [ ] **RAG Documents Table**:
-  - `rag_documents`: id, rag_id, title, content, file_path (nullable), metadata (JSON), embedding_status, created_at, updated_at
-- [ ] **Vector Storage**:
-  - Choose vector DB: ChromaDB (local) or Qdrant (can be remote)
-  - Store embeddings per document
-  - Index for semantic search
 
-**2.2) Backend - RAG Management API**
-- [ ] **RAG CRUD Endpoints**:
-  - `GET /api/rags` - List RAGs from current organization context ONLY
-  - Backend filters by `X-Organization-Id` header (from session)
-  - No cross-organization access (user must switch org context to see other org's RAGs)
-  - `POST /api/rags` - Create new RAG (in current organization context ONLY)
-  - `GET /api/rags/{id}` - Get RAG details (only if RAG belongs to current org context)
-  - `PUT /api/rags/{id}` - Update RAG config (only if RAG belongs to current org context)
-  - `DELETE /api/rags/{id}` - Delete RAG (only if RAG belongs to current org context)
-- [ ] **Document Management Endpoints**:
-  - `POST /api/rags/{id}/documents` - Upload/add documents
-  - `GET /api/rags/{id}/documents` - List documents
-  - `DELETE /api/rags/{id}/documents/{doc_id}` - Delete document
-  - `POST /api/rags/{id}/documents/bulk` - Bulk upload
-- [ ] **RAG Query Endpoint**:
-  - `POST /api/rags/{id}/query` - Query RAG with semantic search
-  - Returns: Relevant document chunks with relevance scores
+- [ ] **RAG Knowledge Bases Table** (`rag_knowledge_bases`):
+  - `id`: Primary key
+  - `organization_id`: Foreign key to `organizations.id` (required) - RAGs belong to organizations
+  - `name`: String - RAG name
+  - `description`: Text - RAG description
+  - `vector_db_type`: String (default: "chromadb")
+  - `embedding_model`: String (default from config, e.g., "openai/text-embedding-3-small")
+  - `document_count`: Integer (default: 0)
+  - `created_at`, `updated_at`: Timestamps
 
-**2.3) Document Processing**
-- [ ] **File Upload Handler**:
-  - Accept: PDF, DOCX, TXT, Markdown
-  - Extract text from files
-  - Chunk documents for optimal embedding
+- [ ] **RAG Documents Table** (`rag_documents`):
+  - `id`: Primary key
+  - `rag_id`: Foreign key to `rag_knowledge_bases.id`
+  - `title`: String - Document title (filename or user-provided)
+  - `content`: Text - Extracted text content (full text, truncated for preview)
+  - `file_path`: String (nullable) - Relative path to original file (e.g., "rag_documents/rag_1/doc_1.pdf")
+  - `metadata`: JSON - Document metadata (file size, upload date, etc.)
+  - `embedding_status`: Enum (pending/completed/failed)
+  - `created_at`, `updated_at`: Timestamps
+
+- [ ] **RAG Access Table** (`rag_access`):
+  - `id`: Primary key
+  - `rag_id`: Foreign key to `rag_knowledge_bases.id`
+  - `user_id`: Foreign key to `users.id`
+  - `role`: Enum (owner/editor/file_manager/viewer)
+  - `created_at`, `updated_at`: Timestamps
+  - Unique constraint: `(rag_id, user_id)` - One role per user per RAG
+  - Note: Owner is creator (auto-assigned on RAG creation)
+
+**Roles & Permissions**:
+- **Owner**: Full access (create, edit, delete, share, manage files, query RAG, edit text, re-process, bulk operations, analytics) - Pays for tokens/cost
+- **Editor**: Upload/remove files, query RAG, edit extracted text, re-process documents, bulk operations - Cannot edit settings, delete RAG, share
+- **File Manager**: Upload/remove files, view files, bulk operations - Cannot query RAG, edit text, edit settings, delete, share
+- **Viewer**: Query RAG, view/download files - Cannot upload/remove files, edit, delete, share
+
+**Permissions Matrix**:
+| Permission | Owner | Editor | File Manager | Viewer |
+|------------|-------|--------|--------------|--------|
+| Create RAG | ✅ | ❌ | ❌ | ❌ |
+| Edit RAG Settings | ✅ | ❌ | ❌ | ❌ |
+| Delete RAG | ✅ | ❌ | ❌ | ❌ |
+| Share RAG | ✅ | ❌ | ❌ | ❌ |
+| Upload Files | ✅ | ✅ | ✅ | ❌ |
+| Download Files | ✅ | ✅ | ✅ | ✅ |
+| Remove Files | ✅ | ✅ | ✅ | ❌ |
+| View Files | ✅ | ✅ | ✅ | ✅ |
+| Query RAG | ✅ | ✅ | ❌ | ✅ |
+| Edit Extracted Text | ✅ | ✅ | ❌ | ❌ |
+| Re-process Documents | ✅ | ✅ | ❌ | ❌ |
+| Bulk Operations | ✅ | ✅ | ✅ | ❌ |
+| View Analytics | ✅ | ❌ | ❌ | ❌ |
+
+---
+
+**2.2) Vector DB Setup & Embedding Service**
+
+- [ ] **ChromaDB Setup**:
+  - Install `chromadb` package
+  - Create abstraction layer (`VectorDB` interface) for easy migration to Qdrant later
+  - Implement ChromaDB backend (`ChromaDBBackend`)
+  - Collections stored in: `{STORAGE_BASE_PATH}/rag_vectors/rag_{id}/`
+  - One ChromaDB collection per RAG knowledge base
+
+- [ ] **Embedding Generation Service**:
+  - Use OpenAI `text-embedding-3-small` via OpenRouter (default)
+  - Configured in `config_local.py` (dev) or production config
+  - Not user-selectable (transparent to user)
+  - Later: Replace with on-premise LLM
+  - Generate embeddings for document chunks (500-1000 tokens, 100-200 overlap)
+
+- [ ] **Abstraction Layer**:
+  - `VectorDBBackend` abstract base class
+  - `ChromaDBBackend` implementation (MVP)
+  - `QdrantBackend` implementation (future)
+  - Switch backend via configuration: `VECTOR_DB_BACKEND=chromadb`
+
+---
+
+**2.3) Storage Service & File Management**
+
+- [ ] **Storage Configuration**:
+  - Add `STORAGE_BASE_PATH` to `config_local.py` and `config.py`
+  - Default: Relative path `"data"` (works everywhere)
+  - Can be absolute path in production: `"/srv/research-flow/backend/data"`
+  - Storage structure:
+    - `{STORAGE_BASE_PATH}/rag_vectors/` - ChromaDB collections
+    - `{STORAGE_BASE_PATH}/rag_documents/` - Original uploaded files
+
+- [ ] **Storage Service**:
+  - Create abstraction layer (`StorageBackend` interface)
+  - Implement filesystem backend (`FilesystemStorage`) - MVP
+  - Future: MinIO backend (`MinIOStorage`) for scalability
+  - Store relative paths in database (portable)
+  - Resolve absolute paths at runtime
+
+- [ ] **File Operations**:
+  - Upload: Save original files to `rag_documents/{rag_id}/doc_{id}_{filename}`
+  - Download: Retrieve original files
+  - Delete: Remove files from storage and database
+  - File storage required for UX (users need to see/manage documents)
+
+---
+
+**2.4) Document Processing**
+
+- [ ] **Document Processing Libraries**:
+  - `pypdf2` or `pdfplumber` - PDF text extraction
+  - `python-docx` - DOCX text extraction
+  - `beautifulsoup4` - HTML/URL content extraction
+  - `httpx` - URL fetching
+
+- [ ] **Text Extraction**:
+  - Extract text from PDF/DOCX/TXT files
+  - Extract text from HTML (URL import)
+  - Store full text in `rag_documents.content`
+  - Truncate to 10,000 chars for preview
+
+- [ ] **Document Chunking**:
+  - Chunk size: 500-1000 tokens (configurable per RAG, default: 800)
+  - Chunk overlap: 100-200 tokens (default: 150)
+  - Simple fixed-size chunks with overlap (MVP)
+  - Future: Semantic chunking (split at paragraph/section boundaries)
+
 - [ ] **Embedding Generation**:
-  - Use configured embedding model (OpenAI, local model)
-  - Generate embeddings for document chunks
-  - Store in vector database
+  - Generate embeddings for each chunk
+  - Store embeddings in ChromaDB collection
+  - Update `embedding_status` (pending → processing → completed/failed)
+  - Async processing (background tasks) for large documents
+
 - [ ] **URL Import**:
   - Fetch content from URLs
-  - Extract text from HTML
-  - Process as documents
+  - Extract text from HTML (remove nav, footer, ads)
+  - Process as documents (no file stored, `file_path = null`)
 
-**2.4) Frontend - RAG Management UI**
-- [ ] **RAGs List Page** (`/rags`):
-  - List RAGs from current organization context ONLY
-  - No organization filter (complete separation - only current org visible)
-  - Show: Name, document count, last updated
-  - Actions: Create (in current org), Manage Documents, Query Test, Delete
-  - Organization selector in navigation (switching org reloads page with new org's RAGs)
-- [ ] **Create/Edit RAG Page**:
-  - Basic info: Name, description, topic
-  - Embedding model selection
-  - Vector DB configuration
-- [ ] **Document Management Page** (`/rags/{id}/documents`):
-  - Upload documents (drag-and-drop)
-  - URL import
-  - Document list with preview
-  - Search within documents
-  - Delete documents
-- [ ] **Query Test Interface**:
-  - Test semantic search queries
-  - See retrieved documents and scores
-  - Preview how RAG will be used in steps
+---
 
-**2.5) RAG Integration in Pipeline**
-- [ ] **RAG Query Step Type**:
-  - Add `rag_query` step type
-  - Configuration: RAG selection, query template, result format
-  - Execute: Query RAG, return relevant context
-  - Use context in subsequent LLM steps
+**2.5) Backend - RAG Management API**
+
+- [ ] **RAG CRUD Endpoints**:
+  - `GET /api/rags` - List RAGs from current organization (filtered by user role)
+  - `POST /api/rags` - Create RAG (creates empty RAG + RAG tool, 1:1 relationship)
+    - Body: `{name, description}` (no model selection)
+    - Creates ChromaDB collection
+    - Auto-assigns creator as Owner
+  - `GET /api/rags/{id}` - Get RAG details (check user access)
+  - `PUT /api/rags/{id}` - Update RAG (Owner only)
+  - `DELETE /api/rags/{id}` - Delete RAG (Owner only)
+    - Deletes all files, embeddings, ChromaDB collection
+
+- [ ] **Sharing & Access Control Endpoints**:
+  - `POST /api/rags/{id}/share` - Share RAG (assign roles) (Owner only)
+    - Body: `{user_id, role}` (editor/file_manager/viewer)
+    - User chooses sharing option: "File Management Only" → File Manager, "Full Editor Access" → Editor, "View Only" → Viewer
+  - `GET /api/rags/{id}/access` - List users with access (Owner only)
+  - `DELETE /api/rags/{id}/access/{user_id}` - Remove user access (Owner only)
+
+- [ ] **Document Management Endpoints**:
+  - `POST /api/rags/{id}/documents` - Upload document (Owner/Editor/File Manager)
+    - FormData: `file`, `title` (optional)
+    - Saves file, extracts text, chunks, generates embeddings (async)
+  - `GET /api/rags/{id}/documents` - List documents (all roles)
+  - `GET /api/rags/{id}/documents/{doc_id}` - Get document details (all roles)
+  - `PUT /api/rags/{id}/documents/{doc_id}` - Update document (edit extracted text) (Owner/Editor)
+  - `DELETE /api/rags/{id}/documents/{doc_id}` - Delete document (Owner/Editor/File Manager)
+  - `POST /api/rags/{id}/documents/bulk` - Bulk upload (Owner/Editor/File Manager)
+  - `DELETE /api/rags/{id}/documents/bulk` - Bulk delete (Owner/Editor/File Manager)
+    - Body: `{document_ids: [1, 2, 3]}`
+  - `GET /api/rags/{id}/download/{doc_id}` - Download original file (all roles)
+  - `POST /api/rags/{id}/documents/{doc_id}/reprocess` - Re-extract/re-embed (Owner/Editor)
+
+- [ ] **RAG Query Endpoint**:
+  - `POST /api/rags/{id}/query` - Query RAG with semantic search (Owner/Editor/Viewer)
+    - Body: `{query: "text query"}`
+    - Returns: Relevant document chunks with relevance scores
+    - Token/cost counts to Owner's account
+
+- [ ] **Role-Based Access Control**:
+  - Check user role before allowing operations
+  - Return 403 Forbidden if user doesn't have permission
+  - Organization-scoped: All endpoints filter by current organization context
+
+---
+
+**2.6) UX/UI Design Phase**
+
+- [ ] **UX Design** (as experienced UX designer):
+  - User flows for RAG creation, file management, querying
+  - Information architecture
+  - Interaction patterns
+  - Wireframes for split-view layout
+  - User journey mapping
+
+- [ ] **UI Design** (as UI designer):
+  - Visual design system
+  - Component design
+  - Polish and refinement
+  - Responsive design
+
+- [ ] **Iterations**:
+  - Multiple design iterations
+  - Test and refine
+  - Gather feedback
+  - Perfect the interface
+
+**Key Features to Design**:
+- Split view layout (30% files, 70% chat)
+- Document preview/editor (view/edit extracted text)
+- Bulk operations (select multiple files, bulk delete)
+- Conversational chat interface (session-based)
+
+---
+
+**2.7) Frontend - RAG Management UI**
+
+- [ ] **RAGs List Page** (`/rags` or `/tools/rags`):
+  - List all RAGs from current organization
+  - Create new RAG button
+  - RAG cards: name, document count, last updated
+  - Actions: Edit, Delete, Open Editor
+  - Organization-scoped (only current org visible)
+
+- [ ] **Create RAG Page** (`/rags/new`):
+  - Simple form: Name, description
+  - No model selection (transparent to user)
+  - Creates empty RAG + RAG tool
+  - Redirects to RAG Editor
+
+- [ ] **RAG Editor Page** (`/rags/{id}`) - Split View Layout:
+  - **Left Panel (30%)**: Files Management
+    - File list with status indicators (pending/processing/completed/failed)
+    - Upload area (drag-and-drop, URL import, bulk upload)
+    - File operations (view, download, remove, re-process)
+    - Bulk operations (select multiple, bulk delete)
+    - RAG status (document count, last updated)
+    - Role-based UI: Hide operations based on user role
+  - **Right Panel (70%)**: Chat Interface
+    - Conversational chat (session-based history)
+    - Query input
+    - Response with retrieved documents + scores
+    - Document sources (which files contributed)
+    - Clear chat button
+    - Role-based UI: Hide chat for File Manager role
+  - **Additional Features**:
+    - Document preview/editor (view/edit extracted text) - Modal or side panel
+    - Bulk operations UI (checkbox selection, bulk actions)
+
+- [ ] **Role-Based UI Restrictions**:
+  - Owner: Full access (all UI elements visible)
+  - Editor: Can manage files + query (chat visible)
+  - File Manager: Can only manage files (chat hidden)
+  - Viewer: Can only query (file management hidden)
+
+---
+
+**2.8) RAG Integration in Pipeline** (Part 2)
+
+- [ ] **RAG Tool Integration**:
+  - When RAG is created, automatically create corresponding RAG tool (1:1 relationship)
+  - RAG tool config: `{rag_id: <rag_id>}` (links to RAG knowledge base)
+  - Update `ToolExecutor.execute_rag_tool()` implementation
+    - Replace `NotImplementedError` with actual RAG query
+    - Use existing RAG query service from Part 1
+    - Format results for prompt injection
+  - Token/cost: Counts to RAG Owner's account (not flow creator)
+
+- [ ] **Pipeline Editor Integration**:
+  - RAG tools appear in variable palette (already shows tools)
+  - Filter by current organization (same as other tools)
+  - Visual indicators for RAG tools (green styling)
+  - Test Step/Test Pipeline buttons work with RAG tools
+
+- [ ] **Flow Execution**:
+  - RAG tools work identically to other tools
+  - Organization-scoped: Flow uses RAGs from same organization
+  - Duplication logic: When duplicating system flow, RAG tools are copied to user's org
+  - RAG tool references updated to point to copied RAGs
 
 **Testing Checklist for Phase 2**:
 - [ ] Can create RAG knowledge base
 - [ ] Can upload documents (PDF, DOCX, TXT)
 - [ ] Can import from URL
 - [ ] Documents are processed and embedded
-- [ ] Can query RAG with semantic search
-- [ ] Can use RAG in analysis step
+- [ ] Can query RAG with semantic search (standalone)
+- [ ] Role-based access control works correctly
+- [ ] Can use RAG in analysis step (via tool reference)
 - [ ] RAG context flows to LLM steps correctly
+- [ ] Token/cost counts to Owner's account
+- [ ] Organization-scoped access works correctly
+- [ ] Duplication logic works (RAG tools copied when duplicating system flows)
 
 ---
 
