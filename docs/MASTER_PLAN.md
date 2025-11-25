@@ -1925,7 +1925,11 @@ return owner_features
 - Organization-scoped: RAGs belong to organizations (same as other tools)
 - Flow execution: Uses organization context (same as flow)
 - Duplication logic: Same as other tools (RAG tools copied when duplicating system flows)
-- Access control: All org members can access (based on role), no explicit sharing needed within org
+- **Access Control**: All organization members automatically have Editor access to all RAGs in the organization
+  - No explicit sharing needed within organization
+  - Owner role is assigned to creator (via RAGAccess entry)
+  - All other org members get Editor access by default (can upload, download, query, manage files)
+  - Sharing endpoints (`POST /api/rags/{id}/share`) are kept for future use (public sharing, external users, etc.)
 
 **Storage & Infrastructure**:
 - File storage: Store original files (required for UX)
@@ -1946,6 +1950,9 @@ return owner_features
   - `embedding_model`: String (default from config, e.g., "openai/text-embedding-3-small")
   - `min_similarity_score`: Float (nullable) - Minimum similarity threshold for query results (default: 1.2)
   - `document_count`: Integer (default: 0)
+  - `public_access_token`: String (nullable, unique) - Public access token for sharing (generated on demand)
+  - `public_access_mode`: String (nullable) - Public access mode: "full_editor" (upload/download/chat) or "folder_only" (upload/download, no chat)
+  - `public_access_enabled`: Boolean (default: False) - Whether public access is enabled
   - `created_at`, `updated_at`: Timestamps
 
 - [x] **RAG Documents Table** (`rag_documents`):
@@ -1969,9 +1976,18 @@ return owner_features
 
 **Roles & Permissions**:
 - **Owner**: Full access (create, edit, delete, share, manage files, query RAG, edit text, re-process, bulk operations, analytics) - Pays for tokens/cost
+  - Assigned to creator on RAG creation (via RAGAccess entry)
 - **Editor**: Upload/remove files, query RAG, edit extracted text, re-process documents, bulk operations - Cannot edit settings, delete RAG, share
+  - **Default role for all organization members** (automatic access, no explicit sharing needed)
 - **File Manager**: Upload/remove files, view files, bulk operations - Cannot query RAG, edit text, edit settings, delete, share
+  - Reserved for future use (e.g., public sharing with restricted access)
 - **Viewer**: Query RAG, view/download files - Cannot upload/remove files, edit, delete, share
+  - Reserved for future use (e.g., public sharing with read-only access)
+
+**Access Model**:
+- **Within Organization**: All members automatically have Editor access to all RAGs
+- **Owner**: Creator gets Owner role (can delete RAG, edit settings, manage sharing)
+- **Sharing Endpoints**: Kept for future use (public links, external users, custom roles)
 
 **Permissions Matrix**:
 | Permission | Owner | Editor | File Manager | Viewer |
@@ -2077,7 +2093,7 @@ return owner_features
 **2.5) Backend - RAG Management API** ✅ **COMPLETE**
 
 - [x] **RAG CRUD Endpoints**:
-  - `GET /api/rags` - List RAGs from current organization (filtered by user role)
+  - `GET /api/rags` - List RAGs from current organization (all org members have Editor access automatically)
   - `POST /api/rags` - Create RAG (creates empty RAG + RAG tool, 1:1 relationship)
     - Body: `{name, description}` (no model selection)
     - Creates ChromaDB collection
@@ -2087,37 +2103,46 @@ return owner_features
   - `DELETE /api/rags/{id}` - Delete RAG (Owner only)
     - Deletes all files, embeddings, ChromaDB collection
 
-- [x] **Sharing & Access Control Endpoints**:
+- [x] **Sharing & Access Control Endpoints** (kept for future use):
   - `POST /api/rags/{id}/share` - Share RAG (assign roles) (Owner only)
     - Body: `{user_id, role}` (editor/file_manager/viewer)
-    - User chooses sharing option: "File Management Only" → File Manager, "Full Editor Access" → Editor, "View Only" → Viewer
+    - **Note**: Currently not needed for org members - all org members have Editor access automatically
+    - Reserved for future: public sharing, external users, custom role assignments
   - `GET /api/rags/{id}/access` - List users with access (Owner only)
+    - Shows Owner (creator) and any explicitly shared users
+    - **Note**: Does not list all org members (they have automatic access)
   - `DELETE /api/rags/{id}/access/{user_id}` - Remove user access (Owner only)
+    - **Note**: Cannot remove org member access (they have automatic Editor access via organization membership)
+    - Reserved for future: removing explicit role assignments for external users
 
 - [x] **Document Management Endpoints**:
-  - `POST /api/rags/{id}/documents` - Upload document (Owner/Editor/File Manager)
+  - `POST /api/rags/{id}/documents` - Upload document (all org members have Editor access)
     - FormData: `file`, `title` (optional)
     - Saves file, extracts text, chunks, generates embeddings (async)
-  - `GET /api/rags/{id}/documents` - List documents (all roles)
-  - `GET /api/rags/{id}/documents/{doc_id}` - Get document details (all roles)
-  - `PUT /api/rags/{id}/documents/{doc_id}` - Update document (edit extracted text) (Owner/Editor)
-  - `DELETE /api/rags/{id}/documents/{doc_id}` - Delete document (Owner/Editor/File Manager)
-  - `POST /api/rags/{id}/documents/bulk` - Bulk upload (Owner/Editor/File Manager)
-  - `DELETE /api/rags/{id}/documents/bulk` - Bulk delete (Owner/Editor/File Manager)
+  - `GET /api/rags/{id}/documents` - List documents (all org members)
+  - `GET /api/rags/{id}/documents/{doc_id}` - Get document details (all org members)
+  - `PUT /api/rags/{id}/documents/{doc_id}` - Update document (edit extracted text) (all org members have Editor access)
+  - `DELETE /api/rags/{id}/documents/{doc_id}` - Delete document (all org members have Editor access)
+  - `POST /api/rags/{id}/documents/bulk` - Bulk upload (all org members have Editor access)
+  - `DELETE /api/rags/{id}/documents/bulk` - Bulk delete (all org members have Editor access)
     - Body: `{document_ids: [1, 2, 3]}`
-  - `GET /api/rags/{id}/download/{doc_id}` - Download original file (all roles)
-  - `POST /api/rags/{id}/documents/{doc_id}/reprocess` - Re-extract/re-embed (Owner/Editor)
+  - `GET /api/rags/{id}/download/{doc_id}` - Download original file (all org members)
+  - `POST /api/rags/{id}/documents/{doc_id}/reprocess` - Re-extract/re-embed (all org members have Editor access)
 
 - [x] **RAG Query Endpoint**:
-  - `POST /api/rags/{id}/query` - Query RAG with semantic search (Owner/Editor/Viewer)
-    - Body: `{query: "text query"}`
-  - Returns: Relevant document chunks with relevance scores
+  - `POST /api/rags/{id}/query` - Query RAG with semantic search (all org members have Editor access)
+    - Body: `{query: "text query", top_k: int (optional), min_score: float (optional)}`
+    - Query parameters: `min_score` (optional, overrides RAG setting)
+  - Returns: Relevant document chunks with relevance scores (filtered by min_similarity_score)
+    - Priority for min_score: request.min_score > rag.min_similarity_score > global config (RAG_MIN_SIMILARITY_SCORE)
     - Token/cost counts to Owner's account
 
 - [x] **Role-Based Access Control**:
-  - Check user role before allowing operations
-  - Return 403 Forbidden if user doesn't have permission
+  - **Simplified Model**: All organization members automatically have Editor access to all RAGs
+  - Owner role: Assigned to creator (can delete RAG, edit settings)
+  - Access check: Verifies user is member of organization (via OrganizationMember table)
   - Organization-scoped: All endpoints filter by current organization context
+  - Sharing endpoints kept for future use (public links, external users)
 
 ---
 
@@ -2166,6 +2191,18 @@ return owner_features
   - Redirects to RAG Editor
 
 - [x] **RAG Editor Page** (`/rags/{id}`) - Optimized Split View Layout:
+  - **Redesigned Toolbar Header**: ✅
+    - Structured layout with logical grouping and visual separators
+    - Left: Navigation ("К инструментам" link) + RAG name (editable, 2xl font)
+    - Right: Statistics card (document count with icon) + Role badge + Share button (Owner only)
+    - Bottom row: Description with icon (if available)
+    - Efficient space utilization across full width
+    - Professional design matching application design system
+  - **Public Access Management**: ✅
+    - "Поделиться" button in header (Owner only)
+    - Opens modal dialog with public access controls
+    - Toggle enable/disable, mode selector, public URL display with copy button
+    - Clean, organized modal UI
   - **Compact Header**: Reduced padding, horizontal layout, inline name editing
   - **Left Panel (32%)**: Files Management
     - Compact document cards with status badges (text-based, not checkmarks)
@@ -2236,18 +2273,163 @@ return owner_features
   - Duplication logic: When duplicating system flow, RAG tools are copied to user's org
   - RAG tool references updated to point to copied RAGs
 
+---
+
+**2.9) Public RAG Sharing (Public Links)** ✅ **COMPLETE**
+
+**Goal**: Enable RAG owners to share their knowledge bases with external users via public links, without requiring organization membership.
+
+**Use Cases**:
+1. **Full Editor Access**: Share complete RAG editor (upload, download, chat) with external collaborators
+2. **Folder-Only Access**: Share RAG as a file folder (upload, download, file management) without chat functionality
+
+**Architecture**:
+
+- [x] **Database Schema Updates** ✅:
+  - Added `public_access_token` (String, nullable, unique) to `rag_knowledge_bases` table ✅
+  - Added `public_access_mode` (String, nullable) - "full_editor" or "folder_only" ✅
+  - Added `public_access_enabled` (Boolean, default: False) ✅
+  - Generate secure random token (32+ characters) when public access is enabled ✅
+  - Token format: URL-safe base64 (64 characters) generated via `secrets.token_urlsafe(32)` ✅
+  - Migration: `3327532daec3_add_public_access_fields_to_rag.py` ✅
+
+- [x] **Public Access Modes** ✅:
+  - **"full_editor"**: ✅ Implemented
+    - Upload files ✅
+    - Download files ✅
+    - Query RAG (chat) ✅
+    - View documents ✅
+    - Delete files ✅
+    - Edit extracted text ❌ (restricted to authenticated users)
+    - Re-process documents ❌ (restricted to authenticated users)
+    - Edit RAG settings ❌ (restricted to Owner)
+  - **"folder_only"**: ✅ Implemented
+    - Upload files ✅
+    - Download files ✅
+    - View documents ✅
+    - Delete files ✅
+    - Query RAG (chat) ❌ (hidden/disabled in UI)
+    - Edit extracted text ❌
+    - Re-process documents ❌
+    - Edit RAG settings ❌
+
+- [x] **Backend API** ✅:
+  - `PUT /api/rags/{id}/public-access` - Enable/disable public access (Owner only) ✅
+    - Body: `{enabled: bool, mode: "full_editor" | "folder_only"}`
+    - Generates/regenerates `public_access_token` when enabled (first time)
+    - Returns: Updated RAG with public access fields
+    - Token regeneration: Can be done by disabling and re-enabling (or future endpoint)
+  - `GET /api/rags/public/{token}` - Get RAG by public token (no auth required) ✅
+    - Returns RAG details (name, description, document count, public_access_mode)
+    - Does not expose sensitive information
+  - `GET /api/rags/public/{token}/documents` - List documents (no auth required) ✅
+  - `POST /api/rags/public/{token}/documents` - Upload document (no auth required) ✅
+    - Validates file type before creating document record
+    - Supports FormData with `file` and optional `title`
+    - Processes embeddings asynchronously
+  - `GET /api/rags/public/{token}/download/{doc_id}` - Download document (no auth required) ✅
+  - `DELETE /api/rags/public/{token}/documents/{doc_id}` - Delete document (no auth required) ✅
+  - `POST /api/rags/public/{token}/query` - Query RAG (no auth required, only if mode="full_editor") ✅
+    - Returns semantic search results with relevance scores
+    - Applies min_similarity_score filtering
+
+- [x] **Security Considerations** ✅:
+  - **Token Security**: ✅
+    - Long, random, unguessable tokens (64 characters, URL-safe base64) ✅
+    - Regeneratable by Owner (disable and re-enable to regenerate) ✅
+    - No expiration by default (can be added later)
+  - **Rate Limiting**: 
+    - Future: Apply rate limits to public endpoints (prevent abuse)
+    - Different limits for upload vs query
+  - **File Size Limits**: 
+    - File type validation before upload (prevents unsupported files)
+    - Future: Enforce file size limits for public uploads
+  - **Content Moderation**: 
+    - Future: Flag suspicious uploads for review
+    - Owner can disable public access if abuse detected ✅
+  - **Cost Control**: ✅
+    - Public queries count to Owner's account (same as regular sharing) ✅
+    - Owner can disable public access if costs become excessive ✅
+    - Future: Daily/monthly query limits for public access
+
+- [x] **Frontend - Public RAG Editor** ✅:
+  - **Public URL Route**: `/rags/public/{token}` ✅
+    - No authentication required ✅
+    - Shows RAG name, description, document count ✅
+    - UI adapts based on `public_access_mode`: ✅
+      - **Full Editor**: Shows chat interface + file management ✅
+      - **Folder Only**: Shows only file management (chat hidden/disabled) ✅
+  - **Public Access Controls** (Owner view): ✅
+    - Modal dialog accessible via "Поделиться" button in RAG editor header ✅
+    - Toggle: Enable/disable public access ✅
+    - Mode selector: "Полный редактор" vs "Только файлы" ✅
+    - Display public URL with copy-to-clipboard button ✅
+    - Token regeneration: Disable and re-enable to regenerate ✅
+    - Warning messages about public access ✅
+  - **Public Editor UI** ✅:
+    - Simplified header (no organization context, no user info) ✅
+    - Clear indicator: "Публичный доступ" badge ✅
+    - File management: Same as regular editor ✅
+    - Chat interface: Only visible if mode="full_editor" ✅
+    - No settings/configuration access ✅
+    - No sharing/access management ✅
+    - **Error Handling**: ✅
+      - Fixed AttributeError in document upload (replaced `processor.SUPPORTED_FILE_EXTENSIONS` with explicit list)
+      - Fixed CORS issues (public endpoints properly configured)
+      - Fixed authentication errors (public pages don't call auth endpoints)
+
+- [x] **UX Considerations** ✅:
+  - **Link Sharing**: ✅
+    - Public URL format: `{origin}/rags/public/{token}` ✅
+    - Easy copy-to-clipboard button in modal ✅
+    - Future: QR code generation for easy mobile sharing
+  - **Access Indicators**: ✅
+    - Clear visual indicator: "Публичный доступ" badge in header ✅
+    - Different styling for public vs authenticated access ✅
+  - **File Upload UX**: ✅
+    - Same drag-and-drop interface ✅
+    - Progress indicators (embedding status badges) ✅
+    - Error handling for unsupported files (validates before upload) ✅
+  - **Chat Interface** (full_editor mode): ✅
+    - Same conversational interface ✅
+    - No user identification (anonymous queries) ✅
+    - Results formatted same as regular editor ✅
+
+- [x] **Migration** ✅:
+  - Added new columns to `rag_knowledge_bases` table ✅
+  - Default: `public_access_enabled=False` for all existing RAGs ✅
+  - Migration script: `3327532daec3_add_public_access_fields_to_rag.py` ✅
+  - No data migration needed ✅
+
+- [x] **Frontend Fixes** ✅:
+  - Fixed authentication errors on public pages (useAuth and useOrganizations don't fetch on `/rags/public/*` routes) ✅
+  - Fixed LayoutWrapper and Sidebar to hide on public RAG pages ✅
+  - Added public route detection in useAuth hook ✅
+  - Added public route detection in useOrganizations hook ✅
+
+**Future Enhancements**:
+- Token expiration dates
+- Access analytics (who accessed, when, what queries)
+- Password-protected public links
+- Time-limited access tokens
+- IP whitelisting/blacklisting
+- Content moderation queue
+
 **Testing Checklist for Phase 2**:
-- [ ] Can create RAG knowledge base
-- [ ] Can upload documents (PDF, DOCX, TXT)
-- [ ] Can import from URL
-- [ ] Documents are processed and embedded
-- [ ] Can query RAG with semantic search (standalone)
-- [ ] Role-based access control works correctly
-- [ ] Can use RAG in analysis step (via tool reference)
-- [ ] RAG context flows to LLM steps correctly
-- [ ] Token/cost counts to Owner's account
-- [ ] Organization-scoped access works correctly
-- [ ] Duplication logic works (RAG tools copied when duplicating system flows)
+- [x] Can create RAG knowledge base ✅
+- [x] Can upload documents (PDF, DOCX, TXT) ✅
+- [x] Can import from URL ✅
+- [x] Documents are processed and embedded ✅
+- [x] Can query RAG with semantic search (standalone) ✅
+- [x] Role-based access control works correctly ✅
+- [ ] Can use RAG in analysis step (via tool reference) (Phase 2.8 - Part 2)
+- [ ] RAG context flows to LLM steps correctly (Phase 2.8 - Part 2)
+- [x] Token/cost counts to Owner's account ✅
+- [x] Organization-scoped access works correctly ✅
+- [ ] Duplication logic works (RAG tools copied when duplicating system flows) (Phase 2.8 - Part 2)
+- [x] Public RAG sharing works (public links, both modes) ✅
+- [x] Public RAG editor works without authentication ✅
+- [x] Public file upload/download works correctly ✅
 
 ---
 
