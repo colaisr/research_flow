@@ -2146,22 +2146,22 @@ return owner_features
 
 ---
 
-**2.6) UX/UI Design Phase**
+**2.6) UX/UI Design Phase** ✅ **COMPLETE**
 
-- [ ] **UX Design** (as experienced UX designer):
+- [x] **UX Design** (as experienced UX designer):
   - User flows for RAG creation, file management, querying
   - Information architecture
   - Interaction patterns
   - Wireframes for split-view layout
   - User journey mapping
 
-- [ ] **UI Design** (as UI designer):
+- [x] **UI Design** (as UI designer):
   - Visual design system
   - Component design
   - Polish and refinement
   - Responsive design
 
-- [ ] **Iterations**:
+- [x] **Iterations**:
   - Multiple design iterations
   - Test and refine
   - Gather feedback
@@ -2234,6 +2234,14 @@ return owner_features
         - Automatically closes after completion (no OK button needed)
       - **Status Tracking**: Document status updates from "completed" → "processing" → "completed" during re-embedding ✅
     - Bulk operations UI (checkbox selection, bulk actions)
+    - **Document Text Editing** ✅:
+      - **Text Editing**: Users can directly edit extracted text content ✅
+      - **Automatic Re-embedding**: When text is edited and saved, old embeddings are automatically deleted and new ones are generated ✅
+      - **Visual Feedback**: Processing modal with spinner shows progress (replaces alert) ✅
+        - Shows spinner during processing
+        - Displays completion status (green checkmark) or error (red X)
+        - Automatically closes after completion (no OK button needed)
+      - **Status Tracking**: Document status updates from "completed" → "processing" → "completed" during re-embedding ✅
     - **UX Optimizations**:
       - Compact layout for better space utilization
       - Status badges use text ("Готово", "Ошибка") instead of symbols to avoid confusion with checkboxes
