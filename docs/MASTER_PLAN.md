@@ -3165,3 +3165,251 @@ ssh rf-prod "cd /srv/research-flow/backend && source .venv/bin/activate && pytho
 - **Pipeline Editor**: Inline step addition, collapsible advanced settings, simplified variable palette
 
 
+### 13) On-Premise LLM Deployment Guide
+
+**Purpose**: This section provides guidance for customers who want to deploy on-premise LLM servers for data privacy, cost optimization at scale, or compliance requirements.
+
+**Overview**:
+The platform supports on-premise LLM servers via OpenAI-compatible API. Customers can deploy dedicated LLM servers (e.g., Ollama, vLLM) and configure them in Admin Settings. Access is controlled per-user via `local_llm` feature flag. When enabled, on-prem models appear in model dropdowns alongside OpenRouter models.
+
+**Architecture Options**:
+
+**Option 1: Single Server with Multiple Models** (Recommended for Start)
+- One Ollama server can serve multiple models concurrently
+- Models loaded on-demand (first request loads model into memory)
+- Configuration: `OLLAMA_MAX_LOADED_MODELS=3`, `OLLAMA_NUM_PARALLEL=4`
+- Best for: Cost efficiency, simpler management, moderate traffic
+
+**Option 2: Multiple Servers per Tier** (For Scale)
+- Separate servers for different user tiers (Basic, Premium, Enterprise)
+- Complete isolation between tiers
+- Dedicated resources per tier
+- Best for: High volume, strict SLAs, different hardware per tier
+
+**Recommended Solution: Ollama**
+
+Ollama is the recommended solution for on-premise deployment due to:
+- **Easy Deployment**: Single binary, minimal dependencies
+- **OpenAI-Compatible API**: Works seamlessly with existing LLMClient
+- **Simple Packaging**: Can bundle model + server for customer deployment
+- **Good Performance**: Optimized inference, GPU support
+- **Active Development**: Well-maintained, good documentation
+
+**Available Models in Ollama**:
+
+**Text Models**:
+- `llama3.1:8b` - General purpose, good quality/speed balance (recommended)
+- `llama3.1:70b` - High quality, requires significant resources
+- `mistral:7b` - Fast and efficient
+- `qwen2.5:7b` - Strong multilingual support (including Russian)
+- `phi3:3.8b` - Lightweight option
+- `OxW/Saiga_YandexGPT_8B` - Russian language (community model, based on YandexGPT)
+
+**Vision Models** (Image Processing):
+- `llava:7b` - Best balance for vision tasks
+- `llava:13b` - Higher quality vision
+- `gemma3:12b` - Google multimodal model
+- `qwen2.5-vl:7b` - Multilingual vision
+
+**Note**: `llama3.1:8b` is **text-only** (not multimodal). For OCR/PDF processing, you need:
+1. OCR step first (extract text from PDFs/images)
+2. Then send extracted text to LLM
+3. Or use vision model like `llava:7b` for direct image processing
+
+**GigaChat and YandexGPT On-Premise Status**:
+
+**GigaChat**:
+- ❌ **Not Available**: No public on-premise deployment options
+- Proprietary model (Sberbank), cloud-only via API
+- Contact Sberbank directly for enterprise/private cloud options
+- No self-hosted version available
+
+**YandexGPT**:
+- ✅ **YandexGPT 5 Lite (8B)**: Available now via Ollama community model
+  - Model: `OxW/Saiga_YandexGPT_8B` (community port)
+  - Pull: `ollama pull OxW/Saiga_YandexGPT_8B`
+  - Good Russian language support
+- ⏳ **YandexGPT 5 Pro**: Official on-premise expected 2025
+  - Part of Yandex 360 on-premise suite
+  - Contact Yandex Cloud for enterprise options
+- ✅ **Alternative**: ValueAI platform supports YandexGPT on-premise (third-party)
+
+**VM Specifications for On-Premise LLM Servers**:
+
+**Server 1: Single Model - `llama3.1:8b` Only**
+
+**Minimum Requirements**:
+- **GPU**: RTX 3090 (24GB VRAM) or RTX 4090 (24GB VRAM)
+- **CPU**: 16-core+ CPU
+- **RAM**: 32GB+ system RAM
+- **Storage**: 50GB+ SSD for model files
+
+**Recommended**:
+- **GPU**: RTX 4090 (24GB VRAM) - Best price/performance ratio
+- **CPU**: 16-core+ CPU (Intel Xeon or AMD EPYC)
+- **RAM**: 64GB system RAM
+- **Storage**: 100GB+ NVMe SSD
+
+**Estimated Costs**:
+- **Cloud (Hetzner)**: RTX 4090 server ~€200-300/month
+- **Cloud (AWS)**: g5.2xlarge (A10G 24GB) ~$1,000/month
+- **Cloud (GCP)**: n1-standard-16 + T4 GPU ~$800/month
+- **Dedicated Server**: RTX 4090 server ~$200-400/month
+
+**Use Cases**:
+- Text analysis, document processing, general LLM tasks
+- Good for: Most use cases, cost-effective deployment
+- Limitations: Text-only (no vision), single model
+
+---
+
+**Server 2: Multiple Models - `llama3.1:8b` + `llama3.1:70b` + `mistral:7b`**
+
+**Critical Constraint**: `llama3.1:70b` requires ~80GB+ VRAM
+
+**Requirements**:
+- **GPU**: Multiple A100 80GB (2-4x) or H100 80GB (2x)
+- **CPU**: 32-core+ CPU (Intel Xeon or AMD EPYC)
+- **RAM**: 256GB+ system RAM
+- **Storage**: 500GB+ NVMe SSD
+
+**Estimated Costs**:
+- **Cloud (AWS)**: p4d.24xlarge (8x A100 40GB) ~$32,000/month
+- **Cloud (AWS)**: p5.48xlarge (8x H100 80GB) ~$98,000/month
+- **Cloud (GCP)**: a2-highgpu-8g (8x A100 40GB) ~$25,000/month
+- **Dedicated Server**: 2x A100 80GB server ~$5,000-8,000/month
+
+**Note**: `llama3.1:70b` is extremely expensive to run. Consider:
+- Using quantized versions (Q4, Q8) to reduce VRAM requirements
+- Deploying only when high-quality output is critical
+- Using OpenRouter for occasional 70B requests (pay-per-use)
+
+**Use Cases**:
+- High-quality analysis requiring 70B model
+- Multiple model options for different tasks
+- Premium tier service offering
+
+---
+
+**Cost Analysis: Self-Hosted vs OpenRouter**:
+
+**Break-Even Analysis**:
+
+| Monthly Requests | OpenRouter Cost | Self-Hosted Cost | Recommendation |
+|------------------|-----------------|------------------|----------------|
+| **3,000** (low) | $0.60 | $300 | ✅ **OpenRouter** |
+| **30,000** (medium) | $6 | $300 | ✅ **OpenRouter** |
+| **300,000** (high) | $60 | $300 | ⚠️ **Consider self-hosted** |
+| **3,000,000** (very high) | $600 | $300 | ✅ **Self-hosted** |
+
+**Break-Even Point**: ~50,000-100,000 requests/month
+
+**Assumptions**:
+- Average 2,000 tokens per request
+- OpenRouter: ~$0.10 per 1M tokens for `llama3.1:8b`
+- Self-hosted: RTX 4090 server ~$300/month
+
+**Recommendation**:
+- **Low-Medium Volume**: Use OpenRouter (pay-as-you-go, no infrastructure)
+- **High Volume**: Deploy self-hosted (cost-effective, data privacy)
+- **Enterprise/Compliance**: Self-hosted required (data isolation)
+
+---
+
+**Deployment Guide for Customers**:
+
+**Step 1: Choose Deployment Model**
+- **Single Model**: Start with `llama3.1:8b` only (RTX 4090 server)
+- **Multiple Models**: Add more models as needed (larger server)
+- **Multiple Servers**: Deploy separate servers per tier (future scale)
+
+**Step 2: Provision VM**
+- Minimum: RTX 4090 server (24GB VRAM, 64GB RAM)
+- Recommended: Dedicated GPU server (Hetzner, AWS, GCP, or on-premise)
+- OS: Ubuntu 22.04 LTS or similar
+
+**Step 3: Install Ollama**
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull models
+ollama pull llama3.1:8b
+ollama pull mistral:7b
+# Optional: ollama pull llama3.1:70b (if server has 80GB+ VRAM)
+
+# Start server with OpenAI-compatible API
+OLLAMA_HOST=0.0.0.0:8000 ollama serve
+```
+
+**Step 4: Configure in Research Flow**
+- Admin Settings → Credentials → Local LLM
+- Base URL: `http://ollama-server:8000/v1`
+- Model Name: `llama3.1:8b` (or other model)
+- Display Name: `Llama 3.1 8B (On-Prem)`
+- Enable toggle: ON
+
+**Step 5: Enable for Users**
+- Admin Settings → Features
+- Enable `local_llm` feature for specific users
+- Users will see on-prem model in model dropdowns
+
+**Step 6: Test**
+- Create test pipeline using on-prem model
+- Verify responses and performance
+- Monitor server resources
+
+---
+
+**Packaging for Customer Deployment**:
+
+For customers who want to deploy on their own infrastructure:
+
+**Package Contents**:
+```
+customer-llm-package/
+├── install.sh              # Installation script
+├── ollama                  # Ollama binary
+├── models/                 # Pre-downloaded models
+│   ├── llama3.1:8b/
+│   └── mistral:7b/
+├── start-server.sh         # Start script
+├── config.env              # Configuration template
+└── README.md              # Installation instructions
+```
+
+**Installation Process**:
+1. Customer receives package
+2. Runs `./install.sh` (installs Ollama, sets up models)
+3. Runs `./start-server.sh` (starts server)
+4. Provides server URL to admin
+5. Admin configures in Research Flow system
+
+---
+
+**Future Enhancements**:
+
+**Multiple On-Premise Servers**:
+- Support for multiple Local LLM configurations
+- Model-based routing (`local/llama3.1:8b` vs `local/yandex/yandexgpt-8b`)
+- Per-tier server allocation (Basic, Premium, Enterprise)
+
+**Additional Models**:
+- YandexGPT Pro (when official on-premise available in 2025)
+- GigaChat (if Sberbank releases on-premise solution)
+- Custom fine-tuned models
+
+**Advanced Features**:
+- Load balancing across multiple Ollama instances
+- Auto-scaling based on demand
+- Health monitoring and failover
+- Cost tracking per server
+
+---
+
+**References**:
+- Ollama: https://ollama.com/
+- Ollama Models: https://ollama.com/library
+- YandexGPT Lite: https://huggingface.co/yandex/YaLM-2-8B-pretrain
+- OpenRouter Pricing: https://openrouter.ai/models
+
