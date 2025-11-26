@@ -82,8 +82,8 @@ export default function Sidebar() {
   const { organizations, isLoading: orgsLoading, switchOrganization, isSwitching } = useOrganizations()
   const { currentOrganizationId, setCurrentOrganizationId } = useOrganizationContext()
 
-  // Don't show sidebar on landing page, login, or register pages
-  if (pathname === '/' || pathname === '/login' || pathname === '/register') {
+  // Don't show sidebar on landing page, login, register, or public RAG pages
+  if (pathname === '/' || pathname === '/login' || pathname === '/register' || pathname?.startsWith('/rags/public/')) {
     return null
   }
 

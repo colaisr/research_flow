@@ -14,15 +14,16 @@ export default function LayoutWrapper({
 }) {
   const pathname = usePathname()
   const { isCollapsed } = useSidebar()
+  const { user } = useAuth() // Always call hooks before any conditional returns
   
   // Pages that should not have sidebar/topbar
   const isAuthPage = pathname === '/' || pathname === '/login' || pathname === '/register'
+  const isPublicRAGPage = pathname?.startsWith('/rags/public/')
 
-  if (isAuthPage) {
+  if (isAuthPage || isPublicRAGPage) {
     return <>{children}</>
   }
 
-  const { user } = useAuth()
   const hasBanner = user?.is_impersonated
 
   return (

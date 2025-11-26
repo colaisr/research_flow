@@ -9,9 +9,13 @@ import json
 import hashlib
 from functools import lru_cache
 from app.models.user_tool import UserTool, ToolType
+from app.models.rag_knowledge_base import RAGKnowledgeBase
+from app.models.rag_access import RAGAccess, RAGRole
 from app.services.data.adapters import CCXTAdapter, YFinanceAdapter, TinkoffAdapter, get_tinkoff_token
 from app.services.tools.encryption import decrypt_tool_config
 from app.services.llm.client import LLMClient
+from app.services.rag import VectorDB, EmbeddingService
+from app.core.config import RAG_MIN_SIMILARITY_SCORE
 
 logger = logging.getLogger(__name__)
 
@@ -501,9 +505,21 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         if tool_type == ToolType.RAG.value:
             # Format RAG results as "Relevant context: ..."
             if "results" in result and result["results"]:
-                formatted = "Relevant context:\n"
-                for item in result["results"][:5]:  # Limit to top 5 results
-                    formatted += f"- {item.get('content', item.get('text', ''))[:200]}...\n"
+                formatted = "Relevant context from knowledge base"
+                if "rag_name" in result:
+                    formatted += f" ({result['rag_name']})"
+                formatted += ":\n"
+                # Include all results (up to top_k, which is now 10 by default)
+                for idx, item in enumerate(result["results"], 1):
+                    document_text = item.get('document', '')
+                    if document_text:
+                        # Include full content, not truncated (let LLM decide what's relevant)
+                        # Only truncate if extremely long (>2000 chars) to avoid token limits
+                        if len(document_text) > 2000:
+                            truncated = document_text[:2000] + "..."
+                            formatted += f"{idx}. {truncated}\n"
+                        else:
+                            formatted += f"{idx}. {document_text}\n"
                 return formatted
             return "Relevant context: No results found."
         
@@ -672,17 +688,96 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         
         Args:
             tool: UserTool with tool_type='rag'
-            params: Must include 'query' key with search query string
+            params: Must include 'query' key with search query string, optional 'top_k' (default: 5), optional 'min_score'
             
         Returns:
-            Dict with RAG query results
+            Dict with RAG query results in format: {"results": [{"document": str, "metadata": dict, "distance": float, "id": str}]}
             
-        Note: RAG implementation is deferred to Phase 2.
+        Note: Token/cost counts to RAG Owner's account (via EmbeddingService using global API key).
         """
+        if not self.db:
+            raise ValueError("Database session required for RAG tool execution")
+        
         if not params or 'query' not in params:
             raise ValueError("RAG tool execution requires 'query' parameter")
         
-        raise NotImplementedError("RAG tool execution will be implemented in Phase 2")
+        query = params.get('query', '').strip()
+        if not query:
+            raise ValueError("RAG tool query cannot be empty")
+        
+        top_k = params.get('top_k', 10)  # Default to 10 results (increased from 5 for better coverage)
+        min_score = params.get('min_score')  # Optional min_score override
+        
+        # Decrypt tool config to get rag_id
+        try:
+            config = decrypt_tool_config(tool.config)
+            rag_id = config.get('rag_id')
+            if not rag_id:
+                raise ValueError(f"RAG tool {tool.display_name} is missing 'rag_id' in config")
+        except Exception as e:
+            logger.error(f"Failed to decrypt RAG tool config: {e}")
+            raise ValueError(f"Invalid RAG tool configuration: {str(e)}")
+        
+        # Get RAG from database
+        rag = self.db.query(RAGKnowledgeBase).filter(
+            RAGKnowledgeBase.id == rag_id,
+            RAGKnowledgeBase.organization_id == tool.organization_id
+        ).first()
+        
+        if not rag:
+            raise ValueError(f"RAG knowledge base {rag_id} not found or not accessible")
+        
+        # Generate query embedding
+        embedding_service = EmbeddingService(db=self.db)
+        try:
+            query_embedding = embedding_service.generate_embedding(query)
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for RAG query: {e}")
+            raise ValueError(f"Failed to process query: {str(e)}")
+        
+        # Search vector DB
+        vector_db = VectorDB()
+        try:
+            results = vector_db.search(rag_id, query_embedding, top_k=top_k)
+        except Exception as e:
+            logger.error(f"Failed to search vector DB for RAG {rag_id}: {e}")
+            raise ValueError(f"Failed to search knowledge base: {str(e)}")
+        
+        # Format results and apply minimum score threshold
+        # Priority: params.min_score > rag.min_similarity_score > global config
+        effective_min_score = min_score
+        if effective_min_score is None:
+            effective_min_score = rag.min_similarity_score
+        if effective_min_score is None:
+            effective_min_score = RAG_MIN_SIMILARITY_SCORE
+        
+        formatted_results = []
+        for result in results:
+            distance = result.get('distance')
+            
+            # Filter by minimum score if specified
+            # For ChromaDB L2 distance: lower is better, so we check if distance <= threshold
+            if effective_min_score is not None and distance is not None:
+                if distance > effective_min_score:
+                    continue  # Skip results below threshold
+            
+            formatted_results.append({
+                "document": result.get('document', ''),
+                "metadata": result.get('metadata', {}),
+                "distance": distance,
+                "id": result.get('id'),
+            })
+        
+        # Note: Token/cost counts to RAG Owner's account (handled by EmbeddingService using global API key)
+        # The Owner is the one who pays for all queries (via organization's OpenRouter API key)
+        
+        return {
+            "results": formatted_results,
+            "query": query,
+            "top_k": top_k,
+            "rag_id": rag_id,
+            "rag_name": rag.name
+        }
     
     def _execute_ccxt_adapter(
         self,

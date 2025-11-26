@@ -126,6 +126,7 @@ async def login(
         samesite="lax",
         max_age=86400,  # 24 hours
         path="/",  # Ensure cookie is available for all paths
+        domain=None,  # Don't set domain - allows cookie to work for both localhost and 127.0.0.1
     )
     
     return {

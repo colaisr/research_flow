@@ -261,19 +261,31 @@ export default function ToolsPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => handleTest(tool.id)}
-                            disabled={testMutation.isPending}
-                            className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                          >
-                            Тест
-                          </button>
-                          <button
-                            onClick={() => router.push(`/tools/${tool.id}/edit`)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                          >
-                            Редактировать
-                          </button>
+                          {tool.tool_type === 'rag' && tool.config?.rag_id && (
+                            <button
+                              onClick={() => router.push(`/rags/${tool.config.rag_id}`)}
+                              className="text-purple-600 hover:text-purple-900 font-medium"
+                            >
+                              Открыть редактор
+                            </button>
+                          )}
+                          {tool.tool_type !== 'rag' && (
+                            <>
+                              <button
+                                onClick={() => handleTest(tool.id)}
+                                disabled={testMutation.isPending}
+                                className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
+                              >
+                                Тест
+                              </button>
+                              <button
+                                onClick={() => router.push(`/tools/${tool.id}/edit`)}
+                                className="text-indigo-600 hover:text-indigo-900"
+                              >
+                                Редактировать
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => handleDelete(tool.id, tool.display_name)}
                             disabled={deleteMutation.isPending}

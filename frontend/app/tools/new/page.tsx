@@ -83,8 +83,8 @@ export default function NewToolPage() {
       return
     }
     if (toolType === 'rag') {
-      // RAG tools are not implemented yet
-      alert('RAG tools will be available in Phase 2')
+      // RAG tools skip to step 3 (name/description)
+      setStep(3)
       return
     }
     if (!creationMethod) {
@@ -110,15 +110,47 @@ export default function NewToolPage() {
     setStep(3)
   }
 
-  const handleStep3Next = () => {
+  const handleStep3Next = async () => {
     if (!displayName) {
       alert('Please provide tool display name')
       return
     }
     
-    // Create tool
+    // For RAG tools, create via RAG API (creates both RAG and tool)
+    if (toolType === 'rag') {
+      try {
+        console.log('[RAG Creation] Sending request to:', `${API_BASE_URL}/api/rags`)
+        console.log('[RAG Creation] Payload:', { name: displayName, description: config.description || null })
+        const { data } = await axios.post(
+          `${API_BASE_URL}/api/rags`,
+          {
+            name: displayName,
+            description: config.description || null
+          },
+          { 
+            withCredentials: true,
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          }
+        )
+        console.log('[RAG Creation] Success:', data)
+        // Redirect to RAG editor
+        router.push(`/rags/${data.id}`)
+        return
+      } catch (error: any) {
+        console.error('[RAG Creation] Error:', error)
+        console.error('[RAG Creation] Error response:', error.response)
+        console.error('[RAG Creation] Error message:', error.message)
+        const errorMessage = error.response?.data?.detail || error.message || 'Network Error'
+        alert(`Не удалось создать RAG: ${errorMessage}`)
+        return
+      }
+    }
+    
+    // Create other tool types
     const request: CreateToolRequest = {
-      tool_type: toolType as 'database' | 'api' | 'rag',
+      tool_type: toolType as 'database' | 'api',
       display_name: displayName,
       config: {
         connector_type: creationMethod,
@@ -173,11 +205,14 @@ export default function NewToolPage() {
           </button>
           <button
             onClick={() => setToolType('rag')}
-            disabled
-            className="p-4 border-2 rounded-lg text-center opacity-50 cursor-not-allowed border-gray-300"
+            className={`p-4 border-2 rounded-lg text-center transition ${
+              toolType === 'rag'
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-300 hover:border-gray-400'
+            }`}
           >
             <div className="font-medium">RAG</div>
-            <div className="text-sm text-gray-600 mt-1">Phase 2</div>
+            <div className="text-sm text-gray-600 mt-1">Knowledge Base</div>
           </button>
         </div>
       </div>
@@ -458,31 +493,55 @@ export default function NewToolPage() {
     <div className="space-y-4">
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Имя инструмента *
+          {toolType === 'rag' ? 'Название базы знаний' : 'Имя инструмента'} *
         </label>
         <input
           type="text"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="Binance API"
+          placeholder={toolType === 'rag' ? 'Legal Documents, Research Papers...' : 'Binance API'}
           className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <p className="text-sm text-gray-500 mt-1">
-          Показывается пользователям
+          {toolType === 'rag' ? 'Название вашей базы знаний' : 'Показывается пользователям'}
         </p>
       </div>
-      <div className="flex items-center">
-        <input
-          type="checkbox"
-          id="is_shared"
-          checked={isShared}
-          onChange={(e) => setIsShared(e.target.checked)}
-          className="mr-2"
-        />
-        <label htmlFor="is_shared" className="text-sm text-gray-700">
-          Доступен во всех организациях, где я владелец
-        </label>
-      </div>
+      {toolType === 'rag' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Описание (необязательно)
+          </label>
+          <textarea
+            value={config.description || ''}
+            onChange={(e) => setConfig({ ...config, description: e.target.value })}
+            placeholder="Описание содержимого базы знаний..."
+            rows={4}
+            className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      )}
+      {toolType !== 'rag' && (
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            id="is_shared"
+            checked={isShared}
+            onChange={(e) => setIsShared(e.target.checked)}
+            className="mr-2"
+          />
+          <label htmlFor="is_shared" className="text-sm text-gray-700">
+            Доступен во всех организациях, где я владелец
+          </label>
+        </div>
+      )}
+      {toolType === 'rag' && (
+        <div className="bg-blue-50 border border-blue-200 rounded p-4">
+          <p className="text-sm text-blue-800">
+            После создания вы сможете загружать документы, импортировать из URL и выполнять семантический поиск.
+            Модель эмбеддингов и векторная база данных настраиваются автоматически.
+          </p>
+        </div>
+      )}
     </div>
   )
 
@@ -597,10 +656,10 @@ export default function NewToolPage() {
             {step === 1 ? 'Отмена' : 'Назад'}
           </button>
           <button
-            onClick={() => {
+            onClick={async () => {
               if (step === 1) handleStep1Next()
               else if (step === 2) handleStep2Next()
-              else if (step === 3) handleStep3Next()
+              else if (step === 3) await handleStep3Next()
               else if (step === 4) handleStep4Save()
             }}
             disabled={createMutation.isPending || testMutation.isPending}

@@ -1,0 +1,3 @@
+Title: Fundamentals of Cloud Computing
+
+Cloud computing is the on-demand delivery of IT resources over the internet. Instead of owning physical servers, organizations rent computing power, storage, and networking from cloud providers. Cloud environments offer three primary service models: IaaS, PaaS, and SaaS. Modern cloud platforms also provide tools for machine learning, data warehousing, and serverless architectures. Scalability, cost optimization, and high availability are core reasons businesses adopt the cloud.

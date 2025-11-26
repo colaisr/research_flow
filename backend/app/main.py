@@ -3,7 +3,7 @@ FastAPI application entry point.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, runs, auth, instruments, analyses, settings, user_settings, admin, organizations, tools, schedules
+from app.api import health, runs, auth, instruments, analyses, settings, user_settings, admin, organizations, tools, schedules, rags, rags_public
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.services.telegram.bot_handler import start_bot_polling, stop_bot_polling
@@ -43,6 +43,8 @@ app.include_router(user_settings.router, prefix="/api/user-settings", tags=["use
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(organizations.router, prefix="/api", tags=["organizations"])
 app.include_router(tools.router, prefix="/api", tags=["tools"])
+app.include_router(rags.router, prefix="/api", tags=["rags"])
+app.include_router(rags_public.router, prefix="/api", tags=["rags-public"])
 app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
 
 

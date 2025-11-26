@@ -20,6 +20,9 @@ from app.models.settings import AvailableModel, AvailableDataSource, AppSettings
 from app.models.platform_settings import PlatformSettings
 from app.models.audit_log import AuditLog
 from app.models.schedule import Schedule
+from app.models.rag_knowledge_base import RAGKnowledgeBase
+from app.models.rag_document import RAGDocument, EmbeddingStatus
+from app.models.rag_access import RAGAccess, RAGRole
 
 __all__ = [
     "User",
@@ -43,5 +46,10 @@ __all__ = [
     "PlatformSettings",
     "AuditLog",
     "Schedule",
+    "RAGKnowledgeBase",
+    "RAGDocument",
+    "EmbeddingStatus",
+    "RAGAccess",
+    "RAGRole",
 ]
 

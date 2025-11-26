@@ -1891,13 +1891,13 @@ return owner_features
 
 ---
 
-#### Phase 2: RAG System (Knowledge Bases) ✅ **PLANNED**
+#### Phase 2: RAG System (Knowledge Bases) ✅ **COMPLETE**
 
 **Goal**: Enable users to create and manage knowledge bases for use in analysis steps. Build a standalone RAG management system (like "notebook LLM") where users can create knowledge bases, upload/manage documents, and query them directly.
 
 **Implementation Strategy**: Two-part approach
-- **Part 1**: RAG Management (Standalone System) - Complete RAG management system
-- **Part 2**: RAG Integration in Flows - Use RAGs in analysis pipelines
+- **Part 1**: RAG Management (Standalone System) - ✅ Complete RAG management system
+- **Part 2**: RAG Integration in Flows - ✅ Use RAGs in analysis pipelines
 
 ---
 
@@ -2225,7 +2225,14 @@ return owner_features
     - Clear chat button
     - Role-based UI: Hide chat for File Manager role
   - **Additional Features**:
-    - Document preview/editor (view/edit extracted text) - Modal
+    - Document preview/editor (view/edit extracted text) - Modal ✅
+      - **Text Editing**: Users can directly edit extracted text content ✅
+      - **Automatic Re-embedding**: When text is edited and saved, old embeddings are automatically deleted and new ones are generated ✅
+      - **Visual Feedback**: Processing modal with spinner shows progress (replaces alert) ✅
+        - Shows spinner during processing
+        - Displays completion status (green checkmark) or error (red X)
+        - Automatically closes after completion (no OK button needed)
+      - **Status Tracking**: Document status updates from "completed" → "processing" → "completed" during re-embedding ✅
     - Bulk operations UI (checkbox selection, bulk actions)
     - **UX Optimizations**:
       - Compact layout for better space utilization
@@ -2250,28 +2257,32 @@ return owner_features
 
 ---
 
-**2.8) RAG Integration in Pipeline** (Part 2)
+**2.8) RAG Integration in Pipeline** ✅ **COMPLETE** (Part 2)
 
-- [ ] **RAG Tool Integration**:
-  - When RAG is created, automatically create corresponding RAG tool (1:1 relationship)
-  - RAG tool config: `{rag_id: <rag_id>}` (links to RAG knowledge base)
-  - Update `ToolExecutor.execute_rag_tool()` implementation
-    - Replace `NotImplementedError` with actual RAG query
-    - Use existing RAG query service from Part 1
-    - Format results for prompt injection
-  - Token/cost: Counts to RAG Owner's account (not flow creator)
+- [x] **RAG Tool Integration**:
+  - When RAG is created, automatically create corresponding RAG tool (1:1 relationship) ✅
+  - RAG tool config: `{rag_id: <rag_id>}` (links to RAG knowledge base) ✅
+  - Update `ToolExecutor.execute_rag_tool()` implementation ✅
+    - Replace `NotImplementedError` with actual RAG query ✅
+    - Use existing RAG query service from Part 1 ✅
+    - Format results for prompt injection ✅
+    - **Performance Improvements**: ✅
+      - Increased default `top_k` from 5 to 10 for better coverage ✅
+      - Improved result formatting: Full content up to 2000 chars (instead of truncated 300 chars) ✅
+      - Let LLM decide relevance instead of aggressive truncation ✅
+  - Token/cost: Counts to RAG Owner's account (via global OpenRouter API key in organization settings) ✅
 
-- [ ] **Pipeline Editor Integration**:
-  - RAG tools appear in variable palette (already shows tools)
-  - Filter by current organization (same as other tools)
-  - Visual indicators for RAG tools (green styling)
-  - Test Step/Test Pipeline buttons work with RAG tools
+- [x] **Pipeline Editor Integration**:
+  - RAG tools appear in variable palette (already shows tools) ✅
+  - Filter by current organization (same as other tools) ✅
+  - Visual indicators for RAG tools (green styling) ✅
+  - Test Step/Test Pipeline buttons work with RAG tools ✅
 
-- [ ] **Flow Execution**:
-  - RAG tools work identically to other tools
-  - Organization-scoped: Flow uses RAGs from same organization
-  - Duplication logic: When duplicating system flow, RAG tools are copied to user's org
-  - RAG tool references updated to point to copied RAGs
+- [x] **Flow Execution**:
+  - RAG tools work identically to other tools ✅
+  - Organization-scoped: Flow uses RAGs from same organization ✅
+  - Duplication logic: When duplicating system flow, RAG tools are copied to user's org ✅
+  - RAG tool references updated to point to copied RAGs ✅
 
 ---
 
@@ -2422,11 +2433,11 @@ return owner_features
 - [x] Documents are processed and embedded ✅
 - [x] Can query RAG with semantic search (standalone) ✅
 - [x] Role-based access control works correctly ✅
-- [ ] Can use RAG in analysis step (via tool reference) (Phase 2.8 - Part 2)
-- [ ] RAG context flows to LLM steps correctly (Phase 2.8 - Part 2)
+- [x] Can use RAG in analysis step (via tool reference) ✅ (Phase 2.8)
+- [x] RAG context flows to LLM steps correctly ✅ (Phase 2.8)
 - [x] Token/cost counts to Owner's account ✅
 - [x] Organization-scoped access works correctly ✅
-- [ ] Duplication logic works (RAG tools copied when duplicating system flows) (Phase 2.8 - Part 2)
+- [x] Duplication logic works (RAG tools copied when duplicating system flows) ✅ (Phase 2.8)
 - [x] Public RAG sharing works (public links, both modes) ✅
 - [x] Public RAG editor works without authentication ✅
 - [x] Public file upload/download works correctly ✅

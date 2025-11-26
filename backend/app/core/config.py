@@ -31,12 +31,22 @@ try:
         EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS,
         FRONTEND_BASE_URL,
     )
+    # Import RAG config with fallbacks if not present
+    try:
+        from app.config_local import DEFAULT_EMBEDDING_MODEL, STORAGE_BASE_PATH, VECTOR_DB_BACKEND, RAG_MIN_SIMILARITY_SCORE, RAG_DEFAULT_MIN_SIMILARITY_SCORE
+    except ImportError:
+        DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+        STORAGE_BASE_PATH = "data"
+        VECTOR_DB_BACKEND = "chromadb"
+        RAG_MIN_SIMILARITY_SCORE = None  # None = no filtering, or set to max distance (e.g., 1.5 for L2, 0.3 for cosine distance)
+        RAG_DEFAULT_MIN_SIMILARITY_SCORE = 1.2  # Default threshold for new RAGs
 except ImportError:
     # Fallback defaults (will fail at runtime if secrets not set)
     MYSQL_DSN: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     DEFAULT_LLM_MODEL: str = "openai/gpt-4o-mini"
+    DEFAULT_EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHANNEL_ID: Optional[int] = None
     DAYSTART_SCHEDULE: str = "08:00"
@@ -54,6 +64,10 @@ except ImportError:
     SMTP_FROM_NAME: str = "Research Flow"
     EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS: int = 24
     FRONTEND_BASE_URL: str = "http://localhost:3000"
+    STORAGE_BASE_PATH: str = "data"  # Relative path (works everywhere)
+    VECTOR_DB_BACKEND: str = "chromadb"  # "chromadb" or "qdrant" (future)
+    RAG_MIN_SIMILARITY_SCORE: Optional[float] = None  # Minimum similarity threshold. None = no filtering. For ChromaDB L2 distance, typical values: 1.0-2.0. For cosine distance: 0.2-0.5.
+    RAG_DEFAULT_MIN_SIMILARITY_SCORE: Optional[float] = 1.2  # Default threshold for new RAGs. Set to None to disable default filtering for new RAGs.
 
 
 def get_settings():

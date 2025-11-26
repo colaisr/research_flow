@@ -7,7 +7,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
 // Public routes where we don't check auth
-const PUBLIC_ROUTES = ['/', '/login']
+const PUBLIC_ROUTES = ['/', '/login', '/register']
 
 interface User {
   id: number
@@ -52,7 +52,11 @@ export function useAuth() {
   
   // Only check auth on protected routes
   // Wait for pathname to be available before deciding
-  const isPublicRoute = pathname ? PUBLIC_ROUTES.includes(pathname) : false
+  // Check if pathname matches any public route or starts with /rags/public
+  const isPublicRoute = pathname ? (
+    PUBLIC_ROUTES.includes(pathname) || 
+    pathname.startsWith('/rags/public/')
+  ) : false
   const shouldCheckAuth = pathname !== null && !isPublicRoute
 
   const { data: user, isLoading } = useQuery({

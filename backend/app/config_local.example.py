@@ -44,3 +44,21 @@ SMTP_FROM_NAME = "Research Flow"  # Display name
 EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS = 24  # Token expires after 24 hours
 FRONTEND_BASE_URL = "http://localhost:3000"  # Change to https://researchflow.ru in production
 
+# RAG System Configuration
+DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"  # Embedding model for RAG (transparent to user)
+STORAGE_BASE_PATH = "data"  # Relative path (works everywhere) or absolute path like "/srv/research-flow/backend/data"
+VECTOR_DB_BACKEND = "chromadb"  # "chromadb" (MVP) or "qdrant" (future)
+
+# RAG Query Filtering
+# Minimum similarity score threshold. Results below this threshold will be filtered out.
+# For ChromaDB L2 distance: lower is better, typical good matches: < 1.0, moderate: 1.0-1.5, poor: > 1.5
+# For cosine similarity: higher is better, typical good matches: > 0.7, moderate: 0.5-0.7, poor: < 0.5
+# Set to None to disable filtering (show all results)
+# Recommended: 1.2 for L2 distance, or 0.6 for cosine similarity
+RAG_MIN_SIMILARITY_SCORE = None  # None = no filtering, or set threshold (e.g., 1.2 for L2 distance)
+
+# Default threshold for new RAGs (applied when creating a new RAG)
+# Set to None if you want new RAGs to have no filtering by default
+# Recommended: 1.2 for L2 distance (filters out poor matches while keeping moderate ones)
+RAG_DEFAULT_MIN_SIMILARITY_SCORE = 1.2  # Default threshold for new RAGs
+

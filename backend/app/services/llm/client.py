@@ -57,9 +57,18 @@ class LLMClient:
             )
         
         self.api_key = api_key
+        
+        # Create OpenAI client without proxies to avoid version compatibility issues
+        import httpx
+        http_client = httpx.Client(
+            timeout=60.0,
+            follow_redirects=True,
+        )
+        
         self.client = OpenAI(
             api_key=api_key,
             base_url=OPENROUTER_BASE_URL,
+            http_client=http_client,
         )
         self.default_model = DEFAULT_LLM_MODEL
     
@@ -173,9 +182,16 @@ def fetch_available_models_from_openrouter(
     
     try:
         # OpenRouter uses OpenAI-compatible API, so we can use the models endpoint
+        import httpx
+        http_client = httpx.Client(
+            timeout=60.0,
+            follow_redirects=True,
+        )
+        
         client = OpenAI(
             api_key=api_key,
             base_url=OPENROUTER_BASE_URL,
+            http_client=http_client,
         )
         
         # Fetch models from OpenRouter

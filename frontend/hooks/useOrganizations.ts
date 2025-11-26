@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import apiClient from '@/lib/api'
 import { API_BASE_URL } from '@/lib/config'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useOrganizationContext } from '@/contexts/OrganizationContext'
 
 export interface Organization {
@@ -53,10 +53,13 @@ async function leaveOrganization(organizationId: number): Promise<void> {
 export function useOrganizations() {
   const queryClient = useQueryClient()
   const { setCurrentOrganizationId } = useOrganizationContext()
+  const pathname = usePathname()
+  const isPublicRAGPage = pathname?.startsWith('/rags/public/')
   
   const { data: organizations = [], isLoading } = useQuery({
     queryKey: ['organizations'],
     queryFn: fetchOrganizations,
+    enabled: !isPublicRAGPage, // Don't fetch on public RAG pages
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 
