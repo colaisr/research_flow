@@ -1007,11 +1007,982 @@ Users can create any flow they need - the platform is domain-agnostic.
   - Keep concurrency modest; consider moving to a process manager pool if needed.
 
 
-### 11) Implementation Plan - Phased Development
+### 11) Implementation Plan - Subscription & Token System
 
-This section outlines the detailed plan to implement the new general-purpose research platform concept in controlled, testable phases.
+This section outlines the complete implementation plan for transitioning Research Flow to a subscription-based model with token packages. The system will track token consumption, manage subscriptions, and provide transparency for both users and administrators.
 
-#### Phase 0: Foundation & User Management (Prerequisites)
+**Key Principles:**
+- **Subscription-based**: Users have subscriptions with monthly token allocations
+- **Token packages**: Users can purchase additional token packages
+- **Trial system**: All new users get trial subscriptions initially
+- **Multi-provider support**: Support for OpenRouter, OpenAI direct, and future providers
+- **Model-specific pricing**: Each model has different token costs (input vs output)
+- **Admin transparency**: Full visibility and manual control over user subscriptions
+- **Consumption tracking**: Detailed tracking per user, organization, model, and time
+
+**All Pricing Decisions Finalized:**
+- Exchange Rate: Manual update (variable in config)
+- Multiple API Keys: One key per provider
+- Pricing Sync: Provider-specific adapters
+- Historical Pricing: Store costs + calculated price
+- Display Precision: 2 decimals for display
+- Token Charging: Actual token count (total: input + output)
+- Platform Fee: Per-model, default 40%
+- Provider Selection: Different models, user chooses
+- Display: Tokens primary, costs secondary
+- Pricing Sync: Manual + auto on enable
+
+**Subscription Plans:**
+
+**Pricing Model:**
+- Your cost to providers: $10/month (Basic), $20/month (Pro)
+- Platform fee: 40% (default, adjustable per model)
+- Exchange rate: 90 RUB/USD (manually updated in config)
+
+**Calculated Pricing:**
+- **Trial**: 
+  - Tokens: 5,000,000 tokens (5M tokens)
+  - Duration: 14 days
+  - Price: ₽0 (free)
+  - Features: All Pro features enabled
+- **Basic**: 
+  - Tokens: 15,000,000 tokens/month (15M tokens)
+  - Price: ₽990/month
+  - Features: LLM-only (no tools, no RAGs in workflow)
+  - Users can only use previous step outputs as context
+- **Pro**: 
+  - Tokens: 30,000,000 tokens/month (30M tokens)
+  - Price: ₽1,900/month
+  - Features: All features available (tools, RAGs, scheduling, etc.)
+
+**Token Packages (Additional Tokens):**
+- Small: 10,000 tokens, ₽500
+- Medium: 50,000 tokens, ₽2,000
+- Large: 200,000 tokens, ₽7,500
+
+**Note**: Token allocations based on gpt-4o-mini average cost ($0.000375 per 1K tokens). Users can use more expensive models, but will consume tokens faster. See `docs/SUBSCRIPTION_PRICING_CALCULATION.md` for detailed calculations.
+
+---
+
+## Phase 1: Database Schema & Migrations
+
+### 1.1 Create New Tables
+
+**Tasks:**
+- [ ] Create `subscription_plans` table migration
+- [ ] Create `user_subscriptions` table migration
+- [ ] Create `token_packages` table migration
+- [ ] Create `token_purchases` table migration
+- [ ] Create `token_balances` table migration
+- [ ] Create `token_consumption` table migration
+- [ ] Create `model_pricing` table migration
+- [ ] Create `provider_credentials` table migration
+
+**Dependencies:** None
+
+**Estimated Time:** 2-3 hours
+
+**Details:**
+- All tables with proper foreign keys, indexes, constraints
+- Default values set correctly
+- JSON columns for flexible data (e.g., `included_features`)
+
+**Database Schema Details:**
+
+**Subscription Plans Table:**
+```sql
+CREATE TABLE subscription_plans (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    display_name VARCHAR(200) NOT NULL,
+    description TEXT,
+    monthly_tokens INT NOT NULL DEFAULT 0,
+    included_features JSON NOT NULL,
+    price_monthly DECIMAL(10, 2) NULL,
+    price_currency VARCHAR(3) DEFAULT 'USD',
+    is_trial BOOLEAN DEFAULT FALSE,
+    trial_duration_days INT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_visible BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+**User Subscriptions Table:**
+```sql
+CREATE TABLE user_subscriptions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    organization_id INT NOT NULL,
+    plan_id INT NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    started_at TIMESTAMP NOT NULL,
+    expires_at TIMESTAMP NULL,
+    trial_ends_at TIMESTAMP NULL,
+    cancelled_at TIMESTAMP NULL,
+    tokens_allocated INT NOT NULL DEFAULT 0,
+    tokens_used_this_period INT NOT NULL DEFAULT 0,
+    period_start_date DATE NOT NULL,
+    period_end_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (plan_id) REFERENCES subscription_plans(id),
+    INDEX idx_user_org (user_id, organization_id),
+    INDEX idx_status (status),
+    INDEX idx_expires_at (expires_at)
+);
+```
+
+**Token Consumption Table:**
+```sql
+CREATE TABLE token_consumption (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    organization_id INT NOT NULL,
+    run_id INT NULL,
+    step_id INT NULL,
+    rag_query_id INT NULL,
+    model_name VARCHAR(200) NOT NULL,
+    provider VARCHAR(100) NOT NULL,
+    input_tokens INT NOT NULL DEFAULT 0,
+    output_tokens INT NOT NULL DEFAULT 0,
+    total_tokens INT NOT NULL,
+    cost_per_1k_input_usd DECIMAL(10, 6) NOT NULL,
+    cost_per_1k_output_usd DECIMAL(10, 6) NOT NULL,
+    price_per_1k_usd DECIMAL(10, 6) NOT NULL,
+    exchange_rate_usd_to_rub DECIMAL(10, 4) NOT NULL,
+    cost_rub DECIMAL(10, 2) NOT NULL,
+    price_rub DECIMAL(10, 2) NOT NULL,
+    source_type VARCHAR(50) NOT NULL,
+    tokens_charged INT NOT NULL,
+    consumed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (run_id) REFERENCES analysis_runs(id) ON DELETE SET NULL,
+    FOREIGN KEY (step_id) REFERENCES analysis_steps(id) ON DELETE SET NULL,
+    INDEX idx_user_org (user_id, organization_id),
+    INDEX idx_consumed_at (consumed_at),
+    INDEX idx_model (model_name),
+    INDEX idx_provider (provider)
+);
+```
+
+**Model Pricing Table:**
+```sql
+CREATE TABLE model_pricing (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    model_name VARCHAR(200) NOT NULL,
+    provider VARCHAR(100) NOT NULL,
+    cost_per_1k_input_usd DECIMAL(10, 6) NOT NULL,
+    cost_per_1k_output_usd DECIMAL(10, 6) NOT NULL,
+    platform_fee_percent DECIMAL(5, 2) DEFAULT 40.00,
+    price_per_1k_usd DECIMAL(10, 6) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_visible BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_model_provider (model_name, provider),
+    INDEX idx_provider (provider),
+    INDEX idx_is_active (is_active)
+);
+```
+
+**Provider Credentials Table:**
+```sql
+CREATE TABLE provider_credentials (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    provider VARCHAR(100) NOT NULL UNIQUE,
+    display_name VARCHAR(200) NOT NULL,
+    api_key_encrypted TEXT NULL,
+    base_url VARCHAR(500) NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+### 1.2 Enhance Existing Tables
+
+**Tasks:**
+- [ ] Add columns to `analysis_steps` table:
+  - `input_tokens INT DEFAULT 0`
+  - `output_tokens INT DEFAULT 0`
+  - `provider VARCHAR(100) NULL`
+  - `cost_per_1k_input DECIMAL(10, 6) NULL`
+  - `cost_per_1k_output DECIMAL(10, 6) NULL`
+- [ ] Migrate existing data:
+  - Set `input_tokens = tokens_used` (approximation)
+  - Set `output_tokens = 0` (approximation)
+  - Set `provider = 'openrouter'` for all existing records
+
+**Dependencies:** 1.1 (tables created)
+
+**Estimated Time:** 1 hour
+
+### 1.3 Seed Initial Data
+
+**Tasks:**
+- [ ] Create seed script for `subscription_plans`:
+  - Trial plan (Pro features, 14 days, 5M tokens, ₽0)
+  - Basic plan (LLM only, 15M tokens, ₽990/month)
+  - Pro plan (All features, 30M tokens, ₽1,900/month)
+- [ ] Create seed script for `token_packages`:
+  - Small: 10K tokens, ₽500
+  - Medium: 50K tokens, ₽2,000
+  - Large: 200K tokens, ₽7,500
+- [ ] Create seed script for `provider_credentials`:
+  - OpenRouter (from existing AppSettings)
+  - Gemini (placeholder, to be configured)
+- [ ] Create seed script for `model_pricing`:
+  - Import pricing from OpenRouter API
+  - Set default platform fee to 40%
+  - Calculate user prices
+
+**Dependencies:** 1.1 (tables created)
+
+**Estimated Time:** 2-3 hours
+
+### 1.4 Migration for Existing Users
+
+**Tasks:**
+- [ ] Create migration script to:
+  - Create trial subscriptions for all existing users
+  - Set token balance to 0
+  - Sync features from subscription plan to `user_features` table
+  - Create `token_consumption` records from existing `analysis_steps`
+
+**Dependencies:** 1.1, 1.2, 1.3 (all tables and seed data ready)
+
+**Estimated Time:** 2 hours
+
+---
+
+## Phase 2: Backend Services
+
+### 2.1 Pricing Service
+
+**Tasks:**
+- [ ] Create `app/services/pricing/pricing_service.py`:
+  - `get_model_pricing(model_name, provider)` - Get pricing from database
+  - `calculate_cost(input_tokens, output_tokens, pricing)` - Calculate our cost
+  - `calculate_user_price(total_tokens, pricing)` - Calculate user price
+  - `convert_to_rubles(usd_amount, exchange_rate)` - Convert USD to RUB
+  - `get_exchange_rate()` - Get exchange rate from config
+- [ ] Create `app/services/pricing/pricing_models.py`:
+  - `ModelPricing` model class
+  - `PricingCalculation` result class
+- [ ] Add `EXCHANGE_RATE_USD_TO_RUB` to `app/core/config.py`
+
+**Dependencies:** 1.1 (model_pricing table)
+
+**Estimated Time:** 3-4 hours
+
+**Pricing Calculation Flow:**
+```python
+# Our cost (what we pay)
+our_input_cost = (input_tokens / 1000) * cost_per_1k_input_usd
+our_output_cost = (output_tokens / 1000) * cost_per_1k_output_usd
+our_total_cost_usd = our_input_cost + our_output_cost
+
+# User price (average + fee)
+total_tokens = input_tokens + output_tokens
+avg_cost_per_1k_usd = (cost_per_1k_input_usd + cost_per_1k_output_usd) / 2
+user_price_per_1k_usd = avg_cost_per_1k_usd * (1 + platform_fee_percent / 100)
+user_cost_usd = (total_tokens / 1000) * user_price_per_1k_usd
+
+# Convert to rubles
+exchange_rate = get_exchange_rate_usd_to_rub()  # From config file
+user_cost_rub = round(user_cost_usd * exchange_rate, 2)  # 2 decimals
+our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
+```
+
+### 2.2 Provider Sync Adapters
+
+**Tasks:**
+- [ ] Create `app/services/pricing/adapters/` directory
+- [ ] Create `app/services/pricing/adapters/base.py`:
+  - `PricingSyncAdapter` abstract base class
+- [ ] Create `app/services/pricing/adapters/openrouter.py`:
+  - `OpenRouterPricingAdapter` implementation
+  - Fetch pricing from OpenRouter API
+  - Parse pricing data
+- [ ] Create `app/services/pricing/adapters/gemini.py`:
+  - `GeminiPricingAdapter` implementation (placeholder for future)
+- [ ] Create `app/services/pricing/adapters/__init__.py`:
+  - Factory function to get adapter by provider name
+
+**Dependencies:** 2.1 (pricing service)
+
+**Estimated Time:** 4-5 hours
+
+### 2.3 Token Consumption Service
+
+**Tasks:**
+- [ ] Create `app/services/consumption/token_consumption_service.py`:
+  - `record_consumption()` - Record token consumption
+  - `get_consumption_stats()` - Get consumption statistics
+  - `get_consumption_history()` - Get consumption history with filters
+  - `get_consumption_chart_data()` - Get data for charts
+- [ ] Create `app/services/consumption/consumption_models.py`:
+  - `ConsumptionStats` model
+  - `ConsumptionHistoryItem` model
+  - `ChartDataPoint` model
+
+**Dependencies:** 1.1 (token_consumption table), 2.1 (pricing service)
+
+**Estimated Time:** 4-5 hours
+
+### 2.4 Subscription Service
+
+**Tasks:**
+- [ ] Create `app/services/subscription/subscription_service.py`:
+  - `get_active_subscription(user_id, org_id)` - Get current subscription
+  - `create_subscription(user_id, org_id, plan_id)` - Create new subscription
+  - `update_subscription(subscription_id, plan_id)` - Change plan
+  - `renew_subscription(subscription_id)` - Monthly renewal
+  - `extend_trial(subscription_id, days)` - Extend trial period
+  - `sync_features_from_plan(subscription)` - Sync features to user_features
+- [ ] Create `app/services/subscription/subscription_models.py`:
+  - `Subscription` model class
+  - `SubscriptionStats` model
+
+**Dependencies:** 1.1 (user_subscriptions table)
+
+**Estimated Time:** 5-6 hours
+
+**Token Consumption Priority:**
+1. First: Use subscription allocation (`tokens_used_this_period`)
+2. Second: Use token balance (`token_balances.balance`)
+3. Third: Block request (no overages)
+
+### 2.5 Token Balance Service
+
+**Tasks:**
+- [ ] Create `app/services/balance/token_balance_service.py`:
+  - `get_token_balance(user_id, org_id)` - Get current balance
+  - `add_tokens(user_id, org_id, amount, reason)` - Add tokens (admin)
+  - `charge_tokens(user_id, org_id, amount, source_type)` - Charge tokens
+  - `get_available_tokens(user_id, org_id)` - Get total available (subscription + balance)
+- [ ] Create `app/services/balance/balance_models.py`:
+  - `TokenBalance` model class
+  - `TokenChargeResult` model
+
+**Dependencies:** 1.1 (token_balances table), 2.4 (subscription service)
+
+**Estimated Time:** 3-4 hours
+
+### 2.6 Token Charging Integration
+
+**Tasks:**
+- [ ] Update `app/services/llm/client.py`:
+  - Extract `input_tokens` and `output_tokens` from API response
+  - Return both in response dict
+- [ ] Update `app/services/analysis/steps.py`:
+  - Get pricing from pricing service
+  - Calculate costs
+  - Charge tokens via token balance service
+  - Record consumption via token consumption service
+  - Update `analysis_steps` table with input/output tokens
+- [ ] Update `app/services/analysis/pipeline.py`:
+  - Pass token charging through pipeline execution
+  - Handle insufficient tokens error
+
+**Dependencies:** 2.1 (pricing), 2.3 (consumption), 2.5 (balance), 2.4 (subscription)
+
+**Estimated Time:** 6-8 hours
+
+### 2.7 Subscription Renewal Job
+
+**Tasks:**
+- [ ] Create `app/services/scheduler/subscription_renewal.py`:
+  - `renew_expired_subscriptions()` - Find and renew subscriptions
+  - Run as scheduled job (daily cron)
+- [ ] Integrate with existing scheduler service
+- [ ] Handle trial expiration (change status to expired)
+
+**Dependencies:** 2.4 (subscription service)
+
+**Estimated Time:** 2-3 hours
+
+---
+
+## Phase 3: Backend API Endpoints
+
+### 3.1 Subscription Endpoints
+
+**Tasks:**
+- [ ] Create `app/api/subscriptions.py`:
+  - `GET /api/subscriptions/current` - Get current subscription
+  - `GET /api/subscriptions/history` - Get subscription history
+- [ ] Create request/response models:
+  - `SubscriptionResponse`
+  - `SubscriptionHistoryResponse`
+
+**Dependencies:** 2.4 (subscription service)
+
+**Estimated Time:** 2-3 hours
+
+### 3.2 Token Package Endpoints
+
+**Tasks:**
+- [ ] Create `app/api/token_packages.py`:
+  - `GET /api/token-packages` - List available packages
+  - `POST /api/token-packages/{package_id}/purchase` - Purchase package (admin manually adds)
+- [ ] Create request/response models:
+  - `TokenPackageResponse`
+  - `PurchaseTokenPackageResponse`
+
+**Dependencies:** 2.5 (token balance service)
+
+**Estimated Time:** 2 hours
+
+### 3.3 Consumption Endpoints
+
+**Tasks:**
+- [ ] Create `app/api/consumption.py`:
+  - `GET /api/consumption/stats` - Get consumption statistics
+  - `GET /api/consumption/history` - Get consumption history
+  - `GET /api/consumption/chart` - Get chart data
+- [ ] Create request/response models:
+  - `ConsumptionStatsResponse`
+  - `ConsumptionHistoryResponse`
+  - `ChartDataResponse`
+- [ ] Add filters: date range, model, provider, user_id (for org admin)
+
+**Dependencies:** 2.3 (consumption service)
+
+**Estimated Time:** 4-5 hours
+
+### 3.4 Admin Subscription Management Endpoints
+
+**Tasks:**
+- [ ] Create `app/api/admin/subscriptions.py`:
+  - `GET /api/admin/users/{user_id}/subscription` - Get user subscription
+  - `PUT /api/admin/users/{user_id}/subscription` - Update subscription
+    - Change plan
+    - Add tokens
+    - Reset period
+    - Extend trial
+- [ ] Create request/response models:
+  - `UpdateSubscriptionRequest`
+  - `UserSubscriptionResponse`
+
+**Dependencies:** 2.4 (subscription service), 2.5 (balance service)
+
+**Estimated Time:** 3-4 hours
+
+### 3.5 Admin Pricing Management Endpoints
+
+**Tasks:**
+- [ ] Create `app/api/admin/pricing.py`:
+  - `GET /api/admin/pricing` - Get all pricing (by provider)
+  - `GET /api/admin/pricing/models/{model_id}` - Get model pricing
+  - `PUT /api/admin/pricing/models/{model_id}` - Update model pricing
+  - `POST /api/admin/pricing/sync-openrouter` - Sync from OpenRouter
+  - `POST /api/admin/pricing/sync-gemini` - Sync from Gemini (future)
+- [ ] Create request/response models:
+  - `ModelPricingResponse`
+  - `UpdatePricingRequest`
+  - `PricingSyncResponse`
+
+**Dependencies:** 2.1 (pricing service), 2.2 (sync adapters)
+
+**Estimated Time:** 5-6 hours
+
+### 3.6 Provider Credentials Endpoints
+
+**Tasks:**
+- [ ] Create `app/api/admin/providers.py`:
+  - `GET /api/admin/providers` - List all providers
+  - `GET /api/admin/providers/{provider}` - Get provider details
+  - `PUT /api/admin/providers/{provider}` - Update provider credentials
+  - `POST /api/admin/providers/{provider}/test` - Test connection
+  - `POST /api/admin/providers/{provider}/sync-models` - Sync models from provider
+- [ ] Create request/response models:
+  - `ProviderResponse`
+  - `UpdateProviderRequest`
+
+**Dependencies:** 2.2 (sync adapters)
+
+**Estimated Time:** 4-5 hours
+
+---
+
+## Phase 4: Frontend Pages
+
+### 4.1 Consumption Page
+
+**Tasks:**
+- [ ] Create `frontend/app/consumption/page.tsx`:
+  - Header: Current subscription, tokens remaining, period end date
+  - Statistics cards: Tokens used, remaining, cost (tokens primary, cost secondary)
+  - Consumption chart: Line chart (tokens over time)
+  - Consumption table: Date, Model, Tokens (large), Cost (small), Source
+  - User filter: Dropdown for org admin (All Users / specific user)
+  - Filters: Date range, model, provider
+  - Export functionality (CSV, PDF)
+- [ ] Create `frontend/components/ConsumptionChart.tsx`:
+  - Line chart component (use charting library)
+  - Tokens on primary axis, optional cost overlay
+- [ ] Create `frontend/components/ConsumptionTable.tsx`:
+  - Table with pagination
+  - Tokens column (large), Cost column (small)
+- [ ] Create API client functions:
+  - `fetchConsumptionStats()`
+  - `fetchConsumptionHistory()`
+  - `fetchConsumptionChart()`
+
+**Dependencies:** 3.3 (consumption endpoints)
+
+**Estimated Time:** 8-10 hours
+
+**Display Principles:**
+- **Tokens are primary**: Large, prominent display
+- **Costs are secondary**: Shown in billing/usage sections, but not in focus (smaller, less prominent)
+- **Currency**: All costs in rubles (₽)
+
+### 4.2 Billing Page (Placeholder)
+
+**Tasks:**
+- [ ] Create `frontend/app/billing/page.tsx`:
+  - Placeholder message: "Billing information will be available soon"
+  - Link to contact support
+  - Simple, clean design
+
+**Dependencies:** None
+
+**Estimated Time:** 1 hour
+
+### 4.3 Admin - User Subscription Management
+
+**Tasks:**
+- [ ] Create `frontend/app/admin/users/[id]/subscription/page.tsx`:
+  - View current subscription (plan, status, tokens, dates)
+  - Change plan dropdown
+  - Add tokens input field (with reason field)
+  - Reset period button
+  - Extend trial input (days)
+  - Consumption statistics section
+  - Token purchase history table
+- [ ] Create components:
+  - `SubscriptionDetailsCard.tsx`
+  - `SubscriptionActions.tsx`
+  - `ConsumptionStatsCard.tsx`
+- [ ] Create API client functions:
+  - `fetchUserSubscription(userId)`
+  - `updateUserSubscription(userId, data)`
+
+**Dependencies:** 3.4 (admin subscription endpoints)
+
+**Estimated Time:** 6-8 hours
+
+### 4.4 Admin - Pricing Management
+
+**Tasks:**
+- [ ] Create `frontend/app/admin/settings/pricing/page.tsx`:
+  - Provider tabs: OpenRouter, Gemini, OpenAI, etc.
+  - Model list per provider
+  - Pricing editor per model:
+    - Input cost (₽ per 1K) - editable
+    - Output cost (₽ per 1K) - editable
+    - Average cost (auto-calculated, read-only)
+    - Platform fee (%) - editable, default 40%
+    - User price (₽ per 1K) - auto-calculated, editable
+    - Enable/disable toggle
+  - Bulk actions:
+    - Import from provider API
+    - Apply platform fee to all
+    - Enable/disable all
+  - Sync button per provider
+- [ ] Create components:
+  - `PricingEditor.tsx` - Per-model editor
+  - `ProviderPricingTab.tsx` - Provider tab content
+  - `BulkActions.tsx` - Bulk operations
+- [ ] Create API client functions:
+  - `fetchPricing(provider)`
+  - `updateModelPricing(modelId, data)`
+  - `syncPricingFromProvider(provider)`
+
+**Dependencies:** 3.5 (admin pricing endpoints)
+
+**Estimated Time:** 10-12 hours
+
+### 4.5 Admin - Provider Credentials Management
+
+**Tasks:**
+- [ ] Create `frontend/app/admin/settings/providers/page.tsx`:
+  - Provider sections: OpenRouter, Gemini, OpenAI, etc.
+  - Each section:
+    - Provider name and description
+    - API key input (encrypted, masked)
+    - Base URL input (optional)
+    - Enable/disable toggle
+    - Test connection button
+    - Sync models button
+  - Add new provider button
+- [ ] Create components:
+  - `ProviderSection.tsx` - Per-provider section
+  - `ProviderCredentialsForm.tsx` - Credentials form
+- [ ] Create API client functions:
+  - `fetchProviders()`
+  - `updateProvider(provider, data)`
+  - `testProviderConnection(provider)`
+  - `syncProviderModels(provider)`
+
+**Dependencies:** 3.6 (provider endpoints)
+
+**Estimated Time:** 6-8 hours
+
+### 4.6 Navigation Updates
+
+**Tasks:**
+- [ ] Add "Consumption" link to navigation
+- [ ] Add "Billing" link to navigation
+- [ ] Add "Pricing" link to admin settings
+- [ ] Add "Providers" link to admin settings
+- [ ] Update user settings to show subscription info
+
+**Dependencies:** 4.1, 4.2 (pages created)
+
+**Estimated Time:** 1-2 hours
+
+---
+
+## Phase 5: Trial System
+
+### 5.1 Auto-Create Trial on Registration
+
+**Tasks:**
+- [ ] Update `app/api/auth.py` registration endpoint:
+  - After user creation, create trial subscription
+  - Set plan to "Trial" plan
+  - Set status to "trial"
+  - Set `trial_ends_at` to 14 days from now
+  - Set token allocation (TBD)
+  - Sync features from plan to `user_features` table
+- [ ] Test registration flow
+
+**Dependencies:** 1.3 (seed data), 2.4 (subscription service)
+
+**Estimated Time:** 3-4 hours
+
+### 5.2 Trial Path on Index Page
+
+**Tasks:**
+- [ ] Update `frontend/app/page.tsx`:
+  - Add "Start Free Trial" button
+  - Link to `/register?trial=true`
+- [ ] Update `frontend/app/register/page.tsx`:
+  - Check for `?trial=true` query param
+  - Show "Start Your 14-Day Free Trial" messaging
+  - Same registration flow (trial auto-created)
+
+**Dependencies:** 5.1 (auto-create trial)
+
+**Estimated Time:** 2 hours
+
+### 5.3 Trial Expiration Handling
+
+**Tasks:**
+- [ ] Create `app/services/subscription/trial_expiration.py`:
+  - `check_trial_expiration()` - Check if trial expired
+  - `expire_trial(subscription_id)` - Mark trial as expired
+- [ ] Update subscription renewal job to handle trial expiration
+- [ ] Create frontend banner/notification:
+  - Show when trial expires
+  - "Your trial has ended. Select a plan to continue."
+  - Link to plan selection (placeholder for Phase 1)
+
+**Dependencies:** 2.4 (subscription service), 2.7 (renewal job)
+
+**Estimated Time:** 3-4 hours
+
+---
+
+## Phase 6: Feature Sync Integration
+
+### 6.1 Feature Sync from Subscription Plans
+
+**Tasks:**
+- [ ] Update `app/services/subscription/subscription_service.py`:
+  - `sync_features_from_plan(subscription)` - Sync plan features to user_features
+  - Enable features in `plan.included_features`
+  - Disable features NOT in `plan.included_features`
+- [ ] Call feature sync when:
+  - Subscription is created
+  - Subscription plan is changed
+  - Subscription is renewed
+- [ ] Test feature restrictions:
+  - Basic plan: Only `openrouter` feature enabled
+  - Pro/Trial plan: All features enabled
+
+**Dependencies:** 2.4 (subscription service), existing feature system
+
+**Estimated Time:** 3-4 hours
+
+### 6.2 Feature Enforcement in Pipeline
+
+**Tasks:**
+- [ ] Update pipeline execution to check features:
+  - RAG tools: Check `rag` feature
+  - API tools: Check `api_tools` feature
+  - Database tools: Check `database_tools` feature
+  - Scheduling: Check `scheduling` feature
+- [ ] Return clear error messages when feature not enabled
+- [ ] Test with Basic plan (should block tool usage)
+
+**Dependencies:** 6.1 (feature sync), existing feature system
+
+**Estimated Time:** 2-3 hours
+
+---
+
+## Phase 7: Testing & Validation
+
+### 7.1 Backend Unit Tests
+
+**Tasks:**
+- [ ] Test pricing service:
+  - Cost calculation
+  - User price calculation
+  - Exchange rate conversion
+- [ ] Test subscription service:
+  - Create subscription
+  - Change plan
+  - Renewal logic
+  - Feature sync
+- [ ] Test token balance service:
+  - Add tokens
+  - Charge tokens
+  - Available tokens calculation
+- [ ] Test consumption service:
+  - Record consumption
+  - Get statistics
+  - Get history
+- [ ] Test provider sync adapters:
+  - OpenRouter adapter
+  - Pricing parsing
+
+**Dependencies:** All backend services
+
+**Estimated Time:** 8-10 hours
+
+### 7.2 Integration Tests
+
+**Tasks:**
+- [ ] Test LLM call → Token consumption:
+  - Verify tokens tracked correctly
+  - Verify costs calculated correctly
+  - Verify consumption recorded
+- [ ] Test subscription → Token charging:
+  - Charge from subscription allocation
+  - Charge from balance when subscription exhausted
+  - Block when both exhausted
+- [ ] Test trial expiration:
+  - Trial expires correctly
+  - Features disabled after expiration
+- [ ] Test feature restrictions:
+  - Basic plan blocks tool usage
+  - Pro plan allows all tools
+
+**Dependencies:** All phases complete
+
+**Estimated Time:** 6-8 hours
+
+### 7.3 Frontend Tests
+
+**Tasks:**
+- [ ] Test consumption page:
+  - Statistics display correctly
+  - Chart renders correctly
+  - Table displays correctly
+  - Filters work
+  - User filter works (org admin)
+- [ ] Test admin pages:
+  - Subscription management
+  - Pricing management
+  - Provider management
+- [ ] Test trial flow:
+  - Registration creates trial
+  - Trial path works
+  - Trial expiration banner
+
+**Dependencies:** All frontend pages
+
+**Estimated Time:** 4-6 hours
+
+---
+
+## Phase 8: Migration & Deployment
+
+### 8.1 Data Migration
+
+**Tasks:**
+- [ ] Create migration script for existing users:
+  - Create trial subscriptions
+  - Set token balances to 0
+  - Sync features
+  - Create consumption records from existing steps
+- [ ] Test migration on staging database
+- [ ] Backup production database
+- [ ] Run migration on production
+
+**Dependencies:** All phases complete
+
+**Estimated Time:** 4-6 hours
+
+### 8.2 Deployment
+
+**Tasks:**
+- [ ] Update deployment scripts if needed
+- [ ] Deploy backend changes
+- [ ] Deploy frontend changes
+- [ ] Run migrations
+- [ ] Verify all services working
+- [ ] Monitor for errors
+
+**Dependencies:** 8.1 (migration)
+
+**Estimated Time:** 2-3 hours
+
+---
+
+## Implementation Timeline
+
+### Week 1: Foundation
+1. **Phase 1**: Database Schema & Migrations (Days 1-2)
+2. **Phase 2.1-2.2**: Pricing Service & Adapters (Days 3-4)
+3. **Phase 2.3-2.4**: Consumption & Subscription Services (Days 5-6)
+
+### Week 2: Core Functionality
+4. **Phase 2.5-2.6**: Token Balance & Charging Integration (Days 1-3)
+5. **Phase 2.7**: Subscription Renewal Job (Day 4)
+6. **Phase 3.1-3.3**: Subscription & Consumption APIs (Days 5-6)
+
+### Week 3: Admin & Frontend
+7. **Phase 3.4-3.6**: Admin APIs (Days 1-3)
+8. **Phase 4.1-4.2**: Consumption & Billing Pages (Days 4-5)
+9. **Phase 4.3-4.5**: Admin Pages (Days 6-7)
+
+### Week 4: Trial System & Polish
+10. **Phase 5**: Trial System (Days 1-2)
+11. **Phase 6**: Feature Sync (Days 3-4)
+12. **Phase 7**: Testing (Days 5-6)
+13. **Phase 8**: Migration & Deployment (Day 7)
+
+---
+
+## Estimated Total Time
+
+- **Backend**: ~60-70 hours
+- **Frontend**: ~35-45 hours
+- **Testing**: ~18-24 hours
+- **Migration**: ~6-9 hours
+- **Total**: ~120-150 hours (~3-4 weeks for 1 developer)
+
+---
+
+## Critical Path
+
+**Must complete in order:**
+1. Database schema (Phase 1)
+2. Pricing service (Phase 2.1)
+3. Token charging integration (Phase 2.6)
+4. Consumption tracking (Phase 2.3)
+5. API endpoints (Phase 3)
+6. Frontend pages (Phase 4)
+7. Testing (Phase 7)
+8. Migration (Phase 8)
+
+**Can be done in parallel:**
+- Provider adapters (Phase 2.2) - can be done after OpenRouter adapter
+- Admin pages (Phase 4.3-4.5) - can be done in parallel
+- Trial system (Phase 5) - can be done after core subscription service
+
+---
+
+## Risk Mitigation
+
+### High Risk Areas
+1. **Token Charging Integration**: Complex, affects all LLM calls
+   - **Mitigation**: Thorough testing, gradual rollout
+2. **Data Migration**: Large datasets, risk of data loss
+   - **Mitigation**: Backup first, test on staging, rollback plan
+3. **Feature Sync**: Must work correctly for plan restrictions
+   - **Mitigation**: Test with all plan types, verify restrictions
+
+### Medium Risk Areas
+1. **Pricing Calculation**: Must be accurate
+   - **Mitigation**: Unit tests, manual verification
+2. **Provider Sync Adapters**: Different APIs, may fail
+   - **Mitigation**: Error handling, fallback to manual entry
+
+---
+
+## Success Criteria
+
+### Phase 1 Complete
+- [ ] All tables created and migrated
+- [ ] Seed data loaded
+- [ ] Existing users migrated
+
+### Phase 2 Complete
+- [ ] Pricing service working
+- [ ] Token charging integrated
+- [ ] Consumption tracking working
+- [ ] Subscription service working
+
+### Phase 3 Complete
+- [ ] All API endpoints working
+- [ ] Admin endpoints working
+- [ ] Provider sync working
+
+### Phase 4 Complete
+- [ ] Consumption page working
+- [ ] Billing page placeholder
+- [ ] Admin pages working
+
+### Phase 5 Complete
+- [ ] Trial auto-created on registration
+- [ ] Trial path on index page
+- [ ] Trial expiration handling
+
+### Phase 6 Complete
+- [ ] Feature sync working
+- [ ] Feature restrictions enforced
+
+### Phase 7 Complete
+- [ ] All tests passing
+- [ ] Integration tests passing
+- [ ] Manual testing complete
+
+### Phase 8 Complete
+- [ ] Migration successful
+- [ ] Production deployed
+- [ ] System operational
+
+---
+
+## Next Steps
+
+1. **Review this plan** with team
+2. ~~**Set token allocations** for plans~~ ✅ **Complete**: Basic (15M tokens), Pro (30M tokens)
+3. ~~**Set pricing** for Basic and Pro plans~~ ✅ **Complete**: Basic (₽990/month), Pro (₽1,900/month)
+4. **Start Phase 1**: Database schema and migrations
+5. **Iterate**: Build, test, deploy incrementally
+
+---
+
+**Document Status**: Complete Implementation Plan
+**Last Updated**: 2024-01-XX
+**Ready to Start**: Yes ✅
+
+---
+
+#### Previous Phases (Completed)
 
 **Goal**: Set up user management, roles, and admin capabilities before building the core research features.
 
@@ -2467,187 +3438,27 @@ return owner_features
 
 ---
 
-#### Phase 3: Enhanced Step Types & Pipeline Editor
+#### Previous Phases (Completed)
 
-**Goal**: Expand step types beyond LLM, improve pipeline editor UX.
+**Phase 0: Foundation & User Management** ✅ **COMPLETE**
+- User roles, authentication, organizations, feature enablement system
 
-**3.1) New Step Types**
-- [ ] **Data Transform Step**:
-  - Transform data from previous steps
-  - JSON manipulation, calculations, filtering
-  - Configuration: Transformation script/logic
-- [ ] **API Call Step**:
-  - Call external APIs using API tools
-  - Configuration: Tool selection, endpoint, method, headers, body template
-  - Error handling and retries
-- [ ] **Database Query Step**:
-  - Execute queries on database tools
-  - Configuration: Tool selection, query template, result processing
-  - Safety: Read-only queries (or configurable)
-- [ ] **RAG Query Step** (from Phase 2):
-  - Query RAG knowledge bases
-  - Use retrieved context in subsequent steps
+**Phase 1: Tools System** ✅ **COMPLETE**
+- User-configurable tools (databases, APIs, RAGs)
+- Tool references in step prompts
 
-**3.2) Pipeline Editor Enhancements**
-- [ ] **Step Type Selector**:
-  - Dropdown to select step type when adding step
-  - Type-specific configuration forms
-- [ ] **Tool Integration**:
-  - Tool selector per step (filtered by step type)
-  - "Create New Tool" button in step config
-  - Tool test button
-- [ ] **Variable System Enhancement**:
-  - Add `{tool_name}_result` variables
-  - Variable palette shows all available variables
-  - Validation for variable references
-- [ ] **Summary Step Configuration**:
-  - Mark step as Summary (produces final output)
-  - Configure output format (text, JSON, structured)
-  - Configure output handlers (Telegram, email, webhook, file)
+**Phase 1.5: Enhanced Pipeline Editor** ✅ **COMPLETE**
+- Test Step/Test Pipeline functionality
+- AI-based tool parameter extraction
 
-**3.3) Input Parameters System**
-- [ ] **Analysis Input Definition**:
-  - Define what inputs analysis accepts
-  - Input types: text, number, select, date, etc.
-  - Default values, validation rules
-- [ ] **Input Usage in Steps**:
-  - Steps can reference input parameters via `{input_param_name}`
-  - Inputs passed when running analysis
-  - UI: Form to provide inputs before running
+**Phase 2: RAG System** ✅ **COMPLETE**
+- Knowledge base management
+- Document processing and embedding
+- Public RAG sharing
 
-**Testing Checklist for Phase 3**:
-- [ ] Can create analysis with multiple step types
-- [ ] Can configure each step type correctly
-- [ ] Can use tools in steps
-- [ ] Variables work correctly (step outputs, tool results, inputs)
-- [ ] Can mark Summary step
-- [ ] Can define input parameters
-- [ ] Pipeline executes correctly with all step types
-
----
-
-#### Phase 4: Output Handlers & Summary System
-
-**Goal**: Replace Telegram-specific publishing with flexible Summary export system.
-
-**4.1) Summary Concept Implementation**
-- [ ] **Summary Step Marking**:
-  - Add `is_summary` flag to step config
-  - Pipeline execution identifies Summary step
-  - Store Summary output separately
-- [ ] **Summary Storage**:
-  - Add `summary` field to `analysis_runs` table
-  - Store Summary output and format
-  - Link Summary to output deliveries
-
-**4.2) Output Handlers System**
-- [ ] **Output Handlers Table**:
-  - `output_handlers`: id, user_id, handler_type, name, config (JSON), is_active
-  - Handler types: `telegram`, `email`, `webhook`, `file`
-- [ ] **Handler Configuration**:
-  - Telegram: Bot token, user list, message formatting
-  - Email: SMTP config, recipients, templates
-  - Webhook: URL, auth, headers, retry logic
-  - File: Format (PDF/JSON/CSV), storage location
-- [ ] **Output Delivery**:
-  - `output_deliveries`: id, run_id, handler_id, status, delivered_at, error_message
-  - Track delivery status per handler
-  - Retry logic for failed deliveries
-
-**4.3) Backend - Output Handler API**
-- [ ] **Handler Management**:
-  - `GET /api/output-handlers` - List user's handlers
-  - `POST /api/output-handlers` - Create handler
-  - `PUT /api/output-handlers/{id}` - Update handler
-  - `DELETE /api/output-handlers/{id}` - Delete handler
-- [ ] **Summary Export**:
-  - `POST /api/runs/{id}/export` - Export Summary via handlers
-  - `GET /api/runs/{id}/summary` - Get Summary content
-  - `GET /api/runs/{id}/export/{format}` - Download in format
-
-**4.4) Frontend - Output Handler UI**
-- [ ] **Output Handlers Page** (`/settings/output-handlers`):
-  - List all handlers
-  - Create/edit handlers
-  - Test handlers
-- [ ] **Run Detail Page Updates**:
-  - Show Summary preview (instead of Telegram post)
-  - "Export Summary" button
-  - Select handlers for export
-  - Export history
-
-**4.5) Migration from Telegram**
-- [ ] **Migrate Existing Telegram Config**:
-  - Convert Telegram config to output handler
-  - Update existing analyses to use Summary + Telegram handler
-  - Maintain backward compatibility
-
-**Testing Checklist for Phase 4**:
-- [ ] Can create output handlers (Telegram, email, webhook, file)
-- [ ] Can mark Summary step in analysis
-- [ ] Summary is generated correctly
-- [ ] Can export Summary via multiple handlers
-- [ ] Delivery tracking works
-- [ ] Retry logic works for failed deliveries
-
----
-
-#### Phase 5: Scheduling & Advanced Features
-
-**Goal**: Add scheduling, advanced pipeline features, and polish.
-
-**5.1) Scheduling System** ✅ **COMPLETE**
-- [x] **Schedules Table**:
-  - `schedules`: id, user_id, organization_id (required), analysis_type_id, schedule_type (daily/weekly/interval/cron), schedule_config (JSON), is_active, last_run_at, next_run_at, created_at, updated_at
-  - Schedule types supported:
-    - **Daily**: `{ "time": "08:00" }` - Run at specific time every day
-    - **Weekly**: `{ "day_of_week": 0, "time": "11:00" }` - Run on specific day of week (0=Monday, 6=Sunday)
-    - **Interval**: `{ "interval_minutes": 60 }` - Run every N minutes
-    - **Cron**: `{ "cron_expression": "0 8 * * *" }` - Run using cron expression
-  - Organization-scoped: All schedules belong to organizations (complete separation)
-- [x] **Scheduler Integration**:
-  - APScheduler (`BackgroundScheduler`) integrated in backend
-  - Scheduler starts automatically on backend startup (PID-based lock ensures single instance)
-  - Schedule management API: `GET /api/schedules`, `POST /api/schedules`, `PUT /api/schedules/{id}`, `DELETE /api/schedules/{id}`, `GET /api/schedules/stats`
-  - UI for creating/managing schedules: `/schedules` page with statistics, table, and modal forms
-  - Schedule jobs automatically added/removed when schedules are created/updated/deleted
-- [x] **Schedule Execution**:
-  - Run analyses automatically via APScheduler jobs
-  - Each schedule job creates `AnalysisRun` with `trigger_type='scheduled'`
-  - Executes full pipeline execution (same as manual runs)
-  - Tracks `last_run_at` and calculates `next_run_at` automatically
-  - Scheduler service: `app/services/scheduler/scheduler_service.py`
-  - Error handling: Failed runs logged, scheduler continues with other schedules
-
-**5.2) Advanced Pipeline Features**
-- [ ] **Conditional Steps**:
-  - Steps can have conditions (if/else logic)
-  - Skip steps based on previous step outputs
-- [ ] **Parallel Execution**:
-  - Run multiple steps in parallel
-  - Merge results
-- [ ] **Error Handling**:
-  - Better error messages
-  - Retry logic per step
-  - Failure notifications
-
-**5.3) Analytics & Statistics**
-- [ ] **User Dashboard**:
-  - Personal statistics (runs, pipelines, tools, RAGs)
-  - Usage charts
-  - Cost tracking
-- [ ] **Admin Analytics**:
-  - Platform-wide statistics
-  - User activity
-  - Feature usage
-  - Cost analysis
-
-**Testing Checklist for Phase 5**:
-- [x] Can create schedules ✅
-- [x] Schedules execute automatically ✅
-- [ ] Conditional steps work
-- [ ] Analytics display correctly
-- [ ] Cost tracking accurate
+**Phase 5: Scheduling** ✅ **COMPLETE**
+- APScheduler integration
+- Schedule management UI
 
 ---
 
