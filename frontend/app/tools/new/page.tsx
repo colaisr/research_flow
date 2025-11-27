@@ -125,7 +125,7 @@ export default function NewToolPage() {
           `${API_BASE_URL}/api/rags`,
           {
             name: displayName,
-            description: config.description || null
+            description: config.description || null,
           },
           { 
             withCredentials: true,
@@ -521,18 +521,18 @@ export default function NewToolPage() {
         </div>
       )}
       {toolType !== 'rag' && (
-        <div className="flex items-center">
-          <input
-            type="checkbox"
-            id="is_shared"
-            checked={isShared}
-            onChange={(e) => setIsShared(e.target.checked)}
-            className="mr-2"
-          />
-          <label htmlFor="is_shared" className="text-sm text-gray-700">
-            Доступен во всех организациях, где я владелец
-          </label>
-        </div>
+      <div className="flex items-center">
+        <input
+          type="checkbox"
+          id="is_shared"
+          checked={isShared}
+          onChange={(e) => setIsShared(e.target.checked)}
+          className="mr-2"
+        />
+        <label htmlFor="is_shared" className="text-sm text-gray-700">
+          Доступен во всех организациях, где я владелец
+        </label>
+      </div>
       )}
       {toolType === 'rag' && (
         <div className="bg-blue-50 border border-blue-200 rounded p-4">

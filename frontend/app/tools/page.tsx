@@ -271,19 +271,19 @@ export default function ToolsPage() {
                           )}
                           {tool.tool_type !== 'rag' && (
                             <>
-                              <button
-                                onClick={() => handleTest(tool.id)}
-                                disabled={testMutation.isPending}
-                                className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                              >
-                                Тест
-                              </button>
-                              <button
-                                onClick={() => router.push(`/tools/${tool.id}/edit`)}
-                                className="text-indigo-600 hover:text-indigo-900"
-                              >
-                                Редактировать
-                              </button>
+                          <button
+                            onClick={() => handleTest(tool.id)}
+                            disabled={testMutation.isPending}
+                            className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
+                          >
+                            Тест
+                          </button>
+                          <button
+                            onClick={() => router.push(`/tools/${tool.id}/edit`)}
+                            className="text-indigo-600 hover:text-indigo-900"
+                          >
+                            Редактировать
+                          </button>
                             </>
                           )}
                           <button

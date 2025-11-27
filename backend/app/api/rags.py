@@ -594,7 +594,7 @@ async def upload_document(
     # Check file type BEFORE creating document record
     filename = file.filename or "file"
     file_ext = Path(filename).suffix.lower()
-    supported_extensions = [".pdf", ".docx", ".doc", ".txt", ".html", ".htm"]
+    supported_extensions = [".pdf", ".docx", ".doc", ".txt", ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"]
     
     if file_ext not in supported_extensions:
         raise HTTPException(
@@ -628,7 +628,7 @@ async def upload_document(
             content = await file.read()
             f.write(content)
         
-        # Extract text
+        # Extract text (PDFs always use AI OCR via OpenRouter)
         processor = DocumentProcessor()
         try:
             text, metadata = processor.extract_text_from_file(file_path)
@@ -662,9 +662,14 @@ async def upload_document(
                     file_path.unlink()
                 except:
                     pass
-            # Delete document record
-            db.delete(doc)
-            db.commit()
+            # Delete document record (only if it's persisted)
+            try:
+                db.delete(doc)
+                db.commit()
+            except Exception as delete_error:
+                # Document might not be persisted, rollback instead
+                logger.warning(f"Could not delete document record: {delete_error}")
+                db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Failed to process document: {str(e)}"
@@ -679,8 +684,14 @@ async def upload_document(
                 file_path.unlink()
             except:
                 pass
-        db.delete(doc)
-        db.commit()
+        # Delete document record (only if it's persisted)
+        try:
+            db.delete(doc)
+            db.commit()
+        except Exception as delete_error:
+            # Document might not be persisted, rollback instead
+            logger.warning(f"Could not delete document record: {delete_error}")
+            db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save file: {str(e)}"

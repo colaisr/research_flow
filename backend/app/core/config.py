@@ -33,13 +33,14 @@ try:
     )
     # Import RAG config with fallbacks if not present
     try:
-        from app.config_local import DEFAULT_EMBEDDING_MODEL, STORAGE_BASE_PATH, VECTOR_DB_BACKEND, RAG_MIN_SIMILARITY_SCORE, RAG_DEFAULT_MIN_SIMILARITY_SCORE
+        from app.config_local import DEFAULT_EMBEDDING_MODEL, STORAGE_BASE_PATH, VECTOR_DB_BACKEND, RAG_MIN_SIMILARITY_SCORE, RAG_DEFAULT_MIN_SIMILARITY_SCORE, DEFAULT_VISION_MODEL
     except ImportError:
         DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
         STORAGE_BASE_PATH = "data"
         VECTOR_DB_BACKEND = "chromadb"
         RAG_MIN_SIMILARITY_SCORE = None  # None = no filtering, or set to max distance (e.g., 1.5 for L2, 0.3 for cosine distance)
         RAG_DEFAULT_MIN_SIMILARITY_SCORE = 1.2  # Default threshold for new RAGs
+        DEFAULT_VISION_MODEL = "openai/gpt-4o"  # Vision model for OCR
 except ImportError:
     # Fallback defaults (will fail at runtime if secrets not set)
     MYSQL_DSN: Optional[str] = None
@@ -47,6 +48,7 @@ except ImportError:
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     DEFAULT_LLM_MODEL: str = "openai/gpt-4o-mini"
     DEFAULT_EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
+    DEFAULT_VISION_MODEL: str = "openai/gpt-4o"  # Vision model for OCR (PDF and images)
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHANNEL_ID: Optional[int] = None
     DAYSTART_SCHEDULE: str = "08:00"

@@ -77,7 +77,8 @@ async function uploadDocument(ragId: number, file: File, title?: string) {
     formData,
     { 
       withCredentials: true,
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000 // 120 seconds timeout for large files and PDF processing
     }
   )
   return data
@@ -176,6 +177,7 @@ export default function RAGEditorPage() {
   const [isEditingDocument, setIsEditingDocument] = useState(false)
   const [editedDocumentContent, setEditedDocumentContent] = useState('')
   const [processingDocumentId, setProcessingDocumentId] = useState<number | null>(null)
+  const [pendingUploads, setPendingUploads] = useState<Map<string, { file: File; status: 'uploading' | 'processing' }>>(new Map())
   const nameInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -194,14 +196,41 @@ export default function RAGEditorPage() {
   })
 
   const uploadMutation = useMutation({
-    mutationFn: ({ file, title }: { file: File; title?: string }) => uploadDocument(ragId, file, title),
-    onSuccess: () => {
+    mutationFn: ({ file, title, uploadId }: { file: File; title?: string; uploadId: string }) => {
+      // Update status to processing when upload starts
+      setPendingUploads(prev => {
+        const next = new Map(prev)
+        const existing = next.get(uploadId)
+        if (existing) {
+          next.set(uploadId, { ...existing, status: 'processing' })
+        }
+        return next
+      })
+      return uploadDocument(ragId, file, title)
+    },
+    onSuccess: (data, variables) => {
+      // Remove from pending uploads - it will appear in the documents list
+      setPendingUploads(prev => {
+        const next = new Map(prev)
+        next.delete(variables.uploadId)
+        return next
+      })
       refetchDocuments()
       queryClient.invalidateQueries({ queryKey: ['rag', ragId] })
+      // Clear file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     },
-    onError: (error: any) => {
+    onError: (error: any, variables) => {
+      // Remove from pending uploads on error
+      setPendingUploads(prev => {
+        const next = new Map(prev)
+        next.delete(variables.uploadId)
+        return next
+      })
       const errorMessage = error.response?.data?.detail || error.message || 'Unknown error occurred'
-      // Show user-friendly error message
+      // Show error message only for errors
       alert(`Не удалось загрузить документ: ${errorMessage}`)
       // Clear file input so user can try again
       if (fileInputRef.current) {
@@ -292,7 +321,18 @@ export default function RAGEditorPage() {
     if (!files || files.length === 0) return
 
     Array.from(files).forEach(file => {
-      uploadMutation.mutate({ file })
+      // Generate unique ID for this upload
+      const uploadId = `${file.name}-${Date.now()}-${Math.random()}`
+      
+      // Add to pending uploads immediately with "uploading" status
+      setPendingUploads(prev => {
+        const next = new Map(prev)
+        next.set(uploadId, { file, status: 'uploading' })
+        return next
+      })
+      
+      // Start upload
+      uploadMutation.mutate({ file, uploadId })
     })
   }
 
@@ -377,11 +417,34 @@ export default function RAGEditorPage() {
   const canQuery = rag?.user_role === 'owner' || rag?.user_role === 'editor' || rag?.user_role === 'viewer'
   const canEdit = rag?.user_role === 'owner' || rag?.user_role === 'editor'
 
+  // Create virtual documents from pending uploads
+  const pendingDocuments: Document[] = Array.from(pendingUploads.entries()).map(([uploadId, upload]) => ({
+    id: -parseInt(uploadId.split('-').pop() || '0'), // Negative ID to avoid conflicts
+    rag_id: ragId,
+    title: upload.file.name,
+    content: '',
+    file_path: null,
+    document_metadata: null,
+    embedding_status: upload.status === 'uploading' ? 'pending' : 'processing',
+    created_at: new Date().toISOString(),
+    updated_at: null,
+  }))
+
+  // Combine real documents with pending uploads
+  const allDocuments = [...documents, ...pendingDocuments]
+
   // Filter documents by search query
-  const filteredDocuments = documents.filter(doc => 
-    doc.title.toLowerCase().includes(documentSearchQuery.toLowerCase()) ||
-    doc.content.toLowerCase().includes(documentSearchQuery.toLowerCase())
-  )
+  const filteredDocuments = allDocuments
+    .filter(doc => 
+      doc.title.toLowerCase().includes(documentSearchQuery.toLowerCase()) ||
+      doc.content.toLowerCase().includes(documentSearchQuery.toLowerCase())
+    )
+    // Sort by upload date (newer first)
+    .sort((a, b) => {
+      const dateA = new Date(a.created_at).getTime()
+      const dateB = new Date(b.created_at).getTime()
+      return dateB - dateA // Descending order (newer first)
+    })
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -415,6 +478,7 @@ export default function RAGEditorPage() {
       nameInputRef.current.select()
     }
   }, [isEditingName])
+
 
   const handleStartEditName = () => {
     if (canEdit && rag) {
@@ -579,15 +643,15 @@ export default function RAGEditorPage() {
           <div className="p-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-base font-semibold text-gray-900">Документы</h2>
-              {documents.length > 0 && (
+              {allDocuments.length > 0 && (
                 <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border border-gray-200">
-                  {filteredDocuments.length}/{documents.length}
+                  {filteredDocuments.length}/{allDocuments.length}
                 </span>
               )}
             </div>
             
             {/* Search */}
-            {documents.length > 0 && (
+            {allDocuments.length > 0 && (
               <div className="mb-2">
                 <div className="relative">
                   <svg className="absolute left-2.5 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -648,7 +712,7 @@ export default function RAGEditorPage() {
 
           {/* Documents List */}
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-            {documents.length === 0 ? (
+            {allDocuments.length === 0 ? (
               <div className="text-center text-gray-500 py-12">
                 <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -669,16 +733,22 @@ export default function RAGEditorPage() {
                 </button>
               </div>
             ) : (
-              filteredDocuments.map((doc) => (
+              filteredDocuments.map((doc) => {
+                const isPendingUpload = doc.id < 0
+                return (
                 <div
                   key={doc.id}
-                  className={`bg-white border rounded-lg p-2.5 cursor-pointer hover:shadow-sm transition-all ${
-                    selectedDocuments.has(doc.id) ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'
+                  className={`bg-white border rounded-lg p-2.5 transition-all ${
+                    isPendingUpload 
+                      ? 'border-blue-200 bg-blue-50' 
+                      : selectedDocuments.has(doc.id) 
+                        ? 'border-blue-500 bg-blue-50 shadow-sm cursor-pointer hover:shadow-sm' 
+                        : 'border-gray-200 hover:border-gray-300 cursor-pointer hover:shadow-sm'
                   }`}
-                  onClick={() => canManageFiles && handleToggleSelect(doc.id)}
+                  onClick={() => !isPendingUpload && canManageFiles && handleToggleSelect(doc.id)}
                 >
                   <div className="flex items-start gap-2">
-                    {canManageFiles && (
+                    {canManageFiles && !isPendingUpload && (
                       <input
                         type="checkbox"
                         checked={selectedDocuments.has(doc.id)}
@@ -690,72 +760,84 @@ export default function RAGEditorPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <h3 className="font-medium text-xs text-gray-900 line-clamp-2 leading-snug flex-1 min-w-0">{doc.title}</h3>
-                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${getStatusColor(doc.embedding_status)} flex-shrink-0 whitespace-nowrap`}>
-                          {doc.embedding_status === 'pending' ? 'Ожидание' : 
-                           doc.embedding_status === 'processing' ? 'Обработка' : 
-                           doc.embedding_status === 'completed' ? 'Готово' : 
-                           doc.embedding_status === 'failed' ? 'Ошибка' : doc.embedding_status}
-                        </span>
+                        {doc.embedding_status === 'processing' ? (
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium text-blue-700 flex-shrink-0 whitespace-nowrap">
+                            <svg className="w-3 h-3 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Обработка</span>
+                          </div>
+                        ) : (
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${getStatusColor(doc.embedding_status)} flex-shrink-0 whitespace-nowrap`}>
+                            {doc.embedding_status === 'pending' ? 'Ожидание' : 
+                             doc.embedding_status === 'completed' ? 'Готово' : 
+                             doc.embedding_status === 'failed' ? 'Ошибка' : doc.embedding_status}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 mb-1.5">
                         <span className="flex items-center gap-0.5">
                           <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
                           </svg>
-                          {doc.content.length.toLocaleString('ru-RU')} симв.
+                          {doc.content ? `${doc.content.length.toLocaleString('ru-RU')} симв.` : 'Загрузка...'}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 pt-1.5 border-t border-gray-100">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setIsEditingDocument(false)
-                            setEditedDocumentContent('')
-                            setShowDocumentPreview(doc)
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-0.5 px-1.5 py-0.5 hover:bg-blue-50 rounded"
-                        >
-                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                          Просмотр
-                        </button>
-                        {doc.file_path && (
-                          <a
-                            href={`${API_BASE_URL}/api/rags/${ragId}/download/${doc.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-xs text-green-600 hover:text-green-700 font-medium flex items-center gap-0.5 px-1.5 py-0.5 hover:bg-green-50 rounded"
-                          >
-                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            Скачать
-                          </a>
-                        )}
-                        {canManageFiles && (
+                      {/* Only show actions for real documents (not pending uploads) */}
+                      {doc.id > 0 && (
+                        <div className="flex items-center gap-1.5 pt-1.5 border-t border-gray-100">
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
-                              if (confirm('Удалить этот документ?')) {
-                                deleteMutation.mutate(doc.id)
-                              }
+                              setIsEditingDocument(false)
+                              setEditedDocumentContent('')
+                              setShowDocumentPreview(doc)
                             }}
-                            className="text-xs text-red-600 hover:text-red-700 font-medium flex items-center gap-0.5 px-1.5 py-0.5 hover:bg-red-50 rounded ml-auto"
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-0.5 px-1.5 py-0.5 hover:bg-blue-50 rounded"
                           >
                             <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                             </svg>
-                            Удалить
+                            Просмотр
                           </button>
-                        )}
-                      </div>
+                          {doc.file_path && (
+                            <a
+                              href={`${API_BASE_URL}/api/rags/${ragId}/download/${doc.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs text-green-600 hover:text-green-700 font-medium flex items-center gap-0.5 px-1.5 py-0.5 hover:bg-green-50 rounded"
+                            >
+                              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              Скачать
+                            </a>
+                          )}
+                          {canManageFiles && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (confirm('Удалить этот документ?')) {
+                                  deleteMutation.mutate(doc.id)
+                                }
+                              }}
+                              className="text-xs text-red-600 hover:text-red-700 font-medium flex items-center gap-0.5 px-1.5 py-0.5 hover:bg-red-50 rounded ml-auto"
+                            >
+                              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Удалить
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))
+              )})
             )}
           </div>
         </div>
