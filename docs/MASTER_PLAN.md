@@ -1954,6 +1954,7 @@ return owner_features
   - `public_access_mode`: String (nullable) - Public access mode: "full_editor" (upload/download/chat) or "folder_only" (upload/download, no chat)
   - `public_access_enabled`: Boolean (default: False) - Whether public access is enabled
   - `created_at`, `updated_at`: Timestamps
+  - **Note**: `ocr_method` column removed - PDFs and images always use AI OCR via OpenRouter
 
 - [x] **RAG Documents Table** (`rag_documents`):
   - `id`: Primary key
@@ -2060,16 +2061,26 @@ return owner_features
 **2.4) Document Processing** ✅ **COMPLETE**
 
 - [x] **Document Processing Libraries**:
-  - `pdfplumber` - PDF text extraction
+  - `pdfplumber` - PDF text extraction (with table extraction and structure preservation)
   - `python-docx` - DOCX text extraction
   - `beautifulsoup4` - HTML/URL content extraction
   - `httpx` - URL fetching (already in requirements)
 
 - [x] **Text Extraction**:
   - Extract text from PDF/DOCX/TXT files
+  - **PDF Enhancement**: Table extraction, structure preservation (headings, lists), metadata extraction
   - Extract text from HTML (URL import)
-  - Store full text in `rag_documents.content` (ready for API)
+  - Store full text in `rag_documents.content` (LONGTEXT column, supports up to 4GB)
   - Truncate to 10,000 chars for preview (`get_text_preview` method)
+
+- [x] **OCR Processing** (AI-Based):
+  - **PDF OCR**: Always uses AI OCR via OpenRouter (GPT-4o Vision) for scanned PDFs
+  - **Image OCR**: Always uses AI OCR via OpenRouter (GPT-4o Vision) for image files
+  - **No Local Dependencies**: No Tesseract, Poppler, or other local OCR tools required
+  - **Configuration**: Vision model configured via `DEFAULT_VISION_MODEL` in config (default: `openai/gpt-4o`)
+  - **Benefits**: Better accuracy, multi-language support (including Russian), no local setup required
+  - **Cost**: OCR costs count to RAG Owner's account (via OpenRouter API key)
+  - **Automatic Detection**: System automatically detects scanned pages in PDFs and uses OCR when needed
 
 - [x] **Document Chunking**:
   - Chunk size: 500-1000 tokens (configurable, default: 800)
@@ -2278,6 +2289,10 @@ return owner_features
       - Increased default `top_k` from 5 to 10 for better coverage ✅
       - Improved result formatting: Full content up to 2000 chars (instead of truncated 300 chars) ✅
       - Let LLM decide relevance instead of aggressive truncation ✅
+  - **OCR Integration**: ✅
+      - PDFs and images automatically processed with AI OCR (GPT-4o Vision via OpenRouter) ✅
+      - No user configuration needed - always uses AI OCR for best accuracy ✅
+      - Supports scanned documents and images (PNG, JPG, etc.) ✅
   - Token/cost: Counts to RAG Owner's account (via global OpenRouter API key in organization settings) ✅
 
 - [x] **Pipeline Editor Integration**:
