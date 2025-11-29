@@ -230,7 +230,7 @@ Constraints and preferences:
     - "Manage Organizations" link to settings
   - User info (email, role badge if admin)
   - Logout button
-- **Home (`/`)**: Landing page with product overview, quick stats, recent activity, quick actions
+- **Home (`/`)**: Landing page with product overview, quick stats, recent activity, quick actions, and pricing section (Phase 5.4)
 - **Dashboard (`/dashboard`)**: ✅ **REDESIGNED** - Main user dashboard after login
   - Personalized welcome header with user's name
   - Key metrics at a glance: Pipelines, Runs, Success Rate, Cost
@@ -1041,26 +1041,98 @@ This section outlines the complete implementation plan for transitioning Researc
 
 **Calculated Pricing:**
 - **Trial**: 
-  - Tokens: 5,000,000 tokens (5M tokens)
+  - Tokens: 300,000 tokens (0.3M tokens)
   - Duration: 14 days
   - Price: ₽0 (free)
   - Features: All Pro features enabled
 - **Basic**: 
-  - Tokens: 15,000,000 tokens/month (15M tokens)
+  - Tokens: 750,000 tokens/month (0.75M tokens)
   - Price: ₽990/month
   - Features: LLM-only (no tools, no RAGs in workflow)
   - Users can only use previous step outputs as context
 - **Pro**: 
-  - Tokens: 30,000,000 tokens/month (30M tokens)
+  - Tokens: 1,500,000 tokens/month (1.5M tokens)
   - Price: ₽1,900/month
   - Features: All features available (tools, RAGs, scheduling, etc.)
 
-**Token Packages (Additional Tokens):**
-- Small: 10,000 tokens, ₽500
-- Medium: 50,000 tokens, ₽2,000
-- Large: 200,000 tokens, ₽7,500
+**Economic Model:**
+- Platform earns 1 ruble profit per 1 ruble spent (50% cost, 50% profit)
+- Token allocations calculated based on GPT-5 average pricing (₽0.5062 per 1K tokens)
+- Platform cost budget: 50% of user payment
+- Additional tokens beyond these allocations can be purchased as separate token packages
 
-**Note**: Token allocations based on gpt-4o-mini average cost ($0.000375 per 1K tokens). Users can use more expensive models, but will consume tokens faster. See `docs/SUBSCRIPTION_PRICING_CALCULATION.md` for detailed calculations.
+**Note**: See `docs/SUBSCRIPTION_PRICING_CALCULATION.md` for alternative pricing calculations. Current plan uses conservative token allocations to ensure profitability.
+
+**Token Packages (Additional Tokens):**
+- **Small**: 500,000 tokens (500K), ₽500
+  - For occasional users who need extra tokens
+  - Cost: ₽253.12, Profit: ₽246.88 (49.4% margin)
+- **Medium**: 2,000,000 tokens (2M), ₽2,000
+  - For regular users who need more capacity
+  - Cost: ₽1,012.50, Profit: ₽987.50 (49.4% margin)
+- **Large**: 7,500,000 tokens (7.5M), ₽7,500
+  - For heavy users with high token consumption
+  - Cost: ₽3,796.88, Profit: ₽3,703.12 (49.4% margin)
+
+**Note**: Token packages calculated based on GPT-5 average pricing (₽0.5062 per 1K tokens) with 1:1 economic model (50% cost, 50% profit). All packages meet the profitability target.
+
+**Note**: Token allocations calculated based on GPT-5 average pricing (₽0.5062 per 1K tokens) with 1:1 economic model (50% cost, 50% profit). Users can use more expensive models, but will consume tokens faster. Additional tokens can be purchased as separate token packages.
+
+---
+
+## Implementation Progress Tracking
+
+**Overall Status**: 🟡 In Progress (Phase 4.1)
+
+**Recent Updates (2025-01-29)**:
+- ✅ **Source Name Tracking**: Added `source_name` column to `token_consumption` table to track where consumption occurred
+  - Pipeline steps show analysis type name
+  - RAG operations show RAG name with operation type suffix ("(embeddings)" or "(chat)")
+  - RAG tools called from pipelines show combined format "Pipeline Name > RAG Name (chat)"
+  - Frontend consumption page displays "Источник" (Source) column with source names
+  - Migration: `5376fd52db07_add_source_name_to_token_consumption.py`
+
+### Phase 1: Database Schema & Migrations
+- **Status**: ✅ Complete
+- **Started**: 2025-01-28
+- **Completed**: 2025-01-29 (Source name tracking added)
+- **All Tasks**: 4/4 complete (1.1 ✅, 1.2 ✅, 1.3 ✅, 1.4 ✅)
+- **Additional**: Source name column migration (5376fd52db07) added 2025-01-29
+
+### Phase 2: Backend Services
+- **Status**: ✅ Complete
+- **Started**: 2025-01-28
+- **Completed**: 2025-01-29 (Source name tracking integrated)
+- **All Tasks**: 7/7 complete (2.1 ✅, 2.2 ✅, 2.3 ✅, 2.4 ✅, 2.5 ✅, 2.6 ✅, 2.7 ✅)
+- **Enhancement**: Source name tracking added to consumption service and token charging integration (2025-01-29)
+
+### Phase 3: Backend API Endpoints
+- **Status**: 🟡 Partially Complete (3.2 user purchase pending)
+- **Started**: 2025-01-28
+- **Completed**: 5.5/6 tasks (3.1 ✅, 3.2 🟡 admin-only, 3.3 ✅, 3.4 ✅, 3.5 ✅, 3.6 ✅)
+- **Remaining**: 3.2 user purchase flow (purchase endpoint + purchase history endpoint)
+
+### Phase 4: Frontend Pages
+- **Status**: 🟡 Partially Complete (4.2 full implementation pending)
+- **Started**: 2025-01-28
+- **Completed**: 5.5/6 tasks (4.1 ✅, 4.2 🟡 placeholder only, 4.3 ✅, 4.4 ✅, 4.5 ✅, 4.6 ✅)
+- **Remaining**: 4.2 full implementation (token package purchase page with purchase flow and history)
+
+### Phase 5: Trial System
+- **Status**: ⚪ Not Started
+- **Completed**: 0/4 tasks (5.1, 5.2, 5.3, 5.4)
+
+### Phase 6: Feature Sync Integration
+- **Status**: ⚪ Not Started
+- **Completed**: 0/2 tasks
+
+### Phase 7: Testing & Validation
+- **Status**: ⚪ Not Started
+- **Completed**: 0/3 tasks
+
+### Phase 8: Migration & Deployment
+- **Status**: ⚪ Not Started
+- **Completed**: 0/2 tasks
 
 ---
 
@@ -1068,15 +1140,21 @@ This section outlines the complete implementation plan for transitioning Researc
 
 ### 1.1 Create New Tables
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `subscription_plans` table migration
-- [ ] Create `user_subscriptions` table migration
-- [ ] Create `token_packages` table migration
-- [ ] Create `token_purchases` table migration
-- [ ] Create `token_balances` table migration
-- [ ] Create `token_consumption` table migration
-- [ ] Create `model_pricing` table migration
-- [ ] Create `provider_credentials` table migration
+- [x] Create `subscription_plans` table migration
+- [x] Create `user_subscriptions` table migration
+- [x] Create `token_packages` table migration
+- [x] Create `token_purchases` table migration
+- [x] Create `token_balances` table migration
+- [x] Create `token_consumption` table migration
+- [x] Create `model_pricing` table migration
+- [x] Create `provider_credentials` table migration
+
+**Migration File**: `backend/alembic/versions/da7b933e53e9_add_subscription_and_token_tables.py`
 
 **Dependencies:** None
 
@@ -1158,6 +1236,7 @@ CREATE TABLE token_consumption (
     price_rub DECIMAL(10, 2) NOT NULL,
     source_type VARCHAR(50) NOT NULL,
     tokens_charged INT NOT NULL,
+    source_name VARCHAR(255) NULL,
     consumed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
@@ -1169,6 +1248,15 @@ CREATE TABLE token_consumption (
     INDEX idx_provider (provider)
 );
 ```
+
+**Source Name Tracking:**
+- `source_name` column stores the origin of token consumption for better visibility
+- **Pipeline Steps**: Shows pipeline/analysis type name (e.g., "Новый процесс 28.11.2025,_11_26")
+- **RAG Embeddings**: Shows RAG name with "(embeddings)" suffix (e.g., "Company Protocols (embeddings)")
+- **RAG Chat Queries**: Shows RAG name with "(chat)" suffix (e.g., "Company Protocols (chat)")
+- **RAG from Pipeline**: Shows combined format "Pipeline Name > RAG Name (chat)" when RAG tool is called from within a pipeline step
+- **Test Steps**: Pipeline name is passed from context for test runs (not saved to database)
+- **Saved Runs**: Pipeline name is retrieved from database using `run_id` for saved runs
 
 **Model Pricing Table:**
 ```sql
@@ -1204,16 +1292,82 @@ CREATE TABLE provider_credentials (
 );
 ```
 
+**Token Packages Table:**
+```sql
+CREATE TABLE token_packages (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    display_name VARCHAR(200) NOT NULL,
+    description TEXT,
+    token_amount INT NOT NULL,
+    price_rub DECIMAL(10, 2) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_visible BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+**Token Purchases Table:**
+```sql
+CREATE TABLE token_purchases (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    organization_id INT NOT NULL,
+    package_id INT NOT NULL,
+    token_amount INT NOT NULL,
+    price_rub DECIMAL(10, 2) NOT NULL,
+    purchased_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (package_id) REFERENCES token_packages(id),
+    INDEX idx_user_org (user_id, organization_id),
+    INDEX idx_purchased_at (purchased_at)
+);
+```
+
+**Token Balances Table:**
+```sql
+CREATE TABLE token_balances (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    organization_id INT NOT NULL,
+    balance INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_user_org (user_id, organization_id),
+    INDEX idx_user_org (user_id, organization_id)
+);
+```
+
+**Subscription Status Values:**
+- `trial` - Trial period active
+- `active` - Active paid subscription
+- `expired` - Subscription expired (trial or paid)
+- `cancelled` - Subscription cancelled by user
+- `suspended` - Subscription suspended (admin action)
+
+**Token Consumption Source Types:**
+- `subscription` - Charged from subscription allocation
+- `balance` - Charged from token balance
+- `package` - From token package purchase (historical record)
+
 ### 1.2 Enhance Existing Tables
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Add columns to `analysis_steps` table:
+- [x] Add columns to `analysis_steps` table:
   - `input_tokens INT DEFAULT 0`
   - `output_tokens INT DEFAULT 0`
   - `provider VARCHAR(100) NULL`
   - `cost_per_1k_input DECIMAL(10, 6) NULL`
   - `cost_per_1k_output DECIMAL(10, 6) NULL`
-- [ ] Migrate existing data:
+- [x] Migrate existing data:
   - Set `input_tokens = tokens_used` (approximation)
   - Set `output_tokens = 0` (approximation)
   - Set `provider = 'openrouter'` for all existing records
@@ -1222,21 +1376,27 @@ CREATE TABLE provider_credentials (
 
 **Estimated Time:** 1 hour
 
+**Migration File**: `backend/alembic/versions/81a7d4759088_add_token_tracking_to_analysis_steps.py`
+
 ### 1.3 Seed Initial Data
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create seed script for `subscription_plans`:
-  - Trial plan (Pro features, 14 days, 5M tokens, ₽0)
-  - Basic plan (LLM only, 15M tokens, ₽990/month)
-  - Pro plan (All features, 30M tokens, ₽1,900/month)
-- [ ] Create seed script for `token_packages`:
-  - Small: 10K tokens, ₽500
-  - Medium: 50K tokens, ₽2,000
-  - Large: 200K tokens, ₽7,500
-- [ ] Create seed script for `provider_credentials`:
+- [x] Create seed script for `subscription_plans`:
+  - Trial plan (Pro features, 14 days, 300K tokens, ₽0)
+  - Basic plan (LLM only, 750K tokens, ₽990/month)
+  - Pro plan (All features, 1.5M tokens, ₽1,900/month)
+- [x] Create seed script for `token_packages`:
+  - Small: 500K tokens, ₽500 (based on 1:1 economic model)
+  - Medium: 2M tokens, ₽2,000 (based on 1:1 economic model)
+  - Large: 7.5M tokens, ₽7,500 (based on 1:1 economic model)
+- [x] Create seed script for `provider_credentials`:
   - OpenRouter (from existing AppSettings)
   - Gemini (placeholder, to be configured)
-- [ ] Create seed script for `model_pricing`:
+- [x] Create seed script for `model_pricing`:
   - Import pricing from OpenRouter API
   - Set default platform fee to 40%
   - Calculate user prices
@@ -1245,10 +1405,16 @@ CREATE TABLE provider_credentials (
 
 **Estimated Time:** 2-3 hours
 
+**Seed Script**: `backend/scripts/seed_subscription_data.py`
+
 ### 1.4 Migration for Existing Users
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create migration script to:
+- [x] Create migration script to:
   - Create trial subscriptions for all existing users
   - Set token balance to 0
   - Sync features from subscription plan to `user_features` table
@@ -1258,27 +1424,52 @@ CREATE TABLE provider_credentials (
 
 **Estimated Time:** 2 hours
 
+**Migration Script**: `backend/scripts/migrate_existing_users_to_subscriptions.py`
+
+**Results:**
+- Migrated 4 users
+- Created 4 trial subscriptions
+- Created 4 token balances (all set to 0)
+- Synced features for all users (trial plan features enabled)
+- Migrated 787 consumption records from analysis_steps
+
 ---
 
 ## Phase 2: Backend Services
 
 ### 2.1 Pricing Service
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/services/pricing/pricing_service.py`:
+- [x] Create `app/services/pricing/pricing_service.py`:
   - `get_model_pricing(model_name, provider)` - Get pricing from database
   - `calculate_cost(input_tokens, output_tokens, pricing)` - Calculate our cost
   - `calculate_user_price(total_tokens, pricing)` - Calculate user price
   - `convert_to_rubles(usd_amount, exchange_rate)` - Convert USD to RUB
   - `get_exchange_rate()` - Get exchange rate from config
-- [ ] Create `app/services/pricing/pricing_models.py`:
+  - `calculate_pricing()` - Complete pricing calculation (main function)
+- [x] Create `app/services/pricing/pricing_models.py`:
   - `ModelPricing` model class
   - `PricingCalculation` result class
-- [ ] Add `EXCHANGE_RATE_USD_TO_RUB` to `app/core/config.py`
+- [x] Add `EXCHANGE_RATE_USD_TO_RUB` to `app/core/config.py`
 
 **Dependencies:** 1.1 (model_pricing table)
 
 **Estimated Time:** 3-4 hours
+
+**Files Created:**
+- `backend/app/services/pricing/__init__.py`
+- `backend/app/services/pricing/pricing_service.py`
+- `backend/app/services/pricing/pricing_models.py`
+
+**Test Results:**
+- ✅ Pricing retrieval from database works
+- ✅ Cost calculation works correctly
+- ✅ User price calculation works correctly
+- ✅ Currency conversion works correctly
 
 **Pricing Calculation Flow:**
 ```python
@@ -1301,32 +1492,47 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 2.2 Provider Sync Adapters
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/services/pricing/adapters/` directory
-- [ ] Create `app/services/pricing/adapters/base.py`:
+- [x] Create `app/services/pricing/adapters/` directory
+- [x] Create `app/services/pricing/adapters/base.py`:
   - `PricingSyncAdapter` abstract base class
-- [ ] Create `app/services/pricing/adapters/openrouter.py`:
+- [x] Create `app/services/pricing/adapters/openrouter.py`:
   - `OpenRouterPricingAdapter` implementation
   - Fetch pricing from OpenRouter API
   - Parse pricing data
-- [ ] Create `app/services/pricing/adapters/gemini.py`:
+  - Sync to database
+- [x] Create `app/services/pricing/adapters/gemini.py`:
   - `GeminiPricingAdapter` implementation (placeholder for future)
-- [ ] Create `app/services/pricing/adapters/__init__.py`:
+- [x] Create `app/services/pricing/adapters/__init__.py`:
   - Factory function to get adapter by provider name
 
 **Dependencies:** 2.1 (pricing service)
 
 **Estimated Time:** 4-5 hours
 
+**Files Created:**
+- `backend/app/services/pricing/adapters/__init__.py`
+- `backend/app/services/pricing/adapters/base.py`
+- `backend/app/services/pricing/adapters/openrouter.py`
+- `backend/app/services/pricing/adapters/gemini.py`
+
 ### 2.3 Token Consumption Service
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/services/consumption/token_consumption_service.py`:
+- [x] Create `app/services/consumption/token_consumption_service.py`:
   - `record_consumption()` - Record token consumption
   - `get_consumption_stats()` - Get consumption statistics
   - `get_consumption_history()` - Get consumption history with filters
   - `get_consumption_chart_data()` - Get data for charts
-- [ ] Create `app/services/consumption/consumption_models.py`:
+- [x] Create `app/services/consumption/consumption_models.py`:
   - `ConsumptionStats` model
   - `ConsumptionHistoryItem` model
   - `ChartDataPoint` model
@@ -1335,23 +1541,60 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 **Estimated Time:** 4-5 hours
 
+**Files Created:**
+- `backend/app/services/consumption/__init__.py`
+- `backend/app/services/consumption/token_consumption_service.py`
+- `backend/app/services/consumption/consumption_models.py`
+
+**Features:**
+- Records consumption with full pricing details
+- **Source Name Tracking**: Records where consumption occurred (pipeline name, RAG name with operation type)
+  - Pipeline steps: Analysis type display name
+  - RAG embeddings: RAG name + "(embeddings)" suffix
+  - RAG chat queries: RAG name + "(chat)" suffix
+  - RAG from pipeline: Combined format "Pipeline Name > RAG Name (chat)"
+  - Test steps: Source name passed from context (analysis type name)
+  - Saved runs: Source name retrieved from database via `run_id`
+- Statistics with breakdown by model and provider
+- History with filtering and pagination
+- Chart data with date grouping (day/week/month)
+
 ### 2.4 Subscription Service
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/services/subscription/subscription_service.py`:
+- [x] Create `app/services/subscription/subscription_service.py`:
   - `get_active_subscription(user_id, org_id)` - Get current subscription
   - `create_subscription(user_id, org_id, plan_id)` - Create new subscription
   - `update_subscription(subscription_id, plan_id)` - Change plan
   - `renew_subscription(subscription_id)` - Monthly renewal
   - `extend_trial(subscription_id, days)` - Extend trial period
   - `sync_features_from_plan(subscription)` - Sync features to user_features
-- [ ] Create `app/services/subscription/subscription_models.py`:
+  - `get_subscription_stats(subscription)` - Get subscription statistics
+- [x] Create `app/services/subscription/subscription_models.py`:
   - `Subscription` model class
   - `SubscriptionStats` model
 
 **Dependencies:** 1.1 (user_subscriptions table)
 
 **Estimated Time:** 5-6 hours
+
+**Files Created:**
+- `backend/app/services/subscription/__init__.py`
+- `backend/app/services/subscription/subscription_service.py`
+- `backend/app/services/subscription/subscription_models.py`
+
+**Features:**
+- Get active subscription for user/organization
+- Create new subscriptions (trial or paid)
+- Update subscription plan
+- Monthly renewal with token reset
+- Extend trial period
+- Automatic feature syncing from plan
+- Subscription statistics (tokens remaining, usage %, days remaining)
 
 **Token Consumption Priority:**
 1. First: Use subscription allocation (`tokens_used_this_period`)
@@ -1360,13 +1603,17 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 2.5 Token Balance Service
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/services/balance/token_balance_service.py`:
+- [x] Create `app/services/balance/token_balance_service.py`:
   - `get_token_balance(user_id, org_id)` - Get current balance
   - `add_tokens(user_id, org_id, amount, reason)` - Add tokens (admin)
   - `charge_tokens(user_id, org_id, amount, source_type)` - Charge tokens
   - `get_available_tokens(user_id, org_id)` - Get total available (subscription + balance)
-- [ ] Create `app/services/balance/balance_models.py`:
+- [x] Create `app/services/balance/balance_models.py`:
   - `TokenBalance` model class
   - `TokenChargeResult` model
 
@@ -1374,38 +1621,95 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 **Estimated Time:** 3-4 hours
 
+**Files Created:**
+- `backend/app/services/balance/__init__.py`
+- `backend/app/services/balance/token_balance_service.py`
+- `backend/app/services/balance/balance_models.py`
+
+**Features:**
+- Get or create token balance
+- Add tokens (admin operation)
+- Charge tokens with priority: subscription first, then balance
+- Get total available tokens (subscription + balance)
+- Automatic balance creation if missing
+- Proper error handling for insufficient tokens
+
 ### 2.6 Token Charging Integration
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Update `app/services/llm/client.py`:
+- [x] Update `app/services/llm/client.py`:
   - Extract `input_tokens` and `output_tokens` from API response
   - Return both in response dict
-- [ ] Update `app/services/analysis/steps.py`:
+- [x] Update `app/services/analysis/steps.py`:
   - Get pricing from pricing service
   - Calculate costs
   - Charge tokens via token balance service
   - Record consumption via token consumption service
   - Update `analysis_steps` table with input/output tokens
-- [ ] Update `app/services/analysis/pipeline.py`:
+  - **Source Name Tracking**: Determine pipeline name from context (test runs) or database (saved runs) and pass as `source_name` to consumption recording
+- [x] Update `app/services/analysis/pipeline.py`:
   - Pass token charging through pipeline execution
   - Handle insufficient tokens error
+  - Update consumption records with step_id after step is saved
+  - Include pricing information in step records
+  - **Source Name Context**: Add `_source_name` to enhanced context (analysis type display name) for consumption tracking
+- [x] Update `app/services/tools/executor.py`:
+  - Accept `source_name` parameter in constructor
+  - **RAG Tool Source Tracking**: Build combined source name for RAG tools called from pipeline steps
+    - Format: "Pipeline Name > RAG Name (chat)" when called from pipeline
+    - Format: "RAG Name (chat)" when called standalone
+  - Pass `source_name` to embedding service when generating query embeddings
+- [x] Update `app/services/rag/embedding.py`:
+  - Accept `source_name` parameter in `generate_embedding()` and `generate_embeddings_batch()`
+  - Pass `source_name` to `record_consumption()` for embedding operations
+- [x] Update RAG API endpoints (`app/api/rags.py`, `app/api/rags_public.py`):
+  - Pass RAG name as `source_name` for embedding operations (with "(embeddings)" or "(chat)" suffix)
+- [x] Update `app/api/analyses.py`:
+  - Pass `_source_name` (analysis type display name) in context for test step and test pipeline endpoints
 
 **Dependencies:** 2.1 (pricing), 2.3 (consumption), 2.5 (balance), 2.4 (subscription)
 
 **Estimated Time:** 6-8 hours
 
+**Changes Made:**
+- LLM client now extracts and returns `input_tokens` and `output_tokens`
+- Analysis steps charge tokens before recording consumption
+- Consumption is recorded with full pricing details and source name
+- Analysis steps table updated with token breakdown and pricing
+- Insufficient tokens error handling with clear error messages
+- **Source Name Tracking**: Complete tracking of where consumption occurred (pipelines, RAGs, RAGs from pipelines)
+
 ### 2.7 Subscription Renewal Job
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/services/scheduler/subscription_renewal.py`:
+- [x] Create `app/services/scheduler/subscription_renewal.py`:
   - `renew_expired_subscriptions()` - Find and renew subscriptions
-  - Run as scheduled job (daily cron)
-- [ ] Integrate with existing scheduler service
-- [ ] Handle trial expiration (change status to expired)
+  - Run as scheduled job (daily cron at 00:00 UTC)
+- [x] Integrate with existing scheduler service
+- [x] Handle trial expiration (change status to expired)
 
 **Dependencies:** 2.4 (subscription service)
 
 **Estimated Time:** 2-3 hours
+
+**Files Created:**
+- `backend/app/services/scheduler/subscription_renewal.py`
+
+**Features:**
+- Daily job runs at 00:00 UTC
+- Finds subscriptions with period_end_date < today
+- Renews active subscriptions (resets token usage, updates period dates)
+- Expires trials that have passed trial_ends_at
+- Handles both period-based and trial-based expiration
+- Integrated with scheduler service (auto-starts with scheduler)
 
 ---
 
@@ -1413,60 +1717,132 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 3.1 Subscription Endpoints
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/api/subscriptions.py`:
+- [x] Create `app/api/subscriptions.py`:
   - `GET /api/subscriptions/current` - Get current subscription
   - `GET /api/subscriptions/history` - Get subscription history
-- [ ] Create request/response models:
+- [x] Create request/response models:
   - `SubscriptionResponse`
   - `SubscriptionHistoryResponse`
+  - `SubscriptionHistoryItem`
 
 **Dependencies:** 2.4 (subscription service)
 
 **Estimated Time:** 2-3 hours
 
+**Files Created:**
+- `backend/app/api/subscriptions.py`
+
+**Features:**
+- Get current active subscription with statistics
+- Get subscription history with pagination
+- Includes token usage, remaining tokens, and period information
+- Includes available tokens (subscription + balance)
+
 ### 3.2 Token Package Endpoints
 
+**Status**: 🟡 Partially Complete (Admin-only purchase, user purchase pending)
+**Started**: 2025-01-28  
+**Completed**: Admin purchase only
+
 **Tasks:**
-- [ ] Create `app/api/token_packages.py`:
-  - `GET /api/token-packages` - List available packages
-  - `POST /api/token-packages/{package_id}/purchase` - Purchase package (admin manually adds)
-- [ ] Create request/response models:
-  - `TokenPackageResponse`
-  - `PurchaseTokenPackageResponse`
+- [x] Create `app/api/token_packages.py`:
+  - `GET /api/token-packages` - List available packages ✅
+  - `POST /api/token-packages/{package_id}/purchase` - Purchase package (admin-only) ✅
+- [x] Create request/response models:
+  - `TokenPackageResponse` ✅
+  - `PurchaseTokenPackageRequest` ✅
+  - `PurchaseTokenPackageResponse` ✅
+- [ ] **User Purchase Flow (To Be Implemented)**:
+  - Update `POST /api/token-packages/{package_id}/purchase` to allow user purchases
+    - Remove admin requirement (or make it optional for manual admin purchases)
+    - Add payment verification (placeholder for payment gateway integration)
+    - For now: Manual admin approval or future payment gateway
+  - `GET /api/token-packages/purchases` - Get user's purchase history
+    - Returns list of purchases from `token_purchases` table
+    - Filtered by current user and organization
+    - Includes: package name, tokens, price, purchase date
+    - Pagination support
 
-**Dependencies:** 2.5 (token balance service)
+**Dependencies:** 2.5 (token balance service), Payment integration (future)
 
-**Estimated Time:** 2 hours
+**Estimated Time:** 2 hours (admin purchase) + 3-4 hours (user purchase flow)
+
+**Files Created:**
+- `backend/app/api/token_packages.py`
+
+**Current Features:**
+- List all visible and active token packages ✅
+- Admin-only purchase endpoint ✅
+  - Admin manually adds tokens to user balance
+  - Records purchase in `token_purchases` table
+  - Returns new balance after purchase
+
+**Features to Add:**
+- User-facing purchase endpoint (with payment verification)
+- Purchase history endpoint
+- Payment integration (placeholder initially, payment gateway later)
+
+**Key Points:**
+- **Purchased tokens are added to balance** (not reset monthly) ✅
+- **Balance tokens persist** until consumed (unlike subscription tokens which reset monthly) ✅
+- **Purchase history** will show all past purchases
+- **Payment flow**: Initially manual admin approval, later payment gateway integration
 
 ### 3.3 Consumption Endpoints
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/api/consumption.py`:
+- [x] Create `app/api/consumption.py`:
   - `GET /api/consumption/stats` - Get consumption statistics
   - `GET /api/consumption/history` - Get consumption history
   - `GET /api/consumption/chart` - Get chart data
-- [ ] Create request/response models:
+  - `GET /api/consumption/stats/user/{user_id}` - Get user stats (admin only)
+- [x] Create request/response models:
   - `ConsumptionStatsResponse`
   - `ConsumptionHistoryResponse`
   - `ChartDataResponse`
-- [ ] Add filters: date range, model, provider, user_id (for org admin)
+  - `ConsumptionStatsByModel`
+  - `ConsumptionStatsByProvider`
+- [x] Add filters: date range, model, provider, user_id (for org admin)
 
 **Dependencies:** 2.3 (consumption service)
 
 **Estimated Time:** 4-5 hours
 
+**Files Created:**
+- `backend/app/api/consumption.py`
+
+**Features:**
+- Get consumption statistics with breakdown by model and provider
+- Get consumption history with filtering (date, model, provider) and pagination
+  - **Source Name**: Each history item includes `source_name` field showing where consumption occurred
+- Get chart data with flexible date grouping (day/week/month)
+- Admin endpoint to view any user's consumption stats
+- All endpoints support date range filtering
+
 ### 3.4 Admin Subscription Management Endpoints
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/api/admin/subscriptions.py`:
+- [x] Create `app/api/admin/subscriptions.py`:
   - `GET /api/admin/users/{user_id}/subscription` - Get user subscription
   - `PUT /api/admin/users/{user_id}/subscription` - Update subscription
     - Change plan
     - Add tokens
     - Reset period
     - Extend trial
-- [ ] Create request/response models:
+- [x] Create request/response models:
   - `UpdateSubscriptionRequest`
   - `UserSubscriptionResponse`
 
@@ -1474,16 +1850,34 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 **Estimated Time:** 3-4 hours
 
+**Files Created:**
+- `backend/app/api/admin/subscriptions.py`
+- `backend/app/api/admin/__init__.py`
+
+**Features:**
+- Get user subscription with full details
+- Update subscription with multiple options:
+  - Change plan (updates features automatically)
+  - Add tokens to balance
+  - Reset period (renew subscription)
+  - Extend trial period
+- Supports organization_id parameter (defaults to personal org)
+- Returns updated subscription with statistics
+
 ### 3.5 Admin Pricing Management Endpoints
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/api/admin/pricing.py`:
+- [x] Create `app/api/admin/pricing.py`:
   - `GET /api/admin/pricing` - Get all pricing (by provider)
   - `GET /api/admin/pricing/models/{model_id}` - Get model pricing
   - `PUT /api/admin/pricing/models/{model_id}` - Update model pricing
   - `POST /api/admin/pricing/sync-openrouter` - Sync from OpenRouter
   - `POST /api/admin/pricing/sync-gemini` - Sync from Gemini (future)
-- [ ] Create request/response models:
+- [x] Create request/response models:
   - `ModelPricingResponse`
   - `UpdatePricingRequest`
   - `PricingSyncResponse`
@@ -1492,22 +1886,49 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 **Estimated Time:** 5-6 hours
 
+**Files Created:**
+- `backend/app/api/admin/pricing.py`
+
+**Features:**
+- Get all pricing with optional filters (provider, is_active)
+- Get specific model pricing by ID
+- Update model pricing (costs, fees, prices, visibility)
+- Automatic price recalculation when costs/fees change
+- Sync pricing from OpenRouter API
+- Sync pricing from Gemini API (placeholder)
+- All endpoints are admin-only
+
 ### 3.6 Provider Credentials Endpoints
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `app/api/admin/providers.py`:
-  - `GET /api/admin/providers` - List all providers
-  - `GET /api/admin/providers/{provider}` - Get provider details
-  - `PUT /api/admin/providers/{provider}` - Update provider credentials
-  - `POST /api/admin/providers/{provider}/test` - Test connection
-  - `POST /api/admin/providers/{provider}/sync-models` - Sync models from provider
-- [ ] Create request/response models:
-  - `ProviderResponse`
-  - `UpdateProviderRequest`
+- [x] Create `app/api/admin/provider_credentials.py`:
+  - `GET /api/admin/provider-credentials` - List all providers
+  - `GET /api/admin/provider-credentials/{provider}` - Get provider credential
+  - `PUT /api/admin/provider-credentials/{provider}` - Update provider credential
+- [x] Create request/response models:
+  - `ProviderCredentialResponse`
+  - `UpdateProviderCredentialRequest`
 
-**Dependencies:** 2.2 (sync adapters)
+**Dependencies:** 1.1 (provider_credentials table)
 
-**Estimated Time:** 4-5 hours
+**Estimated Time:** 2-3 hours
+
+**Files Created:**
+- `backend/app/api/admin/provider_credentials.py`
+
+**Features:**
+- List all provider credentials
+- Get specific provider credential by provider name
+- Update provider credentials (API keys, base URLs, active status)
+- API keys are masked in responses (show only last 4 characters)
+- Updates OpenRouter API key in AppSettings for backward compatibility
+- All endpoints are admin-only
+
+**Note:** Model syncing is handled via pricing sync endpoints (3.5)
 
 ---
 
@@ -1515,75 +1936,169 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 4.1 Consumption Page
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `frontend/app/consumption/page.tsx`:
+- [x] Create `frontend/app/consumption/page.tsx`:
   - Header: Current subscription, tokens remaining, period end date
   - Statistics cards: Tokens used, remaining, cost (tokens primary, cost secondary)
   - Consumption chart: Line chart (tokens over time)
-  - Consumption table: Date, Model, Tokens (large), Cost (small), Source
-  - User filter: Dropdown for org admin (All Users / specific user)
-  - Filters: Date range, model, provider
-  - Export functionality (CSV, PDF)
-- [ ] Create `frontend/components/ConsumptionChart.tsx`:
-  - Line chart component (use charting library)
-  - Tokens on primary axis, optional cost overlay
-- [ ] Create `frontend/components/ConsumptionTable.tsx`:
+  - Consumption table: Date, Model, Tokens (large), Cost (small), Списано (Charged), Источник (Source)
+  - **Source Column**: Displays `source_name` showing where consumption occurred:
+    - Pipeline names for pipeline step executions
+    - RAG names with "(embeddings)" or "(chat)" suffix for RAG operations
+    - Combined format "Pipeline Name > RAG Name (chat)" when RAG is called from pipeline
+    - Shows "-" if source name is not available
+  - Filters: Date range, model, provider, grouping
+  - Pagination for history table
+- [x] Create `frontend/components/ConsumptionChart.tsx`:
+  - SVG-based line chart component
+  - Tokens on primary axis
+  - Supports day/week/month grouping
+- [x] Create `frontend/components/ConsumptionTable.tsx`:
   - Table with pagination
   - Tokens column (large), Cost column (small)
-- [ ] Create API client functions:
+- [x] Create API client functions:
   - `fetchConsumptionStats()`
   - `fetchConsumptionHistory()`
   - `fetchConsumptionChart()`
+  - `fetchCurrentSubscription()`
 
-**Dependencies:** 3.3 (consumption endpoints)
+**Dependencies:** 3.3 (consumption endpoints), 3.1 (subscription endpoints)
 
 **Estimated Time:** 8-10 hours
+
+**Files Created:**
+- `frontend/app/consumption/page.tsx`
+- `frontend/components/ConsumptionChart.tsx`
+- `frontend/components/ConsumptionTable.tsx`
+- `frontend/lib/api/consumption.ts`
+- `frontend/lib/api/subscriptions.ts`
 
 **Display Principles:**
 - **Tokens are primary**: Large, prominent display
 - **Costs are secondary**: Shown in billing/usage sections, but not in focus (smaller, less prominent)
 - **Currency**: All costs in rubles (₽)
 
-### 4.2 Billing Page (Placeholder)
+**Features:**
+- Subscription header with available tokens and period info
+- Statistics cards showing total tokens, remaining tokens, and cost
+- Interactive consumption chart with date grouping
+- Filterable consumption history table with pagination
+  - **Source Column**: Shows where each consumption event occurred (pipeline name, RAG name with operation type)
+  - **Charged Column**: Shows whether tokens were charged from subscription or balance
+- Date range, model, and provider filters
+
+### 4.2 Billing Page (Token Package Purchase)
+
+**Status**: ⚪ Not Started (Placeholder Complete, Full Implementation Pending)
+**Started**: 2025-01-28 (Placeholder)
+**Completed**: Placeholder only
+
+**Current Status**: Placeholder page exists, full purchase flow needs to be implemented.
 
 **Tasks:**
-- [ ] Create `frontend/app/billing/page.tsx`:
+- [x] Create `frontend/app/billing/page.tsx` (Placeholder):
   - Placeholder message: "Billing information will be available soon"
   - Link to contact support
+  - Link to consumption page
   - Simple, clean design
+- [ ] **Full Implementation (To Be Done)**:
+  - Display available token packages (Small, Medium, Large)
+  - Package cards with: name, description, token amount, price
+  - "Купить пакет" (Purchase Package) button for each package
+  - Purchase flow:
+    1. User selects package
+    2. Payment integration (placeholder for now - can be manual admin approval or future payment gateway)
+    3. After payment confirmation, tokens added to balance
+    4. Show success message with new balance
+  - Purchase history section:
+    - List of all purchased packages (from `token_purchases` table)
+    - Show: package name, tokens, price, purchase date
+    - Pagination for history
+  - Current balance display
+  - Link to consumption page
 
-**Dependencies:** None
+**Dependencies:** 3.2 (token package endpoints), Payment integration (future)
 
-**Estimated Time:** 1 hour
+**Estimated Time:** 6-8 hours (full implementation)
+
+**Files Created:**
+- `frontend/app/billing/page.tsx` (placeholder exists)
+
+**Files to Create/Update:**
+- `frontend/app/billing/page.tsx` (full implementation)
+- `frontend/lib/api/token-packages.ts` (user-facing purchase functions)
+- `backend/app/api/token_packages.py` (update purchase endpoint to allow user purchases)
+
+**Features (Full Implementation):**
+- Package selection UI with cards
+- Purchase flow with payment integration (placeholder)
+- Purchase history display
+- Current balance display
+- Success/error messages
+- Responsive design
+- All text in Russian
+
+**Key Points:**
+- **Purchased tokens are added to balance** (not reset monthly)
+- **Balance tokens persist** until consumed (unlike subscription tokens which reset monthly)
+- **Purchase history** shows all past purchases
+- **Payment integration** can be manual admin approval initially, payment gateway later
 
 ### 4.3 Admin - User Subscription Management
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `frontend/app/admin/users/[id]/subscription/page.tsx`:
+- [x] Create `frontend/app/admin/users/[id]/subscription/page.tsx`:
   - View current subscription (plan, status, tokens, dates)
   - Change plan dropdown
-  - Add tokens input field (with reason field)
+  - Add tokens input field
   - Reset period button
   - Extend trial input (days)
   - Consumption statistics section
-  - Token purchase history table
-- [ ] Create components:
-  - `SubscriptionDetailsCard.tsx`
-  - `SubscriptionActions.tsx`
-  - `ConsumptionStatsCard.tsx`
-- [ ] Create API client functions:
+- [x] Create API client functions:
   - `fetchUserSubscription(userId)`
   - `updateUserSubscription(userId, data)`
+  - `fetchSubscriptionPlans()`
+- [x] Add endpoint to list subscription plans for admin
+- [x] Add link to subscription page from user details page
 
 **Dependencies:** 3.4 (admin subscription endpoints)
 
 **Estimated Time:** 6-8 hours
 
+**Files Created:**
+- `frontend/app/admin/users/[id]/subscription/page.tsx`
+- `frontend/lib/api/admin-subscriptions.ts`
+
+**Files Modified:**
+- `backend/app/api/admin/subscriptions.py` (added list subscription plans endpoint)
+- `frontend/app/admin/users/[id]/page.tsx` (added subscription link)
+
+**Features:**
+- Complete subscription details view (plan, status, tokens, dates, balance)
+- Change subscription plan dropdown
+- Add tokens to balance
+- Reset subscription period
+- Extend trial period (for trial subscriptions)
+- Consumption statistics for current period
+- Clean, responsive design
+
 ### 4.4 Admin - Pricing Management
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `frontend/app/admin/settings/pricing/page.tsx`:
-  - Provider tabs: OpenRouter, Gemini, OpenAI, etc.
+- [x] Create `frontend/app/admin/settings/pricing/page.tsx`:
+  - Provider tabs: OpenRouter, Gemini
   - Model list per provider
   - Pricing editor per model:
     - Input cost (₽ per 1K) - editable
@@ -1592,58 +2107,112 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
     - Platform fee (%) - editable, default 40%
     - User price (₽ per 1K) - auto-calculated, editable
     - Enable/disable toggle
-  - Bulk actions:
-    - Import from provider API
-    - Apply platform fee to all
-    - Enable/disable all
+    - Visible/hidden toggle
+  - Search and filter models
   - Sync button per provider
-- [ ] Create components:
-  - `PricingEditor.tsx` - Per-model editor
-  - `ProviderPricingTab.tsx` - Provider tab content
-  - `BulkActions.tsx` - Bulk operations
-- [ ] Create API client functions:
+- [x] Create API client functions:
   - `fetchPricing(provider)`
   - `updateModelPricing(modelId, data)`
   - `syncPricingFromProvider(provider)`
+- [x] Add link to pricing page from admin settings
 
 **Dependencies:** 3.5 (admin pricing endpoints)
 
 **Estimated Time:** 10-12 hours
 
+**Files Created:**
+- `frontend/app/admin/settings/pricing/page.tsx`
+- `frontend/lib/api/admin-pricing.ts`
+
+**Files Modified:**
+- `frontend/app/admin/settings/page.tsx` (added pricing link)
+
+**Features:**
+- Provider tabs (OpenRouter, Gemini) with model counts
+- Per-model pricing editor with all required fields
+- Automatic calculation of average cost and user price
+- Manual price override with recalculation button
+- Search and filter functionality
+- Sync with provider API (OpenRouter, Gemini)
+- Enable/disable and visible/hidden toggles
+- USD to RUB conversion (using exchange rate)
+- Clean, responsive design
+
 ### 4.5 Admin - Provider Credentials Management
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Create `frontend/app/admin/settings/providers/page.tsx`:
-  - Provider sections: OpenRouter, Gemini, OpenAI, etc.
+- [x] Create `frontend/app/admin/settings/providers/page.tsx`:
+  - Provider sections: OpenRouter, Gemini, etc.
   - Each section:
     - Provider name and description
-    - API key input (encrypted, masked)
+    - API key input (masked, password field)
     - Base URL input (optional)
     - Enable/disable toggle
-    - Test connection button
-    - Sync models button
-  - Add new provider button
-- [ ] Create components:
-  - `ProviderSection.tsx` - Per-provider section
-  - `ProviderCredentialsForm.tsx` - Credentials form
-- [ ] Create API client functions:
-  - `fetchProviders()`
-  - `updateProvider(provider, data)`
-  - `testProviderConnection(provider)`
-  - `syncProviderModels(provider)`
+    - Sync models button (links to pricing sync)
+  - Show/hide API key toggle
+  - Masked API key display (shows last 4 characters)
+- [x] Create API client functions:
+  - `fetchProviderCredentials()`
+  - `fetchProviderCredential(provider)`
+  - `updateProviderCredential(provider, data)`
+- [x] Add link to providers page from admin settings
 
 **Dependencies:** 3.6 (provider endpoints)
 
 **Estimated Time:** 6-8 hours
 
+**Files Created:**
+- `frontend/app/admin/settings/providers/page.tsx`
+- `frontend/lib/api/admin-provider-credentials.ts`
+
+**Files Modified:**
+- `frontend/app/admin/settings/page.tsx` (added providers link)
+
+**Features:**
+- List all provider credentials
+- Per-provider section with all settings
+- API key input with show/hide toggle
+- Base URL configuration
+- Enable/disable toggle
+- Sync models button (integrates with pricing sync)
+- Masked API key display for security
+- Status badges (active/inactive)
+- Created/updated timestamps
+- Clean, responsive design
+
 ### 4.6 Navigation Updates
 
+**Status**: ✅ Complete  
+**Started**: 2025-01-28  
+**Completed**: 2025-01-28
+
 **Tasks:**
-- [ ] Add "Consumption" link to navigation
-- [ ] Add "Billing" link to navigation
-- [ ] Add "Pricing" link to admin settings
-- [ ] Add "Providers" link to admin settings
-- [ ] Update user settings to show subscription info
+- [x] Add "Consumption" link to navigation (already done in 4.1)
+- [x] Add "Billing" link to navigation
+- [x] Add "Pricing" link to admin settings (already done in 4.4)
+- [x] Add "Providers" link to admin settings (already done in 4.5)
+- [x] Update user settings to show subscription info
+
+**Dependencies:** None
+
+**Estimated Time:** 2-3 hours
+
+**Files Modified:**
+- `frontend/components/Sidebar.tsx` (added Billing link)
+- `frontend/app/user-settings/page.tsx` (added Subscription tab with subscription info)
+
+**Features:**
+- Billing link in sidebar navigation
+- Subscription tab in user settings showing:
+  - Current subscription details (plan, status, tokens, dates)
+  - Token usage statistics
+  - Available tokens (including balance)
+  - Subscription history table
+  - Links to consumption and billing pages
 
 **Dependencies:** 4.1, 4.2 (pages created)
 
@@ -1699,6 +2268,42 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 **Dependencies:** 2.4 (subscription service), 2.7 (renewal job)
 
 **Estimated Time:** 3-4 hours
+
+### 5.4 Pricing Page on Index (Landing Page)
+
+**Tasks:**
+- [ ] Create public API endpoint:
+  - `GET /api/subscription-plans` - Get all visible subscription plans (public, no auth required)
+  - Returns: plan name, display_name, description, monthly_tokens, price_monthly, included_features, is_trial, trial_duration_days
+- [ ] Update `frontend/app/page.tsx` (index/landing page):
+  - Add "Цены" (Pricing) section or dedicated pricing page
+  - Display all subscription plans (Trial, Basic, Pro) with:
+    - Plan name and description
+    - Token allocations (formatted: 300K, 750K, 1.5M)
+    - Monthly price (₽990, ₽1,900, or "Бесплатно" for trial)
+    - Included features list
+    - "Начать пробный период" button for trial
+    - "Выбрать план" buttons for paid plans (links to registration)
+  - Display token packages (Small, Medium, Large) with:
+    - Token amount and price
+    - "Купить пакет" buttons (links to registration or billing page)
+  - Clean, professional design matching application design system
+  - Responsive layout (mobile, tablet, desktop)
+- [ ] Create API client function:
+  - `fetchSubscriptionPlans()` - Fetch all visible plans (public endpoint)
+
+**Dependencies:** 1.3 (seed data), 3.1 (subscription endpoints)
+
+**Estimated Time:** 4-6 hours
+
+**Design Requirements:**
+- Cards layout for plans (3-column on desktop, stacked on mobile)
+- Clear visual hierarchy (Trial highlighted, Basic/Pro side-by-side)
+- Feature comparison table or list
+- Call-to-action buttons for each plan
+- Token package cards below subscription plans
+- All text in Russian
+- Light theme consistent with application design
 
 ---
 
@@ -1868,10 +2473,14 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 9. **Phase 4.3-4.5**: Admin Pages (Days 6-7)
 
 ### Week 4: Trial System & Polish
-10. **Phase 5**: Trial System (Days 1-2)
-11. **Phase 6**: Feature Sync (Days 3-4)
-12. **Phase 7**: Testing (Days 5-6)
-13. **Phase 8**: Migration & Deployment (Day 7)
+10. **Phase 5**: Trial System (Days 1-3)
+    - 5.1: Auto-Create Trial on Registration (Day 1)
+    - 5.2: Trial Path on Index Page (Day 1)
+    - 5.3: Trial Expiration Handling (Day 2)
+    - 5.4: Pricing Page on Index (Day 3)
+11. **Phase 6**: Feature Sync (Days 4-5)
+12. **Phase 7**: Testing (Days 6-7)
+13. **Phase 8**: Migration & Deployment (Day 8)
 
 ---
 
@@ -1942,13 +2551,18 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### Phase 4 Complete
 - [ ] Consumption page working
-- [ ] Billing page placeholder
+- [ ] Billing page with token package purchase flow
+  - [ ] Package selection UI
+  - [ ] Purchase flow (with payment integration placeholder)
+  - [ ] Purchase history display
+  - [ ] Current balance display
 - [ ] Admin pages working
 
 ### Phase 5 Complete
 - [ ] Trial auto-created on registration
 - [ ] Trial path on index page
 - [ ] Trial expiration handling
+- [ ] Pricing page on index showing all plans and token packages
 
 ### Phase 6 Complete
 - [ ] Feature sync working
@@ -1969,7 +2583,7 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 ## Next Steps
 
 1. **Review this plan** with team
-2. ~~**Set token allocations** for plans~~ ✅ **Complete**: Basic (15M tokens), Pro (30M tokens)
+2. ~~**Set token allocations** for plans~~ ✅ **Complete**: Trial (300K tokens), Basic (750K tokens), Pro (1.5M tokens) - Based on GPT-5 pricing with 1:1 economic model
 3. ~~**Set pricing** for Basic and Pro plans~~ ✅ **Complete**: Basic (₽990/month), Pro (₽1,900/month)
 4. **Start Phase 1**: Database schema and migrations
 5. **Iterate**: Build, test, deploy incrementally
@@ -2028,6 +2642,11 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
   - "Sign Up" and "Sign In" buttons
   - Public information about platform capabilities
   - No authentication required
+  - **Pricing Section** (Phase 5.4 - To be implemented):
+    - Display all subscription plans (Trial, Basic, Pro) with token allocations and prices
+    - Display token packages (Small, Medium, Large)
+    - "Start Free Trial" and "Choose Plan" buttons
+    - Clean, professional design matching application design system
 - [x] **User Settings Page** (`/user-settings`):
   - Profile: Name, email, password change
   - Preferences: Theme, language, timezone, notifications
