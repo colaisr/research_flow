@@ -341,6 +341,14 @@ function UserCard({
     enabled: isExpanded,
   })
 
+  const updateUserMutation = useMutation({
+    mutationFn: ({ userId, updates }: { userId: number; updates: any }) => updateUser(userId, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user', user.id, 'subscription'] })
+    },
+  })
+
   const updateSubscriptionMutation = useMutation({
     mutationFn: (updates: any) => updateUserSubscription(user.id, updates),
     onSuccess: async (data) => {
