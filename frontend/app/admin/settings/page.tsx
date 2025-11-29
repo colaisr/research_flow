@@ -1201,7 +1201,7 @@ export default function AdminSettingsPage() {
                             (model.description && model.description.toLowerCase().includes(modelPart)) ||
                             (model.description && model.description.toLowerCase().includes(modelPartNormalized)) ||
                             (model.description && model.description.toLowerCase().includes(modelPartSpaces))
-        matchesSearch = providerMatches && modelMatches
+        matchesSearch = !!(providerMatches && modelMatches)
       } else {
         // Regular search - check all fields with normalized versions
         matchesSearch = model.name.toLowerCase().includes(searchLower) ||
