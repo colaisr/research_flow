@@ -68,7 +68,7 @@ function ProviderSection({
   const handleSave = () => {
     const updates: UpdateProviderCredentialRequest = {}
     if (localState.apiKey !== localState.originalApiKey) {
-      updates.api_key_encrypted = localState.apiKey || null
+      updates.api_key_encrypted = localState.apiKey || undefined
     }
     if (localState.baseUrl !== credential.base_url) {
       updates.base_url = localState.baseUrl
