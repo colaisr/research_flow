@@ -59,14 +59,14 @@ export default function UserSubscriptionPage() {
   const { data: consumptionStats } = useQuery({
     queryKey: ['admin', 'user', userId, 'consumption-stats'],
     queryFn: () =>
-      fetchConsumptionStats({
-        start_date: subscription?.period_start_date
+      fetchConsumptionStats(
+        subscription?.period_start_date
           ? new Date(subscription.period_start_date).toISOString()
           : undefined,
-        end_date: subscription?.period_end_date
+        subscription?.period_end_date
           ? new Date(subscription.period_end_date).toISOString()
-          : undefined,
-      }),
+          : undefined
+      ),
     enabled: !!subscription,
   })
 
