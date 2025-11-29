@@ -8,6 +8,7 @@ import { useOrganizationContext } from '@/contexts/OrganizationContext'
 import { API_BASE_URL } from '@/lib/config'
 import apiClient from '@/lib/api'
 import { useRouter } from 'next/navigation'
+import { fetchCurrentSubscription, fetchSubscriptionHistory, Subscription } from '@/lib/api/subscriptions'
 
 interface UserSettings {
   profile: {
@@ -23,9 +24,6 @@ interface UserSettings {
     language: string
     timezone: string
     notifications_enabled: boolean
-  }
-  api_keys: {
-    openrouter_api_key: string | null
   }
   organizations: Array<{
     id: number
@@ -61,14 +59,6 @@ async function changePassword(current_password: string, new_password: string) {
   return data
 }
 
-async function updateApiKeys(openrouter_api_key: string | null) {
-  const { data } = await apiClient.put(
-    `${API_BASE_URL}/api/user-settings/api-keys`,
-    { openrouter_api_key },
-    { withCredentials: true }
-  )
-  return data
-}
 
 export default function UserSettingsPage() {
   const { isLoading: authLoading } = useRequireAuth()
@@ -78,7 +68,7 @@ export default function UserSettingsPage() {
   const { organizations, switchOrganization, isSwitching, createOrganization, leaveOrganization } = useOrganizations()
   const { currentOrganizationId } = useOrganizationContext()
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'api-keys' | 'organizations'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'organizations' | 'subscription'>('profile')
   const [showCreateOrgForm, setShowCreateOrgForm] = useState(false)
   const [newOrgName, setNewOrgName] = useState('')
 
@@ -116,9 +106,6 @@ export default function UserSettingsPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   
-  // API keys form state
-  const [openRouterKey, setOpenRouterKey] = useState('')
-  const [showOpenRouterKey, setShowOpenRouterKey] = useState(false)
 
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['user-settings'],
@@ -131,7 +118,6 @@ export default function UserSettingsPage() {
     if (settings) {
       setFullName(settings.profile.full_name || '')
       setEmail(settings.profile.email)
-      setOpenRouterKey(settings.api_keys.openrouter_api_key || '')
     }
   }, [settings])
 
@@ -161,16 +147,6 @@ export default function UserSettingsPage() {
   })
 
 
-  const updateApiKeysMutation = useMutation({
-    mutationFn: () => updateApiKeys(openRouterKey || null),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-settings'] })
-      alert('API ключи обновлены')
-    },
-    onError: (err: any) => {
-      alert(err.response?.data?.detail || 'Ошибка при обновлении API ключей')
-    },
-  })
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -205,7 +181,7 @@ export default function UserSettingsPage() {
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav className="flex space-x-8">
-            {(['profile', 'api-keys', 'organizations'] as const).map((tab) => (
+            {(['profile', 'organizations', 'subscription'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -216,8 +192,8 @@ export default function UserSettingsPage() {
                 }`}
               >
                 {tab === 'profile' && 'Профиль'}
-                {tab === 'api-keys' && 'API Ключи'}
                 {tab === 'organizations' && 'Организации'}
+                {tab === 'subscription' && 'Подписка'}
               </button>
             ))}
           </nav>
@@ -333,47 +309,6 @@ export default function UserSettingsPage() {
                   {changePasswordMutation.isPending ? 'Изменение...' : 'Изменить пароль'}
                 </button>
               </form>
-            </div>
-          </div>
-        )}
-
-        {/* API Keys Tab */}
-        {activeTab === 'api-keys' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-2xl font-semibold mb-4 text-gray-900">
-              API Ключи
-            </h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700">
-                  OpenRouter API Key
-                </label>
-                <div className="relative">
-                  <input
-                    type={showOpenRouterKey ? 'text' : 'password'}
-                    value={openRouterKey}
-                    onChange={(e) => setOpenRouterKey(e.target.value)}
-                    placeholder="Получите на https://openrouter.ai"
-                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md bg-white text-gray-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowOpenRouterKey(!showOpenRouterKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                  >
-                    {showOpenRouterKey ? '👁️' : '👁️‍🗨️'}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                onClick={() => updateApiKeysMutation.mutate()}
-                disabled={updateApiKeysMutation.isPending}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md font-medium transition-colors"
-              >
-                {updateApiKeysMutation.isPending ? 'Сохранение...' : 'Сохранить API ключи'}
-              </button>
             </div>
           </div>
         )}
@@ -507,7 +442,246 @@ export default function UserSettingsPage() {
             </div>
           </div>
         )}
+
+        {/* Subscription Tab */}
+        {activeTab === 'subscription' && (
+          <SubscriptionTab />
+        )}
       </div>
+    </div>
+  )
+}
+
+function SubscriptionTab() {
+  const router = useRouter()
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery({
+    queryKey: ['subscription', 'current'],
+    queryFn: fetchCurrentSubscription,
+  })
+
+  const { data: history, isLoading: historyLoading } = useQuery({
+    queryKey: ['subscription', 'history'],
+    queryFn: () => fetchSubscriptionHistory(10, 0),
+  })
+
+  const getStatusBadgeColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'bg-green-100 text-green-800'
+      case 'trial':
+        return 'bg-blue-100 text-blue-800'
+      case 'expired':
+        return 'bg-red-100 text-red-800'
+      case 'cancelled':
+        return 'bg-gray-100 text-gray-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('ru-RU', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  }
+
+  const formatNumber = (num: number) => {
+    return new Intl.NumberFormat('ru-RU').format(num)
+  }
+
+  if (subscriptionLoading) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <p className="text-gray-600">Загрузка...</p>
+      </div>
+    )
+  }
+
+  if (!subscription) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <p className="text-gray-600">Подписка не найдена</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Current Subscription */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-2xl font-semibold mb-4 text-gray-900">
+          Текущая подписка
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              План
+            </label>
+            <p className="text-gray-900 font-medium">{subscription.plan_display_name}</p>
+            <p className="text-sm text-gray-500">{subscription.plan_name}</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Статус
+            </label>
+            <span
+              className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${getStatusBadgeColor(
+                subscription.status
+              )}`}
+            >
+              {subscription.status === 'active' && 'Активна'}
+              {subscription.status === 'trial' && 'Пробный период'}
+              {subscription.status === 'expired' && 'Истекла'}
+              {subscription.status === 'cancelled' && 'Отменена'}
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Токены выделено
+            </label>
+            <p className="text-gray-900 font-medium">{formatNumber(subscription.tokens_allocated)}</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Токены использовано
+            </label>
+            <p className="text-gray-900 font-medium">
+              {formatNumber(subscription.tokens_used_this_period)} (
+              {subscription.tokens_used_percent.toFixed(1)}%)
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Токены осталось
+            </label>
+            <p className="text-gray-900 font-medium">{formatNumber(subscription.tokens_remaining)}</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Доступно токенов
+            </label>
+            <p className="text-gray-900 font-medium">{formatNumber(subscription.available_tokens)}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              (включая баланс)
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Период
+            </label>
+            <p className="text-gray-900">
+              {formatDate(subscription.period_start_date)} -{' '}
+              {formatDate(subscription.period_end_date)}
+            </p>
+            <p className="text-sm text-gray-500 mt-1">
+              Осталось дней: {subscription.days_remaining_in_period}
+            </p>
+          </div>
+
+          {subscription.status === 'trial' && subscription.trial_days_remaining !== null && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Пробный период
+              </label>
+              <p className="text-gray-900">
+                Осталось дней: {subscription.trial_days_remaining}
+              </p>
+              {subscription.trial_ends_at && (
+                <p className="text-sm text-gray-500 mt-1">
+                  До: {formatDate(subscription.trial_ends_at)}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 flex gap-4">
+          <button
+            onClick={() => router.push('/consumption')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Просмотр потребления
+          </button>
+          <button
+            onClick={() => router.push('/subscription/plans')}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+          >
+            Изменить план
+          </button>
+          <button
+            onClick={() => router.push('/billing')}
+            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+          >
+            Биллинг
+          </button>
+        </div>
+      </div>
+
+      {/* Subscription History */}
+      {history && history.subscriptions.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-2xl font-semibold mb-4 text-gray-900">
+            История подписок
+          </h2>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    План
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Статус
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Период
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Начало
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {history.subscriptions.map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {item.plan_display_name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeColor(
+                          item.status
+                        )}`}
+                      >
+                        {item.status === 'active' && 'Активна'}
+                        {item.status === 'trial' && 'Пробный период'}
+                        {item.status === 'expired' && 'Истекла'}
+                        {item.status === 'cancelled' && 'Отменена'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(item.period_start_date)} - {formatDate(item.period_end_date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {formatDate(item.started_at)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

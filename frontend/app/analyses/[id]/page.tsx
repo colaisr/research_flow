@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import Select from '@/components/Select'
+import { fetchCurrentSubscription } from '@/lib/api/subscriptions'
+import Link from 'next/link'
 
 interface Model {
   id: number
@@ -110,6 +112,12 @@ export default function AnalysisDetailPage() {
     queryFn: fetchEnabledDataSources,
   })
 
+  // Fetch current subscription to check token availability
+  const { data: subscription } = useQuery({
+    queryKey: ['current-subscription'],
+    queryFn: fetchCurrentSubscription,
+  })
+
   const createRunMutation = useMutation({
     mutationFn: () =>
       createRun(analysis?.id || 0, editableConfig || undefined),
@@ -129,6 +137,31 @@ export default function AnalysisDetailPage() {
   }, [analysis, editableConfig])
 
   const handleRunAnalysis = () => {
+    // Check if subscription is expired
+    if (subscription && subscription.status === 'expired') {
+      const message = subscription.is_trial
+        ? 'Ваш пробный период истек.\n\nВыберите тарифный план для продолжения работы с системой.\n\nХотите перейти на страницу выбора плана?'
+        : 'Ваша подписка истекла.\n\nВыберите новый план для продолжения работы.\n\nХотите перейти на страницу выбора плана?'
+      const confirmed = confirm(message)
+      if (confirmed) {
+        router.push('/subscription/plans')
+      }
+      return
+    }
+    
+    // Check token availability before starting
+    if (subscription && subscription.available_tokens === 0) {
+      const confirmed = confirm(
+        'Недостаточно токенов для выполнения анализа.\n\n' +
+        'Доступно: 0 токенов\n\n' +
+        'Хотите перейти на страницу потребления для покупки токенов?'
+      )
+      if (confirmed) {
+        router.push('/consumption')
+      }
+      return
+    }
+    
     createRunMutation.mutate()
   }
 
@@ -526,13 +559,71 @@ export default function AnalysisDetailPage() {
             Запуск анализа
           </h2>
 
+          {/* Subscription Expired Warning */}
+          {subscription && subscription.status === 'expired' && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-red-800 mb-1">
+                    {subscription.is_trial ? 'Ваш пробный период истек' : 'Ваша подписка истекла'}
+                  </h3>
+                  <p className="text-sm text-red-700 mb-3">
+                    {subscription.is_trial 
+                      ? 'Выберите тарифный план для продолжения работы с системой'
+                      : 'Выберите новый план для продолжения работы'}
+                  </p>
+                  <Link
+                    href="/subscription/plans"
+                    className="inline-block px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                  >
+                    Выбрать план
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Token availability warning (for non-expired subscriptions with 0 tokens) */}
+          {subscription && subscription.status !== 'expired' && subscription.available_tokens === 0 && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-red-800 mb-1">
+                    Недостаточно токенов
+                  </h3>
+                  <p className="text-sm text-red-700 mb-3">
+                    У вас нет доступных токенов для выполнения анализа. Запросы будут заблокированы.
+                  </p>
+                  <Link
+                    href="/consumption"
+                    className="inline-block px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                  >
+                    Проверить баланс токенов →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mb-4">
             <button
               onClick={handleRunAnalysis}
-              disabled={createRunMutation.isPending}
+              disabled={createRunMutation.isPending || (subscription && (subscription.status === 'expired' || subscription.available_tokens === 0))}
               className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm hover:shadow-md"
             >
-              {createRunMutation.isPending ? 'Создание запуска...' : 'Запустить анализ'}
+              {createRunMutation.isPending 
+                ? 'Создание запуска...' 
+                : (subscription && subscription.status === 'expired')
+                ? 'Подписка истекла'
+                : (subscription && subscription.available_tokens === 0)
+                ? 'Недостаточно токенов'
+                : 'Запустить анализ'}
             </button>
           </div>
 

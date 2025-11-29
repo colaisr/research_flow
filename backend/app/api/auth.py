@@ -48,6 +48,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     full_name: str | None = None
+    plan_id: int | None = None  # Optional plan ID for subscription
 
 
 class VerifyEmailRequest(BaseModel):
@@ -253,7 +254,7 @@ async def register(
     
     # Auto-create personal organization
     try:
-        create_personal_organization(db, new_user.id, new_user.full_name, new_user.email)
+        personal_org = create_personal_organization(db, new_user.id, new_user.full_name, new_user.email)
     except Exception as e:
         # If org creation fails, rollback user creation
         db.rollback()
@@ -262,15 +263,44 @@ async def register(
             detail=f"Failed to create personal organization: {str(e)}"
         )
     
-    # Enable all features for new user (until payment is implemented)
-    try:
-        for feature_name in FEATURES.keys():
-            set_user_feature(db, new_user.id, feature_name, True)
-    except Exception as e:
-        # Log error but don't fail registration
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Failed to enable features for user {new_user.id}: {e}")
+    # Always create trial subscription for new users (simplifies registration)
+    # Users can upgrade to paid plans after email verification and login
+    from sqlalchemy import text
+    trial_plan_result = db.execute(
+        text("SELECT id FROM subscription_plans WHERE is_trial = 1 AND is_active = 1 LIMIT 1")
+    )
+    trial_plan = trial_plan_result.fetchone()
+    
+    if trial_plan:
+        plan_id_to_use = trial_plan[0]
+        try:
+            from app.services.subscription import create_subscription
+            from app.services.subscription import sync_features_from_plan
+            from app.services.balance import get_token_balance
+            
+            # Create trial subscription
+            create_subscription(db, new_user.id, personal_org.id, plan_id_to_use)
+            
+            # Create token balance (get_token_balance creates it if it doesn't exist)
+            get_token_balance(db, new_user.id, personal_org.id)
+            
+            # Sync features from plan
+            sync_features_from_plan(db, new_user.id, plan_id_to_use)
+        except Exception as e:
+            # Log error but don't fail registration
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to create trial subscription for user {new_user.id}: {e}")
+    else:
+        # Enable all features for new user (fallback if no plans exist)
+        try:
+            for feature_name in FEATURES.keys():
+                set_user_feature(db, new_user.id, feature_name, True)
+        except Exception as e:
+            # Log error but don't fail registration
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to enable features for user {new_user.id}: {e}")
     
     db.commit()
     db.refresh(new_user)

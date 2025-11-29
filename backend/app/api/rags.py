@@ -19,7 +19,7 @@ from app.models.rag_knowledge_base import RAGKnowledgeBase
 from app.models.rag_document import RAGDocument, EmbeddingStatus
 from app.models.rag_access import RAGAccess, RAGRole
 from app.models.user_tool import UserTool, ToolType
-from app.core.auth import get_current_user_dependency, get_current_organization_dependency
+from app.core.auth import get_current_user_dependency, get_current_organization_dependency, require_feature
 from app.services.rag import VectorDB, EmbeddingService, RAGStorage, DocumentProcessor
 from app.core.config import DEFAULT_EMBEDDING_MODEL, VECTOR_DB_BACKEND, RAG_MIN_SIMILARITY_SCORE, RAG_DEFAULT_MIN_SIMILARITY_SCORE
 from app.services.tools.encryption import encrypt_tool_config, decrypt_tool_config
@@ -246,7 +246,7 @@ async def list_rags(
 async def create_rag(
     request: CreateRAGRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency),
+    current_user: User = Depends(require_feature('rag')),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Create RAG (creates empty RAG + RAG tool, 1:1 relationship)."""
@@ -582,7 +582,7 @@ async def upload_document(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency),
+    current_user: User = Depends(require_feature('rag')),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Upload document (Owner/Editor/File Manager)."""
@@ -648,7 +648,11 @@ async def upload_document(
             # TODO: Process embeddings asynchronously (background task)
             # For now, we'll process synchronously (MVP)
             try:
-                _process_document_embeddings(db, rag_id, doc.id)
+                _process_document_embeddings(
+                    db, rag_id, doc.id,
+                    user_id=current_user.id,
+                    organization_id=current_organization.id
+                )
             except Exception as e:
                 logger.error(f"Failed to process embeddings for document {doc.id}: {e}")
                 doc.embedding_status = EmbeddingStatus.FAILED.value
@@ -724,7 +728,7 @@ async def import_url(
     url: str = Form(...),
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency),
+    current_user: User = Depends(require_feature('rag')),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Import document from URL (Owner/Editor/File Manager)."""
@@ -759,7 +763,11 @@ async def import_url(
         
         # Process embeddings
         try:
-            _process_document_embeddings(db, rag_id, doc.id)
+            _process_document_embeddings(
+                db, rag_id, doc.id,
+                user_id=current_user.id,
+                organization_id=current_organization.id
+            )
         except Exception as e:
             logger.error(f"Failed to process embeddings for document {doc.id}: {e}")
             doc.embedding_status = EmbeddingStatus.FAILED.value
@@ -890,7 +898,12 @@ async def update_document(
         db.commit()
         
         try:
-            _process_document_embeddings(db, rag_id, doc_id, update_existing=True)
+            _process_document_embeddings(
+                db, rag_id, doc_id,
+                user_id=current_user.id,
+                organization_id=current_organization.id,
+                update_existing=True
+            )
             logger.info(f"Successfully re-processed embeddings for document {doc_id}")
         except Exception as e:
             logger.error(f"Failed to re-process embeddings for document {doc_id}: {e}")
@@ -971,7 +984,7 @@ async def bulk_upload_documents(
     rag_id: int,
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency),
+    current_user: User = Depends(require_feature('rag')),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Bulk upload documents (Owner/Editor/File Manager)."""
@@ -1018,7 +1031,11 @@ async def bulk_upload_documents(
             
             # Process embeddings
             try:
-                _process_document_embeddings(db, rag_id, doc.id)
+                _process_document_embeddings(
+                    db, rag_id, doc.id,
+                    user_id=current_user.id,
+                    organization_id=current_organization.id
+                )
             except Exception as e:
                 logger.error(f"Failed to process embeddings for document {doc.id}: {e}")
                 doc.embedding_status = EmbeddingStatus.FAILED.value
@@ -1145,7 +1162,7 @@ async def reprocess_document(
     rag_id: int,
     doc_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency),
+    current_user: User = Depends(require_feature('rag')),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Re-extract/re-embed document (Owner/Editor)."""
@@ -1189,7 +1206,12 @@ async def reprocess_document(
     db.commit()
     
     try:
-        _process_document_embeddings(db, rag_id, doc_id, update_existing=True)
+        _process_document_embeddings(
+            db, rag_id, doc_id,
+            user_id=current_user.id,
+            organization_id=current_organization.id,
+            update_existing=True
+        )
         return {"success": True, "message": "Document reprocessed"}
     except Exception as e:
         logger.error(f"Failed to reprocess document {doc_id}: {e}")
@@ -1207,16 +1229,28 @@ async def query_rag(
     rag_id: int,
     request: QueryRAGRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency),
+    current_user: User = Depends(require_feature('rag')),
     current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Query RAG with semantic search (Owner/Editor/Viewer)."""
     rag, user_role = get_rag_with_access(db, rag_id, current_user, current_organization, required_role='viewer')
     
     # Generate query embedding
+    # Note: Token consumption is charged to the RAG owner (rag.user_id), not the querying user
+    # This is because the owner is responsible for maintaining the knowledge base
     embedding_service = EmbeddingService(db=db)
     try:
-        query_embedding = embedding_service.generate_embedding(request.query)
+        # Get RAG owner's user_id and organization_id for token tracking
+        rag_owner_id = rag.user_id if hasattr(rag, 'user_id') else current_user.id
+        rag_org_id = rag.organization_id
+        
+        query_embedding = embedding_service.generate_embedding(
+            request.query,
+            user_id=rag_owner_id,
+            organization_id=rag_org_id,
+            db=db,
+            source_name=f"{rag.name} (chat)" if rag.name else None
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1279,6 +1313,8 @@ def _process_document_embeddings(
     db: Session,
     rag_id: int,
     doc_id: int,
+    user_id: int,
+    organization_id: int,
     update_existing: bool = False
 ):
     """Process document embeddings (chunk, embed, store).
@@ -1287,6 +1323,8 @@ def _process_document_embeddings(
         db: Database session
         rag_id: RAG ID
         doc_id: Document ID
+        user_id: User ID for token consumption tracking
+        organization_id: Organization ID for token consumption tracking
         update_existing: If True, remove old embeddings before adding new ones
     """
     # Get document
@@ -1318,7 +1356,20 @@ def _process_document_embeddings(
     texts = [chunk['text'] for chunk in chunks]
     
     try:
-        embeddings = embedding_service.generate_embeddings_batch(texts)
+        # Get RAG name for source_name
+        rag = db.query(RAGKnowledgeBase).filter(RAGKnowledgeBase.id == rag_id).first()
+        rag_name = rag.name if rag else None
+        
+        result = embedding_service.generate_embeddings_batch(
+            texts,
+            user_id=user_id,
+            organization_id=organization_id,
+            db=db,
+            source_name=f"{rag_name} (embeddings)" if rag_name else None
+        )
+        embeddings = result["embeddings"]
+        tokens_used = result["total_tokens"]
+        logger.info(f"Generated embeddings for document {doc_id}: {len(embeddings)} embeddings, {tokens_used} tokens used")
     except Exception as e:
         logger.error(f"Failed to generate embeddings for document {doc_id}: {e}")
         raise

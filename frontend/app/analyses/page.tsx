@@ -229,12 +229,6 @@ export default function AnalysesPage() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500 uppercase tracking-wide text-xs">Стоимость:</span>
-                    <span className="text-gray-900 font-semibold">
-                      ${analysis.config.estimated_cost.toFixed(3)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-500 uppercase tracking-wide text-xs">Длительность:</span>
                     <span className="text-gray-900 font-semibold">
                       ~{Math.round(analysis.config.estimated_duration_seconds / 60)} мин

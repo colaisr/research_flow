@@ -28,13 +28,25 @@ _extraction_cache: Dict[str, Dict[str, Any]] = {}
 class ToolExecutor:
     """Executes user-configured tools based on tool type."""
     
-    def __init__(self, db: Optional[Session] = None):
+    def __init__(
+        self, 
+        db: Optional[Session] = None, 
+        source_name: Optional[str] = None,
+        user_id: Optional[int] = None,
+        organization_id: Optional[int] = None
+    ):
         """Initialize tool executor.
         
         Args:
             db: Optional database session for loading adapter tokens
+            source_name: Optional source name (e.g., pipeline name) for consumption tracking
+            user_id: Optional user ID for feature checks
+            organization_id: Optional organization ID for feature checks
         """
         self.db = db
+        self.source_name = source_name
+        self.user_id = user_id
+        self.organization_id = organization_id
     
     def execute_tool(
         self,
@@ -51,11 +63,34 @@ class ToolExecutor:
             Dict with execution results
             
         Raises:
-            ValueError: If tool type is not supported or execution fails
+            ValueError: If tool type is not supported, feature not enabled, or execution fails
         """
         # Check if tool is active
         if not tool.is_active:
             raise ValueError(f"Tool '{tool.display_name}' is not active and cannot be executed")
+        
+        # Check feature availability if user_id and organization_id are provided
+        if self.db and self.user_id and self.organization_id:
+            from app.services.feature import has_feature
+            
+            if tool.tool_type == ToolType.RAG.value:
+                if not has_feature(self.db, self.user_id, self.organization_id, 'rag'):
+                    raise ValueError(
+                        f"Функция RAG недоступна на вашем тарифном плане. "
+                        f"Пожалуйста, обновите план для использования RAG инструментов."
+                    )
+            elif tool.tool_type == ToolType.API.value:
+                if not has_feature(self.db, self.user_id, self.organization_id, 'api_tools'):
+                    raise ValueError(
+                        f"Функция API инструментов недоступна на вашем тарифном плане. "
+                        f"Пожалуйста, обновите план для использования API инструментов."
+                    )
+            elif tool.tool_type == ToolType.DATABASE.value:
+                if not has_feature(self.db, self.user_id, self.organization_id, 'database_tools'):
+                    raise ValueError(
+                        f"Функция инструментов баз данных недоступна на вашем тарифном плане. "
+                        f"Пожалуйста, обновите план для использования инструментов баз данных."
+                    )
         
         if tool.tool_type == ToolType.API.value:
             return self.execute_api_tool(tool, params)
@@ -728,9 +763,24 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
             raise ValueError(f"RAG knowledge base {rag_id} not found or not accessible")
         
         # Generate query embedding
+        # Token consumption is charged to the tool owner (tool.user_id)
+        # Build source name: if called from pipeline, show "Pipeline Name > RAG Name (chat)"
+        # Otherwise, just show "RAG Name (chat)"
+        source_name_for_consumption = None
+        if self.source_name and rag.name:
+            source_name_for_consumption = f"{self.source_name} > {rag.name} (chat)"
+        elif rag.name:
+            source_name_for_consumption = f"{rag.name} (chat)"
+        
         embedding_service = EmbeddingService(db=self.db)
         try:
-            query_embedding = embedding_service.generate_embedding(query)
+            query_embedding = embedding_service.generate_embedding(
+                query,
+                user_id=tool.user_id,
+                organization_id=tool.organization_id,
+                db=self.db,
+                source_name=source_name_for_consumption
+            )
         except Exception as e:
             logger.error(f"Failed to generate embedding for RAG query: {e}")
             raise ValueError(f"Failed to process query: {str(e)}")

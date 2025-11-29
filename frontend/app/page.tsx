@@ -4,6 +4,10 @@ import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { fetchSubscriptionPlans } from '@/lib/api/subscriptions'
+import { fetchTokenPackages } from '@/lib/api/token-packages'
+import SubscriptionPlansDisplay from '@/components/SubscriptionPlansDisplay'
 
 export default function LandingPage() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -38,6 +42,17 @@ export default function LandingPage() {
               <span className="ml-3 text-lg font-semibold text-gray-900">Research Flow</span>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                onClick={() => {
+                  const pricingSection = document.getElementById('pricing')
+                  if (pricingSection) {
+                    pricingSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }
+                }}
+                className="px-5 py-2.5 text-blue-600 hover:text-blue-700 text-sm font-medium rounded-lg transition-all"
+              >
+                Начать пробный период
+              </button>
               <Link
                 href="/register"
                 className="px-5 py-2.5 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-sm font-medium rounded-lg transition-all"
@@ -278,6 +293,22 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Pricing Section */}
+      <section id="pricing" className="py-24 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+              Тарифные планы
+            </h2>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Выберите план, который подходит для ваших задач. Все планы включают пробный период.
+            </p>
+          </div>
+
+          <PricingSection />
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-24 bg-gradient-to-b from-gray-50 to-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -349,6 +380,96 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+    </div>
+  )
+}
+
+// Pricing Section Component (for public landing page)
+function PricingSection() {
+  const { data: plans, isLoading: plansLoading } = useQuery({
+    queryKey: ['subscription-plans'],
+    queryFn: fetchSubscriptionPlans,
+  })
+
+  const { data: packages, isLoading: packagesLoading } = useQuery({
+    queryKey: ['token-packages'],
+    queryFn: fetchTokenPackages,
+  })
+
+  const formatTokens = (tokens: number): string => {
+    if (tokens >= 1_000_000) {
+      return `${(tokens / 1_000_000).toFixed(1)}M`
+    } else if (tokens >= 1_000) {
+      return `${(tokens / 1_000).toFixed(0)}K`
+    }
+    return tokens.toString()
+  }
+
+  if (plansLoading || packagesLoading) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-600">Загрузка...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-16">
+      {/* Subscription Plans */}
+      {plans && plans.length > 0 && (
+        <div>
+          <SubscriptionPlansDisplay
+            plans={plans}
+            showCurrentPlanBadge={false}
+            showPaymentPlaceholder={false}
+            isPublic={true}
+          />
+        </div>
+      )}
+
+      {/* Token Packages */}
+      {packages && packages.length > 0 && (
+        <div>
+          <div className="text-center mb-8">
+            <h3 className="text-2xl font-bold text-gray-900 mb-2">
+              Дополнительные пакеты токенов
+            </h3>
+            <p className="text-gray-600">
+              Приобретайте дополнительные токены, которые не сбрасываются ежемесячно
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            {packages.map((pkg) => (
+              <div
+                key={pkg.id}
+                className="bg-white rounded-lg border-2 border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow"
+              >
+                <h4 className="text-lg font-semibold text-gray-900 mb-2">{pkg.display_name}</h4>
+                {pkg.description && (
+                  <p className="text-sm text-gray-600 mb-4">{pkg.description}</p>
+                )}
+                <div className="mb-4">
+                  <p className="text-3xl font-bold text-gray-900 mb-1">
+                    {formatTokens(pkg.token_amount)}
+                  </p>
+                  <p className="text-sm text-gray-500">токенов</p>
+                </div>
+                <div className="mb-6">
+                  <p className="text-2xl font-bold text-blue-600">
+                    ₽{Number(pkg.price_rub).toFixed(0)}
+                  </p>
+                </div>
+                <Link
+                  href="/register"
+                  className="block w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-center"
+                >
+                  Зарегистрироваться
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

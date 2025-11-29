@@ -7,6 +7,13 @@ import React from 'react'
 import { useRequireAuth } from '@/hooks/useAuth'
 import { API_BASE_URL } from '@/lib/config'
 import apiClient from '@/lib/api'
+import {
+  fetchUserSubscription,
+  updateUserSubscription,
+  fetchSubscriptionPlans,
+  UserSubscription,
+  SubscriptionPlan,
+} from '@/lib/api/admin-subscriptions'
 
 interface UserListItem {
   id: number
@@ -90,6 +97,7 @@ export default function UsersPage() {
   const [organizationFilter, setOrganizationFilter] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [debouncedSearch, setDebouncedSearch] = useState<string>('')
+  const [expandedUsers, setExpandedUsers] = useState<Set<number>>(new Set())
 
   // Debounce search
   React.useEffect(() => {
@@ -126,7 +134,6 @@ export default function UsersPage() {
   const impersonateMutation = useMutation({
     mutationFn: impersonateUser,
     onSuccess: () => {
-      // Invalidate auth query and redirect
       queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
       router.push('/dashboard')
       router.refresh()
@@ -157,6 +164,18 @@ export default function UsersPage() {
     }
   }
 
+  const toggleUserExpanded = (userId: number) => {
+    setExpandedUsers(prev => {
+      const next = new Set(prev)
+      if (next.has(userId)) {
+        next.delete(userId)
+      } else {
+        next.add(userId)
+      }
+      return next
+    })
+  }
+
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case 'admin':
@@ -173,12 +192,12 @@ export default function UsersPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Управление пользователями</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Управление пользователями</h1>
         <p className="text-gray-600 dark:text-gray-400">Просмотр и управление всеми пользователями платформы</p>
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -189,7 +208,7 @@ export default function UsersPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Email или имя..."
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
             />
           </div>
 
@@ -200,7 +219,7 @@ export default function UsersPage() {
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
             >
               <option value="">Все роли</option>
               <option value="admin">Platform Admin</option>
@@ -215,7 +234,7 @@ export default function UsersPage() {
             <select
               value={organizationFilter}
               onChange={(e) => setOrganizationFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
             >
               <option value="">Все организации</option>
               {organizations.map((org) => (
@@ -233,7 +252,7 @@ export default function UsersPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
             >
               <option value="">Все статусы</option>
               <option value="active">Активные</option>
@@ -249,76 +268,197 @@ export default function UsersPage() {
                 setOrganizationFilter('')
                 setSearchQuery('')
               }}
-              className="w-full px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600"
+              className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
-              Сбросить фильтры
+              Сбросить
             </button>
           </div>
         </div>
       </div>
 
-      {/* Users Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+      {/* Users List */}
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Загрузка...</div>
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Загрузка пользователей...</p>
+        </div>
         ) : users.length === 0 ? (
-          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Пользователи не найдены</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Пользователь
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Роль
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Организации
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Статус
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Создан
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Действия
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
+          <p className="text-gray-500 dark:text-gray-400">Пользователи не найдены</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
                 {users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">
-                          {user.full_name || user.email}
-                        </div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">{user.email}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
-                        {user.role === 'admin' ? 'Platform Admin' : 'User'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      <div>
-                        {user.personal_org_name && (
-                          <div className="text-xs">
-                            Личная: {user.personal_org_name}
-                          </div>
-                        )}
-                        {user.other_orgs_count > 0 && (
-                          <div className="text-xs">
-                            Других: {user.other_orgs_count}
+            <UserCard
+              key={user.id}
+              user={user}
+              isExpanded={expandedUsers.has(user.id)}
+              onToggleExpand={() => toggleUserExpanded(user.id)}
+              onToggleActive={handleToggleActive}
+              onChangeRole={handleChangeRole}
+              onImpersonate={handleImpersonate}
+              getRoleBadgeColor={getRoleBadgeColor}
+            />
+          ))}
                           </div>
                         )}
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+  )
+}
+
+interface UserCardProps {
+  user: UserListItem
+  isExpanded: boolean
+  onToggleExpand: () => void
+  onToggleActive: (user: UserListItem) => void
+  onChangeRole: (user: UserListItem, role: string) => void
+  onImpersonate: (user: UserListItem) => void
+  getRoleBadgeColor: (role: string) => string
+}
+
+function UserCard({
+  user,
+  isExpanded,
+  onToggleExpand,
+  onToggleActive,
+  onChangeRole,
+  onImpersonate,
+  getRoleBadgeColor,
+}: UserCardProps) {
+  const queryClient = useQueryClient()
+  const router = useRouter()
+  
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery({
+    queryKey: ['admin', 'user', user.id, 'subscription'],
+    queryFn: () => fetchUserSubscription(user.id),
+    enabled: isExpanded,
+    retry: false,
+  })
+
+  const { data: plans = [] } = useQuery({
+    queryKey: ['admin', 'subscription-plans'],
+    queryFn: fetchSubscriptionPlans,
+    enabled: isExpanded,
+  })
+
+  const updateSubscriptionMutation = useMutation({
+    mutationFn: (updates: any) => updateUserSubscription(user.id, updates),
+    onSuccess: async (data) => {
+      // Update the cache directly with the returned data first
+      queryClient.setQueryData(['admin', 'user', user.id, 'subscription'], data)
+      // Then invalidate and refetch to ensure consistency
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'user', user.id, 'subscription'] })
+      await queryClient.refetchQueries({ 
+        queryKey: ['admin', 'user', user.id, 'subscription'],
+        exact: true 
+      })
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.detail || 'Ошибка при обновлении подписки')
+    },
+  })
+
+  const [editingSubscriptionTokens, setEditingSubscriptionTokens] = useState(false)
+  const [editingBalanceTokens, setEditingBalanceTokens] = useState(false)
+  const [newSubscriptionTokens, setNewSubscriptionTokens] = useState('')
+  const [newBalanceTokens, setNewBalanceTokens] = useState('')
+  const [addTokensAmount, setAddTokensAmount] = useState('')
+  const [newPlanId, setNewPlanId] = useState<number | null>(null)
+  const [editingName, setEditingName] = useState(false)
+  const [editingEmail, setEditingEmail] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+
+  useEffect(() => {
+    if (subscription) {
+      setNewSubscriptionTokens(subscription.tokens_used_this_period.toString())
+      setNewBalanceTokens(subscription.token_balance.toString())
+      setNewPlanId(subscription.plan_id)
+    }
+  }, [subscription])
+
+  useEffect(() => {
+    setNewName(user.full_name || '')
+    setNewEmail(user.email)
+  }, [user])
+
+  const handleSaveSubscriptionTokens = () => {
+    const value = parseInt(newSubscriptionTokens)
+    if (isNaN(value) || value < 0) {
+      alert('Введите корректное число (>= 0)')
+      return
+    }
+    updateSubscriptionMutation.mutate({ set_tokens_used: value })
+    setEditingSubscriptionTokens(false)
+  }
+
+  const handleSaveBalanceTokens = () => {
+    const value = parseInt(newBalanceTokens)
+    if (isNaN(value)) {
+      alert('Введите корректное число')
+      return
+    }
+    updateSubscriptionMutation.mutate({ set_token_balance: value })
+    setEditingBalanceTokens(false)
+  }
+
+  const handleAddTokens = () => {
+    const amount = parseInt(addTokensAmount)
+    if (!amount || amount <= 0) {
+      alert('Введите корректное количество токенов')
+      return
+    }
+    updateSubscriptionMutation.mutate({ add_tokens: amount })
+    setAddTokensAmount('')
+  }
+
+  const handleChangePlan = () => {
+    if (!newPlanId || newPlanId === subscription?.plan_id) return
+    updateSubscriptionMutation.mutate({ plan_id: newPlanId })
+  }
+
+  const handleResetPeriod = () => {
+    if (!confirm('Сбросить период подписки? Это обновит даты начала и конца периода.')) return
+    updateSubscriptionMutation.mutate({ reset_period: true })
+  }
+
+  const formatNumber = (num: number) => {
+    return new Intl.NumberFormat('ru-RU').format(num)
+  }
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString('ru-RU', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-all hover:shadow-md">
+      {/* User Header - Always Visible */}
+      <div
+        className="p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+        onClick={onToggleExpand}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            {/* Avatar */}
+            <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg ${
+              user.is_active ? 'bg-blue-600' : 'bg-gray-400'
+            }`}>
+              {(user.full_name || user.email).charAt(0).toUpperCase()}
+            </div>
+
+            {/* User Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 mb-1">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
+                  {user.full_name || user.email}
+                </h3>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(user.role)}`}>
+                  {user.role === 'admin' ? 'Admin' : 'User'}
+                </span>
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                         user.is_active
                           ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
@@ -326,56 +466,437 @@ export default function UsersPage() {
                       }`}>
                         {user.is_active ? 'Активен' : 'Неактивен'}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {new Date(user.created_at).toLocaleDateString('ru-RU')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end gap-2">
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400 truncate">{user.email}</p>
+            </div>
+
+            {/* Quick Stats */}
+            {subscription && !subscriptionLoading && (
+              <div className="hidden md:flex items-center gap-6 text-sm">
+                <div className="text-right">
+                  <div className="text-gray-500 dark:text-gray-400 text-xs">Подписка</div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {subscription.plan_display_name}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-gray-500 dark:text-gray-400 text-xs">Токены</div>
+                  <div className="font-semibold text-blue-600 dark:text-blue-400">
+                    {formatNumber(subscription.tokens_remaining + subscription.token_balance)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Expand/Collapse Icon */}
+          <div className="flex-shrink-0 ml-4">
+            <svg
+              className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded Content */}
+      {isExpanded && (
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+          {subscriptionLoading ? (
+            <div className="p-8 text-center">
+              <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">Загрузка подписки...</p>
+            </div>
+          ) : subscription ? (
+            <div className="p-6 space-y-6">
+              {/* User Profile Editing */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Профиль пользователя</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Имя
+                    </label>
+                    {editingName ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newName}
+                          onChange={(e) => setNewName(e.target.value)}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          autoFocus
+                        />
                         <button
-                          onClick={() => router.push(`/admin/users/${user.id}`)}
-                          className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                          title="Просмотр деталей"
+                          onClick={() => {
+                            updateUserMutation.mutate({
+                              userId: user.id,
+                              updates: { full_name: newName || null }
+                            })
+                            setEditingName(false)
+                          }}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                         >
-                          Просмотр
+                          Сохранить
                         </button>
                         <button
-                          onClick={() => handleToggleActive(user)}
-                          className={`${
-                            user.is_active
-                              ? 'text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300'
-                              : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300'
-                          }`}
-                          title={user.is_active ? 'Деактивировать' : 'Активировать'}
+                          onClick={() => {
+                            setEditingName(false)
+                            setNewName(user.full_name || '')
+                          }}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300"
                         >
-                          {user.is_active ? 'Деактивировать' : 'Активировать'}
+                          Отмена
                         </button>
-                        <select
-                          value={user.role}
-                          onChange={(e) => handleChangeRole(user, e.target.value)}
-                          className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 dark:bg-gray-700 dark:text-white"
-                          title="Изменить роль"
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-900 dark:text-white">{user.full_name || 'Не указано'}</span>
+                        <button
+                          onClick={() => setEditingName(true)}
+                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 text-sm"
+                        >
+                          Изменить
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Email */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Email
+                    </label>
+                    {editingEmail ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="email"
+                          value={newEmail}
+                          onChange={(e) => setNewEmail(e.target.value)}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => {
+                            updateUserMutation.mutate({
+                              userId: user.id,
+                              updates: { email: newEmail }
+                            })
+                            setEditingEmail(false)
+                          }}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                        >
+                          Сохранить
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingEmail(false)
+                            setNewEmail(user.email)
+                          }}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-900 dark:text-white">{user.email}</span>
+                        <button
+                          onClick={() => setEditingEmail(true)}
+                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 text-sm"
+                        >
+                          Изменить
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => onToggleActive(user)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    user.is_active
+                      ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                      : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+                  }`}
+                >
+                  {user.is_active ? 'Деактивировать' : 'Активировать'}
+                </button>
+                <select
+                  value={user.role}
+                  onChange={(e) => onChangeRole(user, e.target.value)}
+                  className="px-4 py-2 rounded-md text-sm border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         >
                           <option value="user">User</option>
                           <option value="admin">Admin</option>
                         </select>
+                <button
+                  onClick={() => onImpersonate(user)}
+                  className="px-4 py-2 bg-purple-100 text-purple-700 rounded-md text-sm font-medium hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 transition-colors"
+                >
+                  Войти как пользователь
+                </button>
+              </div>
+
+              {/* Subscription Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">План</div>
+                  <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {subscription.plan_display_name}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {subscription.status === 'trial' ? 'Пробный период' : 'Активная подписка'}
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Токены из подписки</div>
+                  <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+                    {formatNumber(subscription.tokens_remaining)}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    из {formatNumber(subscription.tokens_allocated)}
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Токены на балансе</div>
+                  <div className="text-lg font-semibold text-green-600 dark:text-green-400">
+                    {formatNumber(subscription.token_balance)}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Из пакетов
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Всего доступно</div>
+                  <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {formatNumber(subscription.tokens_remaining + subscription.token_balance)}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {(subscription.status === 'trial' || subscription.is_trial) && 
+                     subscription.trial_days_remaining !== null && 
+                     subscription.trial_days_remaining !== undefined
+                      ? `${subscription.trial_days_remaining} дней до окончания пробного периода`
+                      : `${subscription.days_remaining_in_period} дней до обновления`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Token Management */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Управление токенами</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Subscription Tokens */}
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Использовано токенов из подписки
+                    </label>
+                    {editingSubscriptionTokens ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={newSubscriptionTokens}
+                          onChange={(e) => setNewSubscriptionTokens(e.target.value)}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          min="0"
+                          autoFocus
+                        />
                         <button
-                          onClick={() => handleImpersonate(user)}
-                          className="text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300"
-                          title="Войти как пользователь"
+                          onClick={handleSaveSubscriptionTokens}
+                          disabled={updateSubscriptionMutation.isPending}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                         >
-                          Войти как
+                          Сохранить
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingSubscriptionTokens(false)
+                            setNewSubscriptionTokens(subscription.tokens_used_this_period.toString())
+                          }}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300"
+                        >
+                          Отмена
                         </button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                          {formatNumber(subscription.tokens_used_this_period)} / {formatNumber(subscription.tokens_allocated)}
+                        </span>
+                        <button
+                          onClick={() => setEditingSubscriptionTokens(true)}
+                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 text-sm"
+                        >
+                          Изменить
+                        </button>
+                      </div>
+                    )}
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all"
+                        style={{ width: `${Math.min(subscription.tokens_used_percent, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Balance Tokens */}
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Токены на балансе
+                    </label>
+                    {editingBalanceTokens ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={newBalanceTokens}
+                          onChange={(e) => setNewBalanceTokens(e.target.value)}
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          autoFocus
+                        />
+                        <button
+                          onClick={handleSaveBalanceTokens}
+                          disabled={updateSubscriptionMutation.isPending}
+                          className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                        >
+                          Сохранить
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingBalanceTokens(false)
+                            setNewBalanceTokens(subscription.token_balance.toString())
+                          }}
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                          {formatNumber(subscription.token_balance)}
+                        </span>
+                        <button
+                          onClick={() => setEditingBalanceTokens(true)}
+                          className="text-green-600 hover:text-green-800 dark:text-green-400 text-sm"
+                        >
+                          Изменить
+                        </button>
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Из приобретённых пакетов
+                    </p>
+                  </div>
+                </div>
+
+                {/* Add Tokens */}
+                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Добавить токены на баланс
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      value={addTokensAmount}
+                      onChange={(e) => setAddTokensAmount(e.target.value)}
+                      placeholder="Количество токенов"
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                      min="1"
+                    />
+                    <button
+                      onClick={handleAddTokens}
+                      disabled={updateSubscriptionMutation.isPending || !addTokensAmount}
+                      className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                    >
+                      Добавить
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subscription Management */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Управление подпиской</h3>
+                
+                <div className="space-y-4">
+                  {/* Change Plan */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Изменить план
+                    </label>
+                    <div className="flex gap-2">
+                      <select
+                        value={newPlanId || subscription.plan_id}
+                        onChange={(e) => setNewPlanId(parseInt(e.target.value))}
+                        className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                        disabled={updateSubscriptionMutation.isPending}
+                      >
+                        {plans
+                          .filter((p) => p.is_active)
+                          .map((plan) => (
+                            <option key={plan.id} value={plan.id}>
+                              {plan.display_name} ({formatNumber(plan.monthly_tokens)} токенов/мес)
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        onClick={handleChangePlan}
+                        disabled={updateSubscriptionMutation.isPending || newPlanId === subscription.plan_id}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Изменить
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Reset Period */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Период подписки
+                    </label>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-900 dark:text-white">
+                          {formatDate(subscription.period_start_date)} - {formatDate(subscription.period_end_date)}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {(subscription.status === 'trial' || subscription.is_trial) && 
+                           subscription.trial_days_remaining !== null && 
+                           subscription.trial_days_remaining !== undefined
+                            ? `Пробный период: ${subscription.trial_days_remaining} дней осталось (до ${subscription.trial_ends_at ? formatDate(subscription.trial_ends_at) : 'N/A'})`
+                            : `Осталось дней: ${subscription.days_remaining_in_period}`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleResetPeriod}
+                        disabled={updateSubscriptionMutation.isPending}
+                        className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:opacity-50"
+                      >
+                        Сбросить период
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+              Нет активной подписки
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
-

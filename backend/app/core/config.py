@@ -33,7 +33,7 @@ try:
     )
     # Import RAG config with fallbacks if not present
     try:
-        from app.config_local import DEFAULT_EMBEDDING_MODEL, STORAGE_BASE_PATH, VECTOR_DB_BACKEND, RAG_MIN_SIMILARITY_SCORE, RAG_DEFAULT_MIN_SIMILARITY_SCORE, DEFAULT_VISION_MODEL
+        from app.config_local import DEFAULT_EMBEDDING_MODEL, STORAGE_BASE_PATH, VECTOR_DB_BACKEND, RAG_MIN_SIMILARITY_SCORE, RAG_DEFAULT_MIN_SIMILARITY_SCORE, DEFAULT_VISION_MODEL, EXCHANGE_RATE_USD_TO_RUB
     except ImportError:
         DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
         STORAGE_BASE_PATH = "data"
@@ -41,6 +41,7 @@ try:
         RAG_MIN_SIMILARITY_SCORE = None  # None = no filtering, or set to max distance (e.g., 1.5 for L2, 0.3 for cosine distance)
         RAG_DEFAULT_MIN_SIMILARITY_SCORE = 1.2  # Default threshold for new RAGs
         DEFAULT_VISION_MODEL = "openai/gpt-4o"  # Vision model for OCR
+        EXCHANGE_RATE_USD_TO_RUB = 90.0  # Exchange rate USD to RUB (manually updated)
 except ImportError:
     # Fallback defaults (will fail at runtime if secrets not set)
     MYSQL_DSN: Optional[str] = None
@@ -70,6 +71,7 @@ except ImportError:
     VECTOR_DB_BACKEND: str = "chromadb"  # "chromadb" or "qdrant" (future)
     RAG_MIN_SIMILARITY_SCORE: Optional[float] = None  # Minimum similarity threshold. None = no filtering. For ChromaDB L2 distance, typical values: 1.0-2.0. For cosine distance: 0.2-0.5.
     RAG_DEFAULT_MIN_SIMILARITY_SCORE: Optional[float] = 1.2  # Default threshold for new RAGs. Set to None to disable default filtering for new RAGs.
+    EXCHANGE_RATE_USD_TO_RUB: float = 90.0  # Exchange rate USD to RUB (manually updated)
 
 
 def get_settings():

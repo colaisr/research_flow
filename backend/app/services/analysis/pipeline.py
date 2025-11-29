@@ -323,8 +323,22 @@ class AnalysisPipeline:
                     if access and not access.is_enabled:
                         raise ValueError(f"Tool '{tool.display_name}' is not enabled for this organization")
                     
+                    # Get analysis type name for source tracking
+                    source_name = None
+                    if run.analysis_type:
+                        source_name = run.analysis_type.display_name
+                    
+                    # Get user_id and organization_id for feature checks
+                    user_id = run.organization.owner_id if run.organization else None
+                    organization_id = run.organization_id
+                    
                     # Execute tool to fetch market data
-                    executor = ToolExecutor(db=db)
+                    executor = ToolExecutor(
+                        db=db, 
+                        source_name=source_name,
+                        user_id=user_id,
+                        organization_id=organization_id
+                    )
                     tool_params = {
                         'instrument': run.instrument.symbol,
                         'timeframe': run.timeframe,
@@ -381,8 +395,14 @@ class AnalysisPipeline:
                     # Build context section if include_context is configured
                     enhanced_context = self._build_context_for_step(context, step_config, steps)
                     
-                    # Add db session to context for tool execution in format_user_prompt_template
+                    # Add db session and run info to context for tool execution and token charging
                     enhanced_context["_db_session"] = db
+                    enhanced_context["_run_id"] = run.id
+                    enhanced_context["_user_id"] = run.organization.owner_id if run.organization else None
+                    enhanced_context["_organization_id"] = run.organization_id
+                    # Add pipeline name for consumption tracking
+                    if run.analysis_type:
+                        enhanced_context["_source_name"] = run.analysis_type.display_name
                     
                     # Run the step (sync call) with step configuration
                     step_result = analyzer.analyze(
@@ -391,20 +411,58 @@ class AnalysisPipeline:
                         step_config=step_config,
                     )
                     
+                    # Get pricing information for the model
+                    model_name = step_result.get("model")
+                    provider = step_result.get("provider", "openrouter")
+                    input_tokens = step_result.get("input_tokens", 0)
+                    output_tokens = step_result.get("output_tokens", 0)
+                    
+                    cost_per_1k_input = None
+                    cost_per_1k_output = None
+                    
+                    if model_name and input_tokens > 0:
+                        try:
+                            from app.services.pricing import get_model_pricing
+                            pricing = get_model_pricing(db, model_name, provider)
+                            if pricing:
+                                cost_per_1k_input = float(pricing.cost_per_1k_input_usd)
+                                cost_per_1k_output = float(pricing.cost_per_1k_output_usd)
+                        except Exception as e:
+                            logger.warning(f"Failed to get pricing for {model_name}: {e}")
+                    
                     # Save step to database
                     step_record = AnalysisStep(
                         run_id=run.id,
                         step_name=step_name,
                         input_blob=step_result.get("input"),
                         output_blob=step_result.get("output"),
-                        llm_model=step_result.get("model"),
+                        llm_model=model_name,
                         tokens_used=step_result.get("tokens_used", 0),
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        provider=provider,
+                        cost_per_1k_input=cost_per_1k_input,
+                        cost_per_1k_output=cost_per_1k_output,
                         cost_est=step_result.get("cost_est", 0.0),
                     )
                     db.add(step_record)
                     try:
                         db.commit()
                         db.refresh(step_record)
+                        
+                        # Update consumption record with step_id if available
+                        consumption_id = enhanced_context.get("_consumption_id")
+                        if consumption_id:
+                            from sqlalchemy import text
+                            db.execute(
+                                text("""
+                                    UPDATE token_consumption
+                                    SET step_id = :step_id
+                                    WHERE id = :consumption_id
+                                """),
+                                {"step_id": step_record.id, "consumption_id": consumption_id}
+                            )
+                            db.commit()
                     except Exception as db_error:
                         # Handle database connection errors
                         error_str = str(db_error)

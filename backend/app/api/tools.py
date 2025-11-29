@@ -13,8 +13,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.user_tool import UserTool, ToolType
 from app.models.organization_tool_access import OrganizationToolAccess
-from app.core.auth import get_current_user_dependency
-from app.core.auth import get_current_organization_dependency
+from app.core.auth import get_current_user_dependency, get_current_organization_dependency, require_feature
 from app.services.tools.encryption import encrypt_tool_config
 
 router = APIRouter()
@@ -180,6 +179,28 @@ async def create_tool(
             detail=f"Invalid tool_type: {request.tool_type}. Must be one of: database, api, rag"
         )
     
+    # Check feature availability based on tool type
+    from app.services.feature import has_feature
+    
+    if tool_type_enum == ToolType.RAG:
+        if not has_feature(db, current_user.id, current_organization.id, 'rag'):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Функция RAG недоступна на вашем тарифном плане. Пожалуйста, обновите план для использования RAG инструментов."
+            )
+    elif tool_type_enum == ToolType.API:
+        if not has_feature(db, current_user.id, current_organization.id, 'api_tools'):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Функция API инструментов недоступна на вашем тарифном плане. Пожалуйста, обновите план для использования API инструментов."
+            )
+    elif tool_type_enum == ToolType.DATABASE:
+        if not has_feature(db, current_user.id, current_organization.id, 'database_tools'):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Функция инструментов баз данных недоступна на вашем тарифном плане. Пожалуйста, обновите план для использования инструментов баз данных."
+            )
+    
     # Encrypt credentials in config before saving
     encrypted_config = encrypt_tool_config(request.config)
     
@@ -340,7 +361,8 @@ async def test_tool(
     tool_id: int,
     test_params: Optional[Dict[str, Any]] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_dependency)
+    current_user: User = Depends(get_current_user_dependency),
+    current_organization: Organization = Depends(get_current_organization_dependency)
 ):
     """Test tool connection."""
     tool = check_tool_ownership(db, current_user, tool_id)
@@ -354,7 +376,11 @@ async def test_tool(
     
     from app.services.tools import ToolExecutor
     
-    executor = ToolExecutor(db=db)
+    executor = ToolExecutor(
+        db=db,
+        user_id=current_user.id,
+        organization_id=current_organization.id
+    )
     
     try:
         # Prepare test parameters based on tool type

@@ -1,6 +1,7 @@
 """
 Settings API endpoints.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -10,6 +11,7 @@ from app.models.settings import AvailableModel, AvailableDataSource, AppSettings
 from app.core.auth import get_current_admin_user_dependency
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -100,15 +102,18 @@ async def sync_models_from_openrouter(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user_dependency)
 ):
-    """Sync available models from OpenRouter API (admin only).
+    """Sync available models and pricing from OpenRouter API (admin only).
     
-    Fetches the latest list of models from OpenRouter and adds any new ones
-    to the database. Existing models are not updated to preserve custom settings.
+    Fetches the latest list of models from OpenRouter and:
+    1. Adds any new models to available_models table (disabled by default)
+    2. Syncs pricing information to model_pricing table for all models
+       (including disabled ones, so existing pipelines can still calculate costs)
     """
     try:
         from app.services.llm.client import fetch_available_models_from_openrouter
+        from app.services.pricing.adapters import get_adapter
         
-        # Fetch models from OpenRouter
+        # Step 1: Sync models to available_models table
         openrouter_models = fetch_available_models_from_openrouter(db=db)
         
         added_count = 0
@@ -140,12 +145,29 @@ async def sync_models_from_openrouter(
         
         db.commit()
         
+        # Step 2: Sync pricing to model_pricing table
+        # This updates pricing for ALL models (enabled or disabled) so existing pipelines can calculate costs
+        pricing_synced = 0
+        try:
+            adapter = get_adapter("openrouter")
+            pricing_synced = adapter.sync_to_database(
+                db=db,
+                provider="openrouter",
+                platform_fee_percent=40.0
+            )
+        except Exception as pricing_error:
+            # Log pricing sync error but don't fail the whole operation
+            # Models were already synced successfully
+            logger.warning(f"Failed to sync pricing (models were synced successfully): {pricing_error}")
+            pricing_synced = 0
+        
         return {
             "success": True,
-            "message": f"Synced models from OpenRouter: {added_count} added, {skipped_count} already existed",
+            "message": f"Synced models and pricing from OpenRouter: {added_count} models added, {skipped_count} already existed, {pricing_synced} pricing records synced",
             "added": added_count,
             "skipped": skipped_count,
             "total_fetched": len(openrouter_models),
+            "pricing_synced": pricing_synced,
         }
         
     except ValueError as e:

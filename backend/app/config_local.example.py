@@ -62,3 +62,9 @@ RAG_MIN_SIMILARITY_SCORE = None  # None = no filtering, or set threshold (e.g., 
 # Recommended: 1.2 for L2 distance (filters out poor matches while keeping moderate ones)
 RAG_DEFAULT_MIN_SIMILARITY_SCORE = 1.2  # Default threshold for new RAGs
 
+# Vision model for OCR (PDF and images)
+DEFAULT_VISION_MODEL = "openai/gpt-4o"  # Vision model for OCR
+
+# Subscription & Pricing Configuration
+EXCHANGE_RATE_USD_TO_RUB = 90.0  # Exchange rate USD to RUB (manually updated)
+

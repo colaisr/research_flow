@@ -12,6 +12,11 @@ from app.services.scheduler.scheduler_service import (
     calculate_next_run,
     execute_schedule
 )
+from app.services.scheduler.subscription_renewal import (
+    renew_expired_subscriptions,
+    add_renewal_job,
+    start_renewal_job,
+)
 
 __all__ = [
     "get_scheduler",
@@ -23,5 +28,8 @@ __all__ = [
     "load_all_schedules",
     "calculate_next_run",
     "execute_schedule",
+    "renew_expired_subscriptions",
+    "add_renewal_job",
+    "start_renewal_job",
 ]
 

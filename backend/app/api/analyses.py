@@ -633,7 +633,11 @@ async def test_step(
                         raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
                 
                 # Execute tool to fetch market data
-                executor = ToolExecutor(db=db)
+                executor = ToolExecutor(
+                    db=db,
+                    user_id=current_user.id,
+                    organization_id=current_organization.id
+                )
                 tool_params = {
                     'instrument': request.instrument,
                     'timeframe': request.timeframe,
@@ -660,6 +664,11 @@ async def test_step(
             "timeframe": request.timeframe,
             "market_data": market_data,
             "previous_steps": {},  # For single step test, no previous steps
+            "_db_session": db,  # Add db session for token charging
+            "_user_id": current_user.id,  # Add user_id for token charging
+            "_organization_id": current_organization.id,  # Add organization_id for token charging
+            "_run_id": None,  # Test steps don't have a run_id (not saved)
+            "_source_name": analysis_type.display_name,  # Pass pipeline name for test steps
         }
         
         # Execute test step
@@ -757,7 +766,11 @@ async def test_pipeline(
                         raise HTTPException(status_code=400, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
                 
                 # Execute tool to fetch market data
-                executor = ToolExecutor(db=db)
+                executor = ToolExecutor(
+                    db=db,
+                    user_id=current_user.id,
+                    organization_id=current_organization.id
+                )
                 tool_params = {
                     'instrument': request.instrument,
                     'timeframe': request.timeframe,
@@ -784,6 +797,11 @@ async def test_pipeline(
             "timeframe": request.timeframe,
             "market_data": market_data,
             "previous_steps": {},
+            "_db_session": db,  # Add db session for token charging
+            "_user_id": current_user.id,  # Add user_id for token charging
+            "_organization_id": current_organization.id,  # Add organization_id for token charging
+            "_run_id": None,  # Test steps don't have a run_id (not saved)
+            "_source_name": analysis_type.display_name,  # Pass pipeline name for test steps
         }
         
         # Execute test pipeline

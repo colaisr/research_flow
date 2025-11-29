@@ -158,7 +158,31 @@ async def upload_public_document(
             db.refresh(doc)
             
             try:
-                _process_document_embeddings(db, rag.id, doc.id)
+                # For public uploads, charge tokens to the organization owner
+                # Get the first user in the organization (typically the owner)
+                from sqlalchemy import text
+                org_owner_result = db.execute(
+                    text("""
+                        SELECT u.id
+                        FROM users u
+                        JOIN organization_members om ON om.user_id = u.id
+                        WHERE om.organization_id = :org_id
+                        ORDER BY om.created_at ASC
+                        LIMIT 1
+                    """),
+                    {"org_id": rag.organization_id}
+                )
+                org_owner = org_owner_result.fetchone()
+                user_id = org_owner[0] if org_owner else None
+                
+                if not user_id:
+                    logger.warning(f"No users found in organization {rag.organization_id} for public upload token tracking")
+                
+                _process_document_embeddings(
+                    db, rag.id, doc.id,
+                    user_id=user_id,
+                    organization_id=rag.organization_id
+                )
             except Exception as e:
                 logger.error(f"Failed to process embeddings for document {doc.id}: {e}")
                 doc.embedding_status = EmbeddingStatus.FAILED.value
@@ -327,9 +351,35 @@ async def query_public_rag(
     min_score = request.get('min_score')
     
     # Generate query embedding
+    # For public queries, charge tokens to the organization owner
     embedding_service = EmbeddingService(db=db)
     try:
-        query_embedding = embedding_service.generate_embedding(query_text)
+        # Get organization owner for token tracking
+        from sqlalchemy import text
+        org_owner_result = db.execute(
+            text("""
+                SELECT u.id
+                FROM users u
+                JOIN organization_members om ON om.user_id = u.id
+                WHERE om.organization_id = :org_id
+                ORDER BY om.created_at ASC
+                LIMIT 1
+            """),
+            {"org_id": rag.organization_id}
+        )
+        org_owner = org_owner_result.fetchone()
+        user_id = org_owner[0] if org_owner else None
+        
+        if not user_id:
+            logger.warning(f"No users found in organization {rag.organization_id} for public query token tracking")
+        
+        query_embedding = embedding_service.generate_embedding(
+            query_text,
+            user_id=user_id,
+            organization_id=rag.organization_id,
+            db=db,
+            source_name=f"{rag.name} (chat)" if rag.name else None
+        )
     except Exception as e:
         logger.error(f"Failed to generate embedding for query: {e}")
         raise HTTPException(

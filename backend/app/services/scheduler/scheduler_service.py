@@ -36,6 +36,12 @@ def start_scheduler():
         logger.info("✅ Scheduler started")
         # Load all active schedules
         load_all_schedules()
+        # Start subscription renewal job
+        try:
+            from app.services.scheduler.subscription_renewal import start_renewal_job
+            start_renewal_job()
+        except Exception as e:
+            logger.error(f"Failed to start subscription renewal job: {e}", exc_info=True)
     else:
         logger.debug("Scheduler already running")
 

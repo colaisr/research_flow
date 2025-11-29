@@ -72,6 +72,25 @@ async def create_run(
     For now, this just fetches market data and creates a run record.
     The actual analysis pipeline will be implemented later.
     """
+    # Check token availability before creating run
+    from app.services.subscription import get_active_subscription
+    from app.services.balance import get_token_balance
+    
+    subscription = get_active_subscription(db, current_user.id, current_organization.id)
+    subscription_tokens_available = 0
+    if subscription:
+        subscription_tokens_available = subscription.tokens_allocated - subscription.tokens_used_this_period
+    
+    balance = get_token_balance(db, current_user.id, current_organization.id)
+    balance_tokens_available = balance.balance
+    
+    total_available = subscription_tokens_available + balance_tokens_available
+    
+    if total_available == 0:
+        raise HTTPException(
+            status_code=402,  # Payment Required
+            detail="Недостаточно токенов. Доступно: 0"
+        )
     # Check if this pipeline needs market data (skip if instrument/timeframe are 'N/A')
     needs_market_data = request.instrument != 'N/A' and request.timeframe != 'N/A'
     market_data = None
@@ -106,7 +125,11 @@ async def create_run(
                     raise HTTPException(status_code=403, detail=f"Tool '{tool.display_name}' is not enabled for this organization")
             
             # Validate tool by testing it and get market_data for instrument creation
-            executor = ToolExecutor(db=db)
+            executor = ToolExecutor(
+                db=db,
+                user_id=current_user.id,
+                organization_id=current_organization.id
+            )
             try:
                 tool_params = {
                     'instrument': request.instrument,

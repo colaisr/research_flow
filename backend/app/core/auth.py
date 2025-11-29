@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 _sessions: dict[str, dict] = {}
 
 # Export _sessions for impersonation
-__all__ = ['create_session', 'verify_session', 'delete_session', 'get_current_user_dependency', 'get_current_admin_user_dependency', 'get_current_organization_dependency', 'require_feature', '_sessions']
+__all__ = ['create_session', 'verify_session', 'delete_session', 'get_current_user_dependency', 'get_current_user_optional', 'get_current_admin_user_dependency', 'get_current_admin_user_optional', 'get_current_organization_dependency', 'require_feature', '_sessions']
 
 
 def create_session(user_id: int, email: str, is_admin: bool, role: str = 'user', organization_id: Optional[int] = None) -> str:
@@ -136,6 +136,31 @@ def get_current_admin_user_dependency(
             detail="Admin access required"
         )
     return current_user
+
+
+def get_current_user_optional(
+    researchflow_session: Optional[str] = Cookie(None),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Optional dependency to get current user (returns None if not authenticated)."""
+    try:
+        return get_current_user_dependency(researchflow_session=researchflow_session, db=db)
+    except HTTPException:
+        return None
+
+
+def get_current_admin_user_optional(
+    researchflow_session: Optional[str] = Cookie(None),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Optional dependency to get current admin user (returns None if not admin or not authenticated)."""
+    try:
+        current_user = get_current_user_dependency(researchflow_session=researchflow_session, db=db)
+        if current_user.is_platform_admin():
+            return current_user
+        return None
+    except HTTPException:
+        return None
 
 
 def require_feature(feature_name: str):

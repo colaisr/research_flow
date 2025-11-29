@@ -3,7 +3,8 @@ FastAPI application entry point.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, runs, auth, instruments, analyses, settings, user_settings, admin, organizations, tools, schedules, rags, rags_public
+from app.api import health, runs, auth, instruments, analyses, settings, user_settings, organizations, tools, schedules, rags, rags_public, subscriptions, token_packages, consumption
+from app.api.admin import router as admin_router, subscriptions as admin_subscriptions, pricing as admin_pricing, provider_credentials as admin_provider_credentials
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.services.telegram.bot_handler import start_bot_polling, stop_bot_polling
@@ -40,12 +41,18 @@ app.include_router(analyses.router, prefix="/api/analyses", tags=["analyses"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(user_settings.router, prefix="/api/user-settings", tags=["user-settings"])
-app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
+app.include_router(admin_subscriptions.router, prefix="/api/admin", tags=["admin"])
+app.include_router(admin_pricing.router, prefix="/api/admin/pricing", tags=["admin"])
+app.include_router(admin_provider_credentials.router, prefix="/api/admin/provider-credentials", tags=["admin"])
 app.include_router(organizations.router, prefix="/api", tags=["organizations"])
 app.include_router(tools.router, prefix="/api", tags=["tools"])
 app.include_router(rags.router, prefix="/api", tags=["rags"])
 app.include_router(rags_public.router, prefix="/api", tags=["rags-public"])
 app.include_router(schedules.router, prefix="/api/schedules", tags=["schedules"])
+app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["subscriptions"])
+app.include_router(token_packages.router, prefix="/api/token-packages", tags=["token-packages"])
+app.include_router(consumption.router, prefix="/api/consumption", tags=["consumption"])
 
 
 def _acquire_polling_lock() -> tuple[bool, object]:

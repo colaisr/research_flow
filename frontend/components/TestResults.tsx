@@ -16,6 +16,7 @@ interface TestPipelineResult {
   steps: TestStepResult[]
   total_cost?: number | null
   total_tokens?: number | null
+  duration_ms?: number | null
   status: 'succeeded' | 'failed'
   error: string | null
 }
@@ -27,7 +28,7 @@ interface TestResultsProps {
 }
 
 export default function TestResults({ result, onClose, isPipeline = false }: TestResultsProps) {
-  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set([0]))
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
 
   const toggleStep = (index: number) => {
     const newExpanded = new Set(expandedSteps)
@@ -51,9 +52,17 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
               <div className="mt-1 flex gap-4 text-sm text-gray-600">
                 <span>Шагов: {pipelineResult.steps.length}</span>
                 <span>Токенов: {pipelineResult.total_tokens != null ? pipelineResult.total_tokens.toLocaleString() : '0'}</span>
-                <span>Стоимость: ${pipelineResult.total_cost != null ? pipelineResult.total_cost.toFixed(4) : '0.0000'}</span>
+                {pipelineResult.duration_ms != null && (
+                  <span>
+                    {pipelineResult.duration_ms < 1000 
+                      ? `${pipelineResult.duration_ms} мс`
+                      : `${(pipelineResult.duration_ms / 1000).toFixed(1)} сек`}
+                  </span>
+                )}
                 <span className={`font-medium ${pipelineResult.status === 'succeeded' ? 'text-green-600' : 'text-red-600'}`}>
-                  {pipelineResult.status === 'succeeded' ? '✓ Успешно' : '✗ Ошибка'}
+                  {pipelineResult.status === 'succeeded' 
+                    ? '✓ Успешно' 
+                    : (pipelineResult.error === 'Недостаточно токенов' ? '✗ Недостаточно токенов' : '✗ Ошибка')}
                 </span>
               </div>
             </div>
@@ -70,8 +79,19 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
           {/* Error message if pipeline failed */}
           {pipelineResult.error && (
             <div className="px-6 py-3 bg-red-50 border-b border-red-200">
-              <p className="text-sm text-red-800 font-medium">Ошибка выполнения пайплайна:</p>
-              <p className="text-sm text-red-700 mt-1">{pipelineResult.error}</p>
+              {pipelineResult.error === 'Недостаточно токенов' ? (
+                <>
+                  <p className="text-sm text-red-800 font-medium">Недостаточно токенов</p>
+                  <p className="text-sm text-red-700 mt-1">
+                    Недостаточно токенов для выполнения пайплайна. Проверьте баланс токенов на странице потребления.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-red-800 font-medium">Ошибка выполнения пайплайна:</p>
+                  <p className="text-sm text-red-700 mt-1">{pipelineResult.error}</p>
+                </>
+              )}
             </div>
           )}
 
@@ -108,7 +128,6 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
                   </div>
                   <div className="flex items-center gap-4 text-sm text-gray-600">
                     <span>{step.tokens_used != null ? step.tokens_used.toLocaleString() : '0'} токенов</span>
-                    <span>${step.cost_est != null ? step.cost_est.toFixed(4) : '0.0000'}</span>
                     <svg
                       className={`w-5 h-5 transition-transform ${expandedSteps.has(index) ? 'rotate-180' : ''}`}
                       fill="none"
@@ -126,6 +145,20 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
                       <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded">
                         <p className="text-sm font-medium text-red-800">Ошибка:</p>
                         <p className="text-sm text-red-700 mt-1 whitespace-pre-wrap">{step.error}</p>
+                        {(step.error.toLowerCase().includes('insufficient tokens') || 
+                           step.error.toLowerCase().includes('недостаточно токенов')) && (
+                          <div className="mt-2 pt-2 border-t border-red-300">
+                            <p className="text-xs text-red-600 mb-2">
+                              Недостаточно токенов для выполнения этого шага.
+                            </p>
+                            <a
+                              href="/consumption"
+                              className="text-xs text-red-700 underline hover:text-red-900 font-medium"
+                            >
+                              Проверить баланс токенов →
+                            </a>
+                          </div>
+                        )}
                       </div>
                     )}
                     {step.input && (
@@ -149,6 +182,24 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
               </div>
             ))}
           </div>
+
+          {/* Final Result Section - Show last step's output prominently */}
+          {pipelineResult.steps.length > 0 && (() => {
+            const lastStep = pipelineResult.steps[pipelineResult.steps.length - 1]
+            if (lastStep.output && !lastStep.error) {
+              return (
+                <div className="px-6 py-4 border-t border-gray-200 bg-blue-50">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2">Финальный результат</h3>
+                  <div className="p-4 bg-white rounded-lg border border-blue-200 shadow-sm">
+                    <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                      {lastStep.output}
+                    </pre>
+                  </div>
+                </div>
+              )
+            }
+            return null
+          })()}
 
           {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
@@ -177,7 +228,6 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
               <span>Шаг: {stepResult.step_name}</span>
               {stepResult.model && <span>Модель: {stepResult.model}</span>}
               <span>Токенов: {stepResult.tokens_used != null ? stepResult.tokens_used.toLocaleString() : '0'}</span>
-              <span>Стоимость: ${stepResult.cost_est != null ? stepResult.cost_est.toFixed(4) : '0.0000'}</span>
               {stepResult.error ? (
                 <span className="font-medium text-red-600">✗ Ошибка</span>
               ) : (

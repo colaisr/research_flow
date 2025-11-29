@@ -229,7 +229,16 @@ def _process_tool_references(
     
     tool_references = step_config.get("tool_references", [])
     logger.info(f"Processing {len(tool_references)} tool reference(s)")
-    tool_executor = ToolExecutor(db=db)
+    # Get pipeline name from context for consumption tracking
+    source_name = context.get("_source_name")
+    user_id = context.get("_user_id")
+    organization_id = context.get("_organization_id")
+    tool_executor = ToolExecutor(
+        db=db, 
+        source_name=source_name,
+        user_id=user_id,
+        organization_id=organization_id
+    )
     
     # Build step context for tool execution
     step_context = {
@@ -386,6 +395,38 @@ class BaseAnalyzer:
             temperature = 0.7
             max_tokens = None
         
+        # Check token availability BEFORE making LLM call
+        # We need to estimate tokens needed (rough estimate: 1 token ≈ 4 characters)
+        db = context.get("_db_session")
+        user_id = context.get("_user_id")
+        organization_id = context.get("_organization_id")
+        
+        if db and user_id and organization_id:
+            # Estimate tokens needed (rough: prompt length / 4, plus some buffer for response)
+            estimated_input_tokens = len(system_prompt + user_prompt) // 4
+            estimated_output_tokens = max_tokens if max_tokens else 1000  # Default estimate
+            estimated_total = estimated_input_tokens + estimated_output_tokens
+            
+            from app.services.balance import get_token_balance
+            from app.services.subscription import get_active_subscription
+            
+            # Get available tokens
+            subscription = get_active_subscription(db, user_id, organization_id)
+            subscription_tokens_available = 0
+            if subscription:
+                subscription_tokens_available = subscription.tokens_allocated - subscription.tokens_used_this_period
+            
+            balance = get_token_balance(db, user_id, organization_id)
+            balance_tokens_available = balance.balance
+            
+            total_available = subscription_tokens_available + balance_tokens_available
+            
+            # Block if insufficient tokens (with some buffer for estimation error)
+            if total_available < estimated_total:
+                raise ValueError(
+                    f"Недостаточно токенов. Доступно: {total_available}"
+                )
+        
         # Make LLM call with configuration
         result = llm_client.call(
             system_prompt=system_prompt,
@@ -395,6 +436,123 @@ class BaseAnalyzer:
             max_tokens=max_tokens,
         )
         
+        # Extract token information
+        input_tokens = result.get("input_tokens", 0)
+        output_tokens = result.get("output_tokens", 0)
+        total_tokens = result.get("tokens_used", input_tokens + output_tokens)
+        
+        # Extract provider from model name (e.g., "openai/gpt-4o" -> "openrouter")
+        provider = "openrouter"  # Default provider
+        if model and "/" in model:
+            # Model format is "provider/model-name", but we use openrouter as provider
+            provider = "openrouter"
+        
+        # Charge tokens and record consumption if db session and user info are available
+        # Note: run_id can be None for test steps (not saved to database)
+        db = context.get("_db_session")
+        run_id = context.get("_run_id")
+        user_id = context.get("_user_id")
+        organization_id = context.get("_organization_id")
+        step_id = context.get("_step_id")  # Will be set after step is saved
+        
+        if db and user_id and organization_id and total_tokens > 0:
+            try:
+                from app.services.balance import charge_tokens
+                from app.services.consumption import record_consumption
+                from app.services.pricing import calculate_pricing, get_exchange_rate
+                
+                # Calculate pricing for logging/validation
+                pricing_calc = calculate_pricing(
+                    db, model or "unknown", provider, input_tokens, output_tokens
+                )
+                exchange_rate = get_exchange_rate()
+                
+                if pricing_calc:
+                    logger.info(
+                        f"[PRICING] Step execution pricing calculation:\n"
+                        f"  Model: {model} ({provider})\n"
+                        f"  Input tokens: {input_tokens}, Output tokens: {output_tokens}, Total: {total_tokens}\n"
+                        f"  Cost per 1k input: ${pricing_calc.cost_per_1k_input_usd:.6f} USD\n"
+                        f"  Cost per 1k output: ${pricing_calc.cost_per_1k_output_usd:.6f} USD\n"
+                        f"  Price per 1k: ${pricing_calc.price_per_1k_usd:.6f} USD\n"
+                        f"  Exchange rate: {exchange_rate} RUB/USD\n"
+                        f"  Our cost: ${pricing_calc.our_total_cost_usd:.6f} USD = ₽{pricing_calc.our_cost_rub:.2f} RUB\n"
+                        f"  User price: ${pricing_calc.user_price_usd:.6f} USD = ₽{pricing_calc.user_price_rub:.2f} RUB"
+                    )
+                
+                # Charge tokens (priority: subscription first, then balance)
+                charge_result = charge_tokens(
+                    db=db,
+                    user_id=user_id,
+                    organization_id=organization_id,
+                    amount=total_tokens,
+                    source_type="subscription"
+                )
+                
+                logger.info(
+                    f"[TOKEN_CHARGE] Charged {charge_result.tokens_charged} tokens from {charge_result.source}\n"
+                    f"  Remaining subscription tokens: {charge_result.remaining_subscription_tokens}\n"
+                    f"  Remaining balance: {charge_result.remaining_balance}"
+                )
+                
+                if not charge_result.success:
+                    # Insufficient tokens - raise error
+                    total_available = charge_result.remaining_subscription_tokens + charge_result.remaining_balance
+                    raise ValueError(
+                        f"Недостаточно токенов. Доступно: {total_available}"
+                    )
+                
+                # Get pipeline name from context (for test steps) or from run_id (for saved runs)
+                source_name = context.get("_source_name")
+                if not source_name and run_id:
+                    from sqlalchemy import text
+                    result = db.execute(
+                        text("""
+                            SELECT at.display_name
+                            FROM analysis_runs ar
+                            JOIN analysis_types at ON ar.analysis_type_id = at.id
+                            WHERE ar.id = :run_id
+                        """),
+                        {"run_id": run_id}
+                    )
+                    row = result.fetchone()
+                    if row:
+                        source_name = row[0]
+                
+                # Record consumption (will be updated with step_id after step is saved)
+                consumption_id = record_consumption(
+                    db=db,
+                    user_id=user_id,
+                    organization_id=organization_id,
+                    model_name=model or "unknown",
+                    provider=provider,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    run_id=run_id,
+                    step_id=None,  # Will be updated after step is saved
+                    source_type=charge_result.source,
+                    source_name=source_name
+                )
+                
+                logger.info(
+                    f"[CONSUMPTION] Recorded consumption ID: {consumption_id}\n"
+                    f"  Tokens: {total_tokens} (input: {input_tokens}, output: {output_tokens})\n"
+                    f"  Source: {charge_result.source}\n"
+                    f"  Run ID: {run_id}, Step ID: {step_id}"
+                )
+                
+                # Store consumption_id in context for later step_id update
+                context["_consumption_id"] = consumption_id
+                
+            except Exception as e:
+                logger.error(f"Failed to charge tokens or record consumption: {e}")
+                # Re-raise if it's an insufficient tokens error (check both English and Russian)
+                error_str = str(e)
+                if "Insufficient tokens" in error_str or "Недостаточно токенов" in error_str:
+                    raise
+                # Log but continue for other errors (don't block analysis)
+                logger.warning(f"Token charging failed but continuing: {e}")
+        
         return {
             "input": {
                 "system_prompt": system_prompt,
@@ -402,7 +560,9 @@ class BaseAnalyzer:
             },
             "output": result["content"],
             "model": result["model"],
-            "tokens_used": result["tokens_used"],
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "tokens_used": total_tokens,  # Keep for backward compatibility
             "cost_est": result["cost_est"],
         }
 

@@ -2,9 +2,11 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 import { API_BASE_URL } from '@/lib/config'
+import { useAuth } from '@/hooks/useAuth'
+import Link from 'next/link'
 
 interface CreateToolRequest {
   tool_type: 'database' | 'api' | 'rag'
@@ -34,7 +36,26 @@ async function testTool(toolId: number) {
 export default function NewToolPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { isAuthenticated } = useAuth()
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
+  
+  // Fetch effective features to check if user has tools access
+  const { data: effectiveFeatures } = useQuery({
+    queryKey: ['effective-features'],
+    queryFn: async () => {
+      const { data } = await axios.get<Record<string, boolean>>(
+        `${API_BASE_URL}/api/user-settings/features`,
+        { withCredentials: true }
+      )
+      return data
+    },
+    enabled: isAuthenticated !== false,
+  })
+
+  // Check if user has tools feature (api_tools or database_tools)
+  const hasToolsFeature = effectiveFeatures 
+    ? (effectiveFeatures['api_tools'] === true || effectiveFeatures['database_tools'] === true)
+    : false
   
   // Step 1: Tool type and creation method
   const [toolType, setToolType] = useState<'database' | 'api' | 'rag' | ''>('')
@@ -587,6 +608,49 @@ export default function NewToolPage() {
       )}
     </div>
   )
+
+  // Show upgrade banner if tools feature is not available
+  if (!hasToolsFeature && effectiveFeatures !== undefined) {
+    return (
+      <div className="p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="mb-6">
+            <Link
+              href="/tools"
+              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            >
+              ← Назад к инструментам
+            </Link>
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Создать инструмент</h1>
+          <p className="text-gray-600 mb-6">Настройте новый инструмент для использования в анализах</p>
+
+          <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-6">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-yellow-800 mb-2">
+                  Инструменты недоступны на вашем тарифном плане
+                </h3>
+                <p className="text-sm text-yellow-700 mb-4">
+                  Создание и использование инструментов (API, Database, RAG) доступно только в плане "Профессиональный".
+                  Обновите свой план, чтобы получить доступ к этой функции.
+                </p>
+                <Link
+                  href="/subscription/plans"
+                  className="inline-block px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                >
+                  Обновить план
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-8">

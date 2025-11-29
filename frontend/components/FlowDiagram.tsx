@@ -133,13 +133,13 @@ export default function FlowDiagram({
       <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Визуальный поток</h3>
-          {executionState === 'idle' && steps.length > 0 && (
+          {steps.length > 0 && (
             <button
               onClick={onTestPipeline}
-              disabled={isTestingPipeline}
+              disabled={isTestingPipeline || executionState === 'running'}
               className="px-3 py-1.5 text-xs bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors shadow-sm flex items-center gap-1.5"
             >
-              {isTestingPipeline ? (
+              {isTestingPipeline || executionState === 'running' ? (
                 <>
                   <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
                   Тестирование...
@@ -211,10 +211,9 @@ export default function FlowDiagram({
                       )}
 
                       {/* Stats */}
-                      {result && (result.tokens || result.cost) && (
+                      {result && result.tokens && (
                         <div className="mt-2 flex gap-3 text-xs text-gray-500">
-                          {result.tokens && <span>{result.tokens.toLocaleString()} токенов</span>}
-                          {result.cost && <span>${result.cost.toFixed(4)}</span>}
+                          <span>{result.tokens.toLocaleString()} токенов</span>
                         </div>
                       )}
                     </div>

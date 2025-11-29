@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import apiClient from '@/lib/api'
 import { API_BASE_URL } from '@/lib/config'
@@ -9,13 +9,18 @@ import Link from 'next/link'
 
 export default function RegisterPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  
+  // Get plan_id from query parameter
+  const planIdParam = searchParams.get('plan')
+  const planId = planIdParam ? parseInt(planIdParam, 10) : null
 
   const registerMutation = useMutation({
-    mutationFn: async (data: { email: string; password: string; full_name?: string }) => {
+    mutationFn: async (data: { email: string; password: string; full_name?: string; plan_id?: number }) => {
       const { data: response } = await apiClient.post(
         `${API_BASE_URL}/api/auth/register`,
         data,
@@ -50,7 +55,8 @@ export default function RegisterPage() {
     registerMutation.mutate({ 
       email, 
       password, 
-      full_name: fullName || undefined 
+      full_name: fullName || undefined,
+      plan_id: planId || undefined
     })
   }
 

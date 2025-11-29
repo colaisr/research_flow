@@ -17,6 +17,11 @@ class AnalysisStep(Base):
     output_blob = Column(Text, nullable=True)  # LLM output text
     llm_model = Column(String(100), nullable=True)  # Model used, e.g., "openai/gpt-4o-mini"
     tokens_used = Column(Integer, default=0)
+    input_tokens = Column(Integer, default=0, nullable=False)  # Input tokens used
+    output_tokens = Column(Integer, default=0, nullable=False)  # Output tokens used
+    provider = Column(String(100), nullable=True)  # Provider name, e.g., "openrouter"
+    cost_per_1k_input = Column(Float, nullable=True)  # Cost per 1K input tokens
+    cost_per_1k_output = Column(Float, nullable=True)  # Cost per 1K output tokens
     cost_est = Column(Float, default=0.0)  # Estimated cost in USD
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

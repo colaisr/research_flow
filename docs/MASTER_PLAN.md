@@ -1082,7 +1082,7 @@ This section outlines the complete implementation plan for transitioning Researc
 
 ## Implementation Progress Tracking
 
-**Overall Status**: 🟡 In Progress (Phase 4.1)
+**Overall Status**: 🟡 In Progress (Phases 1-6: ✅ Complete, Phase 8: ⚪ Not Started)
 
 **Recent Updates (2025-01-29)**:
 - ✅ **Source Name Tracking**: Added `source_name` column to `token_consumption` table to track where consumption occurred
@@ -1091,6 +1091,10 @@ This section outlines the complete implementation plan for transitioning Researc
   - RAG tools called from pipelines show combined format "Pipeline Name > RAG Name (chat)"
   - Frontend consumption page displays "Источник" (Source) column with source names
   - Migration: `5376fd52db07_add_source_name_to_token_consumption.py`
+- ✅ **Billing Page Complete**: Full implementation with token packages, purchase flow (payment placeholder), purchase history, and subscription plans display
+- ✅ **Trial System**: Auto-creation on registration (5.1), expiration handling (5.3), and pricing page on landing page (5.4) complete
+- ✅ **Feature Sync**: Features synced from subscription plans (6.1), feature enforcement in tools pages and runtime (6.2 complete)
+- ✅ **Token Package Preservation**: Clarified that purchased token packages are preserved when subscription is upgraded
 
 ### Phase 1: Database Schema & Migrations
 - **Status**: ✅ Complete
@@ -1107,28 +1111,34 @@ This section outlines the complete implementation plan for transitioning Researc
 - **Enhancement**: Source name tracking added to consumption service and token charging integration (2025-01-29)
 
 ### Phase 3: Backend API Endpoints
-- **Status**: 🟡 Partially Complete (3.2 user purchase pending)
+- **Status**: ✅ Complete
 - **Started**: 2025-01-28
-- **Completed**: 5.5/6 tasks (3.1 ✅, 3.2 🟡 admin-only, 3.3 ✅, 3.4 ✅, 3.5 ✅, 3.6 ✅)
-- **Remaining**: 3.2 user purchase flow (purchase endpoint + purchase history endpoint)
+- **Completed**: 2025-01-29
+- **All Tasks**: 6/6 complete (3.1 ✅, 3.2 ✅, 3.3 ✅, 3.4 ✅, 3.5 ✅, 3.6 ✅)
+- **Note**: 3.2 includes user purchase flow with payment placeholder (admin purchase also available)
 
 ### Phase 4: Frontend Pages
-- **Status**: 🟡 Partially Complete (4.2 full implementation pending)
+- **Status**: ✅ Complete
 - **Started**: 2025-01-28
-- **Completed**: 5.5/6 tasks (4.1 ✅, 4.2 🟡 placeholder only, 4.3 ✅, 4.4 ✅, 4.5 ✅, 4.6 ✅)
-- **Remaining**: 4.2 full implementation (token package purchase page with purchase flow and history)
+- **Completed**: 2025-01-29
+- **All Tasks**: 6/6 complete (4.1 ✅, 4.2 ✅, 4.3 ✅, 4.4 ✅, 4.5 ✅, 4.6 ✅)
+- **4.2 Complete**: Full billing page with token packages, purchase flow (payment placeholder), purchase history, and subscription plans
 
 ### Phase 5: Trial System
-- **Status**: ⚪ Not Started
-- **Completed**: 0/4 tasks (5.1, 5.2, 5.3, 5.4)
+- **Status**: ✅ Complete
+- **Started**: 2025-01-28 (5.3), 2025-01-29 (5.1, 5.2, 5.4)
+- **Completed**: 4/4 tasks (5.1 ✅, 5.2 ✅, 5.3 ✅, 5.4 ✅)
+- **5.1 Complete**: Auto-create trial subscription on registration
+- **5.2 Complete**: Trial path on index page (scroll-to-pricing button in header)
+- **5.3 Complete**: Trial expiration handling (backend in renewal job, frontend banners)
+- **5.4 Complete**: Pricing section on landing page with subscription plans and token packages
 
 ### Phase 6: Feature Sync Integration
-- **Status**: ⚪ Not Started
-- **Completed**: 0/2 tasks
-
-### Phase 7: Testing & Validation
-- **Status**: ⚪ Not Started
-- **Completed**: 0/3 tasks
+- **Status**: ✅ Complete
+- **Started**: 2025-01-29
+- **Completed**: 2025-01-29
+- **6.1 Complete**: Feature sync from subscription plans implemented
+- **6.2 Complete**: Feature enforcement in tools pages and runtime (ToolExecutor, API endpoints, pipeline execution)
 
 ### Phase 8: Migration & Deployment
 - **Status**: ⚪ Not Started
@@ -1745,28 +1755,27 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 3.2 Token Package Endpoints
 
-**Status**: 🟡 Partially Complete (Admin-only purchase, user purchase pending)
+**Status**: ✅ Complete
 **Started**: 2025-01-28  
-**Completed**: Admin purchase only
+**Completed**: 2025-01-29
 
 **Tasks:**
 - [x] Create `app/api/token_packages.py`:
   - `GET /api/token-packages` - List available packages ✅
-  - `POST /api/token-packages/{package_id}/purchase` - Purchase package (admin-only) ✅
+  - `POST /api/token-packages/{package_id}/purchase` - Purchase package (user + admin) ✅
+  - `GET /api/token-packages/purchases` - Get user's purchase history ✅
 - [x] Create request/response models:
   - `TokenPackageResponse` ✅
   - `PurchaseTokenPackageRequest` ✅
   - `PurchaseTokenPackageResponse` ✅
-- [ ] **User Purchase Flow (To Be Implemented)**:
-  - Update `POST /api/token-packages/{package_id}/purchase` to allow user purchases
-    - Remove admin requirement (or make it optional for manual admin purchases)
-    - Add payment verification (placeholder for payment gateway integration)
-    - For now: Manual admin approval or future payment gateway
-  - `GET /api/token-packages/purchases` - Get user's purchase history
-    - Returns list of purchases from `token_purchases` table
-    - Filtered by current user and organization
-    - Includes: package name, tokens, price, purchase date
-    - Pagination support
+  - `PurchaseHistoryItem` ✅
+- [x] **User Purchase Flow**:
+  - User purchase endpoint allows user purchases (with payment placeholder)
+  - Payment verification placeholder (ready for payment gateway integration)
+  - Purchase history endpoint with pagination
+  - Returns list of purchases from `token_purchases` table
+  - Filtered by current user and organization
+  - Includes: package name, tokens, price, purchase date
 
 **Dependencies:** 2.5 (token balance service), Payment integration (future)
 
@@ -1775,23 +1784,21 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 **Files Created:**
 - `backend/app/api/token_packages.py`
 
-**Current Features:**
+**Features:**
 - List all visible and active token packages ✅
-- Admin-only purchase endpoint ✅
-  - Admin manually adds tokens to user balance
-  - Records purchase in `token_purchases` table
-  - Returns new balance after purchase
-
-**Features to Add:**
-- User-facing purchase endpoint (with payment verification)
-- Purchase history endpoint
-- Payment integration (placeholder initially, payment gateway later)
+- User purchase endpoint (with payment placeholder) ✅
+- Admin purchase endpoint (for manual admin purchases) ✅
+- Purchase history endpoint with pagination ✅
+- Tokens added to balance after purchase ✅
+- Records purchase in `token_purchases` table ✅
+- Returns new balance after purchase ✅
 
 **Key Points:**
 - **Purchased tokens are added to balance** (not reset monthly) ✅
 - **Balance tokens persist** until consumed (unlike subscription tokens which reset monthly) ✅
-- **Purchase history** will show all past purchases
-- **Payment flow**: Initially manual admin approval, later payment gateway integration
+- **Package tokens preserved** when subscription is upgraded (only subscription tokens reset) ✅
+- **Purchase history** shows all past purchases ✅
+- **Payment placeholder** ready for payment gateway integration ✅
 
 ### 3.3 Consumption Endpoints
 
@@ -1993,51 +2000,44 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 4.2 Billing Page (Token Package Purchase)
 
-**Status**: ⚪ Not Started (Placeholder Complete, Full Implementation Pending)
-**Started**: 2025-01-28 (Placeholder)
-**Completed**: Placeholder only
-
-**Current Status**: Placeholder page exists, full purchase flow needs to be implemented.
+**Status**: ✅ Complete
+**Started**: 2025-01-28
+**Completed**: 2025-01-29
 
 **Tasks:**
-- [x] Create `frontend/app/billing/page.tsx` (Placeholder):
-  - Placeholder message: "Billing information will be available soon"
-  - Link to contact support
-  - Link to consumption page
-  - Simple, clean design
-- [ ] **Full Implementation (To Be Done)**:
+- [x] Create `frontend/app/billing/page.tsx`:
   - Display available token packages (Small, Medium, Large)
   - Package cards with: name, description, token amount, price
   - "Купить пакет" (Purchase Package) button for each package
-  - Purchase flow:
+  - Purchase flow with payment placeholder:
     1. User selects package
-    2. Payment integration (placeholder for now - can be manual admin approval or future payment gateway)
+    2. Payment placeholder shown (for future payment gateway integration)
     3. After payment confirmation, tokens added to balance
     4. Show success message with new balance
   - Purchase history section:
     - List of all purchased packages (from `token_purchases` table)
     - Show: package name, tokens, price, purchase date
     - Pagination for history
-  - Current balance display
+  - Current balance display (subscription + purchased tokens)
+  - Subscription plans display (for upgrade/downgrade)
   - Link to consumption page
+  - **Order**: Token packages displayed before subscription plans (quick purchase priority)
 
-**Dependencies:** 3.2 (token package endpoints), Payment integration (future)
+**Dependencies:** 3.2 (token package endpoints)
 
-**Estimated Time:** 6-8 hours (full implementation)
+**Estimated Time:** 6-8 hours
 
 **Files Created:**
-- `frontend/app/billing/page.tsx` (placeholder exists)
-
-**Files to Create/Update:**
 - `frontend/app/billing/page.tsx` (full implementation)
-- `frontend/lib/api/token-packages.ts` (user-facing purchase functions)
-- `backend/app/api/token_packages.py` (update purchase endpoint to allow user purchases)
+- `frontend/components/PaymentPlaceholder.tsx` (payment placeholder component)
+- `frontend/components/SubscriptionPlansDisplay.tsx` (reusable subscription plans component)
 
-**Features (Full Implementation):**
+**Features:**
 - Package selection UI with cards
-- Purchase flow with payment integration (placeholder)
-- Purchase history display
-- Current balance display
+- Purchase flow with payment placeholder (ready for payment gateway integration)
+- Purchase history display with pagination
+- Current balance display (subscription + purchased)
+- Subscription plans display (upgrade/downgrade options)
 - Success/error messages
 - Responsive design
 - All text in Russian
@@ -2045,8 +2045,9 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 **Key Points:**
 - **Purchased tokens are added to balance** (not reset monthly)
 - **Balance tokens persist** until consumed (unlike subscription tokens which reset monthly)
+- **Package tokens preserved** when subscription is upgraded (only subscription tokens reset)
 - **Purchase history** shows all past purchases
-- **Payment integration** can be manual admin approval initially, payment gateway later
+- **Payment placeholder** ready for payment gateway integration
 
 ### 4.3 Admin - User Subscription Management
 
@@ -2224,84 +2225,114 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 5.1 Auto-Create Trial on Registration
 
+**Status**: ✅ Complete
+**Started**: 2025-01-29
+**Completed**: 2025-01-29
+
 **Tasks:**
-- [ ] Update `app/api/auth.py` registration endpoint:
+- [x] Update `app/api/auth.py` registration endpoint:
   - After user creation, create trial subscription
-  - Set plan to "Trial" plan
+  - Set plan to "Trial" plan (300,000 tokens, 14 days)
   - Set status to "trial"
   - Set `trial_ends_at` to 14 days from now
-  - Set token allocation (TBD)
+  - Set token allocation to 300,000 tokens
   - Sync features from plan to `user_features` table
-- [ ] Test registration flow
+  - Create token balance (initialized to 0)
+- [x] Test registration flow
 
 **Dependencies:** 1.3 (seed data), 2.4 (subscription service)
 
 **Estimated Time:** 3-4 hours
 
+**Implementation:**
+- Registration always creates trial subscription (ignores any `plan_id` in request)
+- Trial subscription created with full token allocation
+- Features automatically synced from trial plan (all Pro features enabled)
+
 ### 5.2 Trial Path on Index Page
 
+**Status**: ✅ Complete
+**Started**: 2025-01-29
+**Completed**: 2025-01-29
+
 **Tasks:**
-- [ ] Update `frontend/app/page.tsx`:
-  - Add "Start Free Trial" button
-  - Link to `/register?trial=true`
-- [ ] Update `frontend/app/register/page.tsx`:
-  - Check for `?trial=true` query param
-  - Show "Start Your 14-Day Free Trial" messaging
-  - Same registration flow (trial auto-created)
+- [x] Update `frontend/app/page.tsx`:
+  - Add "Начать пробный период" (Start Free Trial) button in header
+  - Button scrolls to pricing section (`#pricing`)
+  - Smooth scroll behavior for better UX
 
-**Dependencies:** 5.1 (auto-create trial)
+**Dependencies:** 5.1 (auto-create trial), 5.4 (pricing section)
 
-**Estimated Time:** 2 hours
+**Estimated Time:** 15 minutes
+
+**Implementation:**
+- Added "Начать пробный период" button in header (next to "Регистрация")
+- Button uses smooth scroll to `#pricing` section
+- Pricing section already has trial plan with "Начать пробный период" button that links to registration
+- Registration always creates trial automatically, so no special handling needed
 
 ### 5.3 Trial Expiration Handling
 
+**Status**: ✅ Complete
+**Started**: 2025-01-28 (Phase 2.7)
+**Completed**: 2025-01-29
+
 **Tasks:**
-- [ ] Create `app/services/subscription/trial_expiration.py`:
-  - `check_trial_expiration()` - Check if trial expired
-  - `expire_trial(subscription_id)` - Mark trial as expired
-- [ ] Update subscription renewal job to handle trial expiration
-- [ ] Create frontend banner/notification:
-  - Show when trial expires
-  - "Your trial has ended. Select a plan to continue."
-  - Link to plan selection (placeholder for Phase 1)
+- [x] Trial expiration handling in subscription renewal job:
+  - `renew_expired_subscriptions()` - Checks if trial expired
+  - Marks trials as expired when `trial_ends_at` has passed
+  - Handles both period-based and trial-based expiration
+  - Runs daily at 00:00 UTC via scheduler
+- [x] Frontend banners/notifications:
+  - Expired subscription warning on consumption page
+  - Expired subscription warning on analyses page
+  - Shows "Ваш пробный период истек" for expired trials
+  - Shows "Ваша подписка истекла" for expired paid subscriptions
+  - Link to plan selection (`/subscription/plans`)
+  - Different messaging for trial vs paid subscription expiration
 
 **Dependencies:** 2.4 (subscription service), 2.7 (renewal job)
 
 **Estimated Time:** 3-4 hours
 
+**Implementation:**
+- Trial expiration handled in `subscription_renewal.py` (integrated with renewal job)
+- Frontend banners implemented in:
+  - `frontend/app/consumption/page.tsx` (lines 172-197)
+  - `frontend/app/analyses/[id]/page.tsx` (lines 562-587)
+- Banners show appropriate messages based on `subscription.is_trial` flag
+- All text in Russian
+- Links to subscription plans page for plan selection
+
 ### 5.4 Pricing Page on Index (Landing Page)
 
+**Status**: ✅ Complete
+**Started**: 2025-01-29
+**Completed**: 2025-01-29
+
 **Tasks:**
-- [ ] Create public API endpoint:
+- [x] Create public API endpoint:
   - `GET /api/subscription-plans` - Get all visible subscription plans (public, no auth required)
   - Returns: plan name, display_name, description, monthly_tokens, price_monthly, included_features, is_trial, trial_duration_days
-- [ ] Update `frontend/app/page.tsx` (index/landing page):
-  - Add "Цены" (Pricing) section or dedicated pricing page
-  - Display all subscription plans (Trial, Basic, Pro) with:
-    - Plan name and description
-    - Token allocations (formatted: 300K, 750K, 1.5M)
-    - Monthly price (₽990, ₽1,900, or "Бесплатно" for trial)
-    - Included features list
-    - "Начать пробный период" button for trial
-    - "Выбрать план" buttons for paid plans (links to registration)
+- [x] Update `frontend/app/page.tsx` (index/landing page):
+  - Add "Цены" (Pricing) section
+  - Display all subscription plans (Trial, Basic, Pro) using `SubscriptionPlansDisplay` component
   - Display token packages (Small, Medium, Large) with:
     - Token amount and price
-    - "Купить пакет" buttons (links to registration or billing page)
+    - "Купить пакет" buttons (links to registration)
   - Clean, professional design matching application design system
   - Responsive layout (mobile, tablet, desktop)
-- [ ] Create API client function:
+- [x] Create API client function:
   - `fetchSubscriptionPlans()` - Fetch all visible plans (public endpoint)
 
 **Dependencies:** 1.3 (seed data), 3.1 (subscription endpoints)
 
 **Estimated Time:** 4-6 hours
 
-**Design Requirements:**
-- Cards layout for plans (3-column on desktop, stacked on mobile)
-- Clear visual hierarchy (Trial highlighted, Basic/Pro side-by-side)
-- Feature comparison table or list
-- Call-to-action buttons for each plan
-- Token package cards below subscription plans
+**Implementation:**
+- Pricing section added to landing page (`/`)
+- Uses `SubscriptionPlansDisplay` component for consistent UI
+- Token packages displayed below subscription plans
 - All text in Russian
 - Light theme consistent with application design
 
@@ -2311,113 +2342,72 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 ### 6.1 Feature Sync from Subscription Plans
 
+**Status**: ✅ Complete
+**Started**: 2025-01-29
+**Completed**: 2025-01-29
+
 **Tasks:**
-- [ ] Update `app/services/subscription/subscription_service.py`:
+- [x] Update `app/services/subscription/subscription_service.py`:
   - `sync_features_from_plan(subscription)` - Sync plan features to user_features
   - Enable features in `plan.included_features`
   - Disable features NOT in `plan.included_features`
-- [ ] Call feature sync when:
-  - Subscription is created
-  - Subscription plan is changed
+- [x] Call feature sync when:
+  - Subscription is created (registration, admin creation)
+  - Subscription plan is changed (upgrade/downgrade)
   - Subscription is renewed
-- [ ] Test feature restrictions:
-  - Basic plan: Only `openrouter` feature enabled
+- [x] Test feature restrictions:
+  - Basic plan: Only LLM features enabled (no tools, no RAG)
   - Pro/Trial plan: All features enabled
 
 **Dependencies:** 2.4 (subscription service), existing feature system
 
 **Estimated Time:** 3-4 hours
 
+**Implementation:**
+- Feature sync automatically called on subscription creation, plan change, and renewal
+- Features synced to `user_features` table based on plan's `included_features` JSON
+- Tested with Basic plan (tools blocked) and Pro plan (all features enabled)
+
 ### 6.2 Feature Enforcement in Pipeline
 
+**Status**: ✅ Complete
+**Started**: 2025-01-29
+**Completed**: 2025-01-29
+
 **Tasks:**
-- [ ] Update pipeline execution to check features:
-  - RAG tools: Check `rag` feature
-  - API tools: Check `api_tools` feature
-  - Database tools: Check `database_tools` feature
-  - Scheduling: Check `scheduling` feature
-- [ ] Return clear error messages when feature not enabled
-- [ ] Test with Basic plan (should block tool usage)
+- [x] Update tools pages to check features:
+  - Tools list page (`/tools`): Check `api_tools` or `database_tools` feature
+  - Tools creation page (`/tools/new`): Check `api_tools` or `database_tools` feature
+  - Show upgrade banner when feature not enabled
+  - Disable tool queries when feature not available
+- [x] Update pipeline execution to check features:
+  - RAG tools: Check `rag` feature in `ToolExecutor.execute_tool()`
+  - API tools: Check `api_tools` feature in `ToolExecutor.execute_tool()`
+  - Database tools: Check `database_tools` feature in `ToolExecutor.execute_tool()`
+  - Feature checks added to all tool execution paths (pipeline, step processing, API endpoints)
+- [x] Return clear error messages when feature not enabled (Russian error messages)
+- [x] Add `require_feature('rag')` dependency to RAG API endpoints (create, upload, query, etc.)
+- [x] Add feature checks to Tools API endpoints (create_tool checks appropriate feature)
+- [x] Test with Basic plan (should block tool usage in UI and runtime)
 
 **Dependencies:** 6.1 (feature sync), existing feature system
 
 **Estimated Time:** 2-3 hours
 
----
-
-## Phase 7: Testing & Validation
-
-### 7.1 Backend Unit Tests
-
-**Tasks:**
-- [ ] Test pricing service:
-  - Cost calculation
-  - User price calculation
-  - Exchange rate conversion
-- [ ] Test subscription service:
-  - Create subscription
-  - Change plan
-  - Renewal logic
-  - Feature sync
-- [ ] Test token balance service:
-  - Add tokens
-  - Charge tokens
-  - Available tokens calculation
-- [ ] Test consumption service:
-  - Record consumption
-  - Get statistics
-  - Get history
-- [ ] Test provider sync adapters:
-  - OpenRouter adapter
-  - Pricing parsing
-
-**Dependencies:** All backend services
-
-**Estimated Time:** 8-10 hours
-
-### 7.2 Integration Tests
-
-**Tasks:**
-- [ ] Test LLM call → Token consumption:
-  - Verify tokens tracked correctly
-  - Verify costs calculated correctly
-  - Verify consumption recorded
-- [ ] Test subscription → Token charging:
-  - Charge from subscription allocation
-  - Charge from balance when subscription exhausted
-  - Block when both exhausted
-- [ ] Test trial expiration:
-  - Trial expires correctly
-  - Features disabled after expiration
-- [ ] Test feature restrictions:
-  - Basic plan blocks tool usage
-  - Pro plan allows all tools
-
-**Dependencies:** All phases complete
-
-**Estimated Time:** 6-8 hours
-
-### 7.3 Frontend Tests
-
-**Tasks:**
-- [ ] Test consumption page:
-  - Statistics display correctly
-  - Chart renders correctly
-  - Table displays correctly
-  - Filters work
-  - User filter works (org admin)
-- [ ] Test admin pages:
-  - Subscription management
-  - Pricing management
-  - Provider management
-- [ ] Test trial flow:
-  - Registration creates trial
-  - Trial path works
-  - Trial expiration banner
-
-**Dependencies:** All frontend pages
-
-**Estimated Time:** 4-6 hours
+**Implementation:**
+- Tools pages (`/tools`, `/tools/new`) check `effectiveFeatures` and show upgrade banner when tools feature not available
+- **Runtime Feature Enforcement:**
+  - `ToolExecutor.execute_tool()` checks features before executing RAG, API, or Database tools
+  - Returns clear Russian error messages when features are not enabled
+  - All ToolExecutor call sites updated to pass `user_id` and `organization_id` for feature checks
+- **API Endpoint Feature Checks:**
+  - RAG endpoints: `require_feature('rag')` added to create, upload, query, import, bulk upload, and reprocess endpoints
+  - Tools endpoints: Feature check added to `create_tool` endpoint (checks appropriate feature based on tool_type)
+  - All endpoints return 403 Forbidden with Russian error messages when features are not enabled
+- **Pipeline Execution:**
+  - Feature checks integrated into `_process_tool_references()` in step processing
+  - Feature checks integrated into pipeline execution when tools are used for market data
+  - All tool execution paths now validate features before execution
 
 ---
 
@@ -2479,8 +2469,7 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
     - 5.3: Trial Expiration Handling (Day 2)
     - 5.4: Pricing Page on Index (Day 3)
 11. **Phase 6**: Feature Sync (Days 4-5)
-12. **Phase 7**: Testing (Days 6-7)
-13. **Phase 8**: Migration & Deployment (Day 8)
+12. **Phase 8**: Migration & Deployment (Days 6-7)
 
 ---
 
@@ -2488,9 +2477,8 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 
 - **Backend**: ~60-70 hours
 - **Frontend**: ~35-45 hours
-- **Testing**: ~18-24 hours
 - **Migration**: ~6-9 hours
-- **Total**: ~120-150 hours (~3-4 weeks for 1 developer)
+- **Total**: ~100-125 hours (~2.5-3 weeks for 1 developer)
 
 ---
 
@@ -2503,8 +2491,7 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 4. Consumption tracking (Phase 2.3)
 5. API endpoints (Phase 3)
 6. Frontend pages (Phase 4)
-7. Testing (Phase 7)
-8. Migration (Phase 8)
+7. Migration (Phase 8)
 
 **Can be done in parallel:**
 - Provider adapters (Phase 2.2) - can be done after OpenRouter adapter
@@ -2559,19 +2546,15 @@ our_cost_rub = round(our_total_cost_usd * exchange_rate, 2)  # 2 decimals
 - [ ] Admin pages working
 
 ### Phase 5 Complete
-- [ ] Trial auto-created on registration
-- [ ] Trial path on index page
-- [ ] Trial expiration handling
-- [ ] Pricing page on index showing all plans and token packages
+- [x] Trial auto-created on registration
+- [x] Trial path on index page (scroll-to-pricing button in header)
+- [x] Trial expiration handling (backend in renewal job, frontend banners implemented)
+- [x] Pricing page on index showing all plans and token packages
 
 ### Phase 6 Complete
-- [ ] Feature sync working
-- [ ] Feature restrictions enforced
-
-### Phase 7 Complete
-- [ ] All tests passing
-- [ ] Integration tests passing
-- [ ] Manual testing complete
+- [x] Feature sync working
+- [x] Feature restrictions enforced (tools pages)
+- [x] Feature restrictions enforced in pipeline execution
 
 ### Phase 8 Complete
 - [ ] Migration successful

@@ -106,21 +106,32 @@ class LLMClient:
             )
             
             content = response.choices[0].message.content
-            tokens_used = response.usage.total_tokens if response.usage else 0
+            
+            # Extract token usage details
+            if response.usage:
+                input_tokens = response.usage.prompt_tokens if hasattr(response.usage, 'prompt_tokens') else 0
+                output_tokens = response.usage.completion_tokens if hasattr(response.usage, 'completion_tokens') else 0
+                total_tokens = response.usage.total_tokens if hasattr(response.usage, 'total_tokens') else (input_tokens + output_tokens)
+            else:
+                input_tokens = 0
+                output_tokens = 0
+                total_tokens = 0
             
             # Estimate cost (rough approximation, varies by model)
             # OpenRouter pricing: https://openrouter.ai/models
             # Using conservative estimate of $0.01 per 1K tokens for most models
-            cost_est = (tokens_used / 1000) * 0.01
+            cost_est = (total_tokens / 1000) * 0.01
             
             logger.info(
-                f"llm_call_completed: model={model}, tokens={tokens_used}, cost_est={cost_est}"
+                f"llm_call_completed: model={model}, input_tokens={input_tokens}, output_tokens={output_tokens}, total_tokens={total_tokens}, cost_est={cost_est}"
             )
             
             return {
                 "content": content,
                 "model": model,
-                "tokens_used": tokens_used,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "tokens_used": total_tokens,  # Keep for backward compatibility
                 "cost_est": cost_est,
             }
         except Exception as e:

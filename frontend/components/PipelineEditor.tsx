@@ -820,6 +820,8 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
     setStepResults(new Map())
     setCurrentExecutingStepIndex(0)
     
+    const startTime = Date.now()
+    
     try {
       // Get current text from editors (same as save)
       const refs = (window as any).variableEditorRefs as Map<number, React.RefObject<VariableTextEditorHandle>>
@@ -891,10 +893,14 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
           const completedResult = {
             step_name: stepResult.step_name,
             status: stepResult.error ? ('error' as const) : ('completed' as const),
-            result: stepResult.output,
+            input: stepResult.input || '',
+            output: stepResult.output || '',
+            result: stepResult.output, // Keep for backward compatibility with FlowDiagram
             error: stepResult.error,
             tokens: stepResult.tokens_used,
+            tokens_used: stepResult.tokens_used, // Keep for modal compatibility
             cost: stepResult.cost_est,
+            cost_est: stepResult.cost_est, // Keep for modal compatibility
             model: stepResult.model,
           }
           newStepResults.set(stepIndex, completedResult)
@@ -912,7 +918,15 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
           const errorResult = {
             step_name: updatedSteps[stepIndex].step_name,
             status: 'error' as const,
+            input: '',
+            output: '',
+            result: '', // Keep for backward compatibility
             error: error.response?.data?.detail || error.message || 'Unknown error',
+            tokens: 0,
+            tokens_used: 0, // Keep for modal compatibility
+            cost: 0,
+            cost_est: 0, // Keep for modal compatibility
+            model: null,
           }
           newStepResults.set(stepIndex, errorResult)
           setStepResults(new Map(newStepResults))
@@ -921,36 +935,92 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
         }
       }
       
+      // Ensure all step results are saved (including last step)
+      setStepResults(new Map(newStepResults))
+      
+      // Calculate execution duration
+      const endTime = Date.now()
+      const durationMs = endTime - startTime
+      
       // Finalize execution state
       setExecutionState('completed')
       setCurrentExecutingStepIndex(undefined)
       
+      // Convert step results to format expected by TestResults component
+      const stepsForModal = Array.from(newStepResults.entries())
+        .sort(([a], [b]) => a - b) // Sort by index
+        .map(([index, stepResult]) => ({
+          step_name: stepResult.step_name,
+          input: stepResult.input || '',
+          output: stepResult.output || stepResult.result || '',
+          model: stepResult.model || null,
+          tokens_used: stepResult.tokens_used ?? stepResult.tokens ?? 0,
+          cost_est: stepResult.cost_est ?? stepResult.cost ?? 0,
+          error: stepResult.error || null,
+        }))
+      
+      // Check if any step failed due to insufficient tokens
+      const hasInsufficientTokens = stepsForModal.some(step => 
+        step.error && (
+          step.error.toLowerCase().includes('недостаточно токенов') ||
+          step.error.toLowerCase().includes('insufficient tokens')
+        )
+      )
+      
       // Show final result in modal
       const finalResult = {
-        steps: Array.from(newStepResults.values()),
+        steps: stepsForModal,
         total_cost: totalCost,
         total_tokens: totalTokens,
+        duration_ms: durationMs,
         status: hasError ? 'failed' : 'succeeded',
-        error: hasError ? 'Some steps failed' : null,
+        error: hasError 
+          ? (hasInsufficientTokens ? 'Недостаточно токенов' : 'Some steps failed')
+          : null,
         isPipeline: true,
       }
       setTestResult(finalResult)
+      
+      // Reset execution state to idle after a short delay so user can see results
+      setTimeout(() => {
+        setExecutionState('idle')
+      }, 2000)
     } catch (error: any) {
       console.error('[handleTestPipeline] Error:', error)
       setExecutionState('idle')
       setCurrentExecutingStepIndex(undefined)
       
       let errorMessage = 'Неизвестная ошибка'
+      let isInsufficientTokens = false
       
       if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
         errorMessage = `Не удалось подключиться к серверу. Проверьте, что бэкенд запущен на ${API_BASE_URL}`
       } else if (error.response) {
-        errorMessage = error.response.data?.detail || error.response.data?.message || `HTTP ${error.response.status}: ${error.response.statusText}`
+        const detail = error.response.data?.detail || error.response.data?.message || ''
+        errorMessage = detail || `HTTP ${error.response.status}: ${error.response.statusText}`
+        
+        // Check if it's an insufficient tokens error
+        if (detail.toLowerCase().includes('insufficient tokens') || detail.toLowerCase().includes('недостаточно токенов')) {
+          isInsufficientTokens = true
+          errorMessage = `Недостаточно токенов для выполнения запроса.\n\n${detail}\n\nПроверьте баланс токенов на странице потребления.`
+        }
       } else if (error.message) {
         errorMessage = error.message
+        if (error.message.toLowerCase().includes('insufficient tokens') || error.message.toLowerCase().includes('недостаточно токенов')) {
+          isInsufficientTokens = true
+        }
       }
       
-      alert(`Ошибка тестирования пайплайна: ${errorMessage}`)
+      if (isInsufficientTokens) {
+        const userConfirmed = confirm(
+          `${errorMessage}\n\nХотите перейти на страницу потребления токенов?`
+        )
+        if (userConfirmed) {
+          window.location.href = '/consumption'
+        }
+      } else {
+        alert(`Ошибка тестирования пайплайна: ${errorMessage}`)
+      }
     } finally {
       setIsTestingPipeline(false)
     }

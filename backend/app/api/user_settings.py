@@ -41,14 +41,11 @@ class UpdatePreferencesRequest(BaseModel):
     notifications_enabled: Optional[bool] = None
 
 
-class UpdateApiKeysRequest(BaseModel):
-    openrouter_api_key: Optional[str] = None
 
 
 class UserSettingsResponse(BaseModel):
     profile: dict
     preferences: dict
-    api_keys: dict
     organizations: list[dict]
     
     class Config:
@@ -108,12 +105,6 @@ async def get_user_settings(
         "notifications_enabled": True
     }
     
-    # Get API keys (for MVP, we'll use AppSettings with user_id filter)
-    # For now, return empty
-    api_keys = {
-        "openrouter_api_key": None
-    }
-    
     return UserSettingsResponse(
         profile={
             "id": current_user.id,
@@ -124,7 +115,6 @@ async def get_user_settings(
             "created_at": current_user.created_at.isoformat() if current_user.created_at else None
         },
         preferences=preferences,
-        api_keys=api_keys,
         organizations=orgs_data
     )
 
@@ -226,32 +216,4 @@ async def update_preferences(
     }
 
 
-@router.put("/api-keys", response_model=dict)
-async def update_api_keys(
-    request: UpdateApiKeysRequest,
-    current_user: User = Depends(get_current_user_dependency),
-    db: Session = Depends(get_db)
-):
-    """Update user API keys."""
-    # For MVP, store in AppSettings with user_id context
-    # For now, we'll use a simple approach: store in AppSettings with key like "user_{user_id}_openrouter_api_key"
-    from app.models.settings import AppSettings
-    
-    if request.openrouter_api_key is not None:
-        setting_key = f"user_{current_user.id}_openrouter_api_key"
-        setting = db.query(AppSettings).filter(AppSettings.key == setting_key).first()
-        if not setting:
-            setting = AppSettings(
-                key=setting_key,
-                is_secret=True,
-                description=f"OpenRouter API key for user {current_user.email}"
-            )
-            db.add(setting)
-        setting.value = request.openrouter_api_key
-        db.commit()
-    
-    return {
-        "success": True,
-        "message": "API keys updated"
-    }
 
