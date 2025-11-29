@@ -139,8 +139,16 @@ class ChromaDBBackend(VectorDBBackend):
         collection_name = self._get_collection_name(rag_id)
         try:
             return self.client.get_collection(name=collection_name)
-        except Exception:
-            # Collection doesn't exist, create it
+        except Exception as e:
+            # Collection doesn't exist, or has schema error - create it
+            error_str = str(e).lower()
+            if "topic" in error_str or "no such column" in error_str:
+                # Schema error - delete and recreate
+                logger.warning(f"Schema error accessing collection {collection_name}, recreating...")
+                try:
+                    self.client.delete_collection(name=collection_name)
+                except Exception:
+                    pass  # Collection might not exist
             return self.client.create_collection(name=collection_name)
     
     def create_collection(self, rag_id: int, collection_path: Path) -> None:
@@ -150,10 +158,43 @@ class ChromaDBBackend(VectorDBBackend):
             # Try to get existing collection
             self.client.get_collection(name=collection_name)
             logger.info(f"Collection {collection_name} already exists")
-        except Exception:
-            # Create new collection
-            self.client.create_collection(name=collection_name)
-            logger.info(f"Created ChromaDB collection: {collection_name}")
+        except Exception as e:
+            # If collection doesn't exist or there's a schema error, try to create it
+            try:
+                # Create new collection
+                self.client.create_collection(name=collection_name)
+                logger.info(f"Created ChromaDB collection: {collection_name}")
+            except Exception as create_error:
+                # If creation fails due to schema issues, reset ChromaDB and retry
+                error_str = str(create_error)
+                if "topic" in error_str.lower() or "no such column" in error_str.lower():
+                    logger.warning(f"ChromaDB schema error detected: {create_error}. Attempting to reset...")
+                    try:
+                        # Reset ChromaDB client (this will recreate the database with correct schema)
+                        import chromadb
+                        from chromadb.config import Settings
+                        # Delete the database file
+                        db_file = Path(self.storage_path) / "chroma.sqlite3"
+                        if db_file.exists():
+                            db_file.unlink()
+                            logger.info("Deleted old ChromaDB database file")
+                        
+                        # Reinitialize client
+                        self.client = chromadb.PersistentClient(
+                            path=str(self.storage_path),
+                            settings=Settings(
+                                anonymized_telemetry=False,
+                                allow_reset=True,
+                            )
+                        )
+                        # Try creating collection again
+                        self.client.create_collection(name=collection_name)
+                        logger.info(f"Created ChromaDB collection {collection_name} after schema reset")
+                    except Exception as reset_error:
+                        logger.error(f"Failed to reset ChromaDB schema: {reset_error}")
+                        raise
+                else:
+                    raise
     
     def add_documents(
         self,
