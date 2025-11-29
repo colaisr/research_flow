@@ -1204,7 +1204,7 @@ export default function AdminSettingsPage() {
         matchesSearch = !!(providerMatches && modelMatches)
       } else {
         // Regular search - check all fields with normalized versions
-        matchesSearch = model.name.toLowerCase().includes(searchLower) ||
+        matchesSearch = !!(model.name.toLowerCase().includes(searchLower) ||
                        model.name.toLowerCase().includes(searchNormalized) ||
                        model.name.toLowerCase().includes(searchNormalizedSpaces) ||
                        model.display_name.toLowerCase().includes(searchLower) ||
@@ -1213,7 +1213,7 @@ export default function AdminSettingsPage() {
                        model.provider.toLowerCase().includes(searchLower) ||
                        (model.description && model.description.toLowerCase().includes(searchLower)) ||
                        (model.description && model.description.toLowerCase().includes(searchNormalized)) ||
-                       (model.description && model.description.toLowerCase().includes(searchNormalizedSpaces))
+                       (model.description && model.description.toLowerCase().includes(searchNormalizedSpaces)))
       }
     } else {
       matchesSearch = true // No search query means show all
@@ -1712,7 +1712,7 @@ function ProviderPricingTab({
                             modelNameOnly.includes(modelPartNormalized) ||
                             modelNameOnly.includes(modelPartSpaces)
         
-        matchesSearch = providerMatches && modelMatches
+        matchesSearch = !!(providerMatches && modelMatches)
       } else {
         // Regular search - check all fields with normalized versions
         const modelNameLower = model.model_name.toLowerCase()
