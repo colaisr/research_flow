@@ -80,10 +80,10 @@ export default function SubscriptionPlansPage() {
               const currentPlan = plans?.find(p => p.id === currentSubscription.plan_id)
               if (currentPlan) {
                 // Paid plan = has price and is not trial
-                return !currentPlan.is_trial && currentPlan.price_monthly && currentPlan.price_monthly > 0
+                return !!(currentPlan.is_trial === false && currentPlan.price_monthly && currentPlan.price_monthly > 0)
               }
               // Fallback: if status is active and not trial, assume paid
-              return currentSubscription.status === 'active' && currentSubscription.plan_name !== 'trial'
+              return !!(currentSubscription.status === 'active' && currentSubscription.plan_name !== 'trial')
             })()}
             showCurrentPlanBadge={true}
             showPaymentPlaceholder={true}
