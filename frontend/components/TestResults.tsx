@@ -298,8 +298,8 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
               {(() => {
                 // Parse System: and User: sections if present
                 const inputText = stepResult.input
-                const systemMatch = inputText.match(/^System:\s*(.*?)(?=\n\nUser:|$)/s)
-                const userMatch = inputText.match(/\n\nUser:\s*(.*)$/s)
+                const systemMatch = inputText.match(/^System:\s*([\s\S]*?)(?=\n\nUser:|$)/)
+                const userMatch = inputText.match(/\n\nUser:\s*([\s\S]*)$/)
                 
                 if (systemMatch && userMatch) {
                   // Display System and User prompts separately
