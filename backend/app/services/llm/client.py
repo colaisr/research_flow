@@ -95,15 +95,22 @@ class LLMClient:
         model = model or self.default_model
         
         try:
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=[
+            # Build request params - only include max_tokens if specified
+            # If not specified, model will use its default maximum (no truncation)
+            request_params = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+                "temperature": temperature,
+            }
+            # Only add max_tokens if explicitly set (not None)
+            # If omitted, model uses its full context window for output (no truncation)
+            if max_tokens is not None:
+                request_params["max_tokens"] = max_tokens
+            
+            response = self.client.chat.completions.create(**request_params)
             
             content = response.choices[0].message.content
             

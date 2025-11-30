@@ -118,8 +118,11 @@ Constraints and preferences:
     - Custom tools: Extensible system for user-defined tool types
   - **RAG Service**: Manages knowledge bases and document processing
     - Document ingestion: Upload, URL fetching, API integration
+    - Document types: PDF, DOCX, TXT, HTML, Images (OCR), **Excel files (XLSX/XLS)** ✅
+    - Excel processing: Converts sheets to formatted tables, preserves structure and sheet names
     - Embedding generation: Create vector embeddings for documents
     - Semantic search: Query knowledge bases with natural language
+    - **Smart Excel sheet expansion**: When any chunk from an Excel sheet matches a query, all chunks from that sheet are retrieved to ensure complete context ✅
     - Multiple RAGs: Users can create separate knowledge bases by topic
   - **Scheduler**: APScheduler for running analyses on schedule
     - Supports cron expressions and interval-based scheduling
@@ -306,7 +309,7 @@ Constraints and preferences:
       - Step name and order (drag-and-drop reordering)
       - Tool selection (user's configured tools relevant to step type)
       - Step-specific configuration:
-        - LLM steps: Model, system prompt, user prompt template, temperature, max tokens
+        - LLM steps: Model, system prompt, user prompt template, temperature
         - API steps: Endpoint, method, headers, body template
         - RAG steps: RAG selection, query template, result format
         - Database steps: Query template, result processing
@@ -361,9 +364,10 @@ Constraints and preferences:
   - Vector database configuration
   
 - **Document Management**:
-  - Upload documents (PDF, DOCX, TXT, Markdown)
+  - Upload documents (PDF, DOCX, TXT, Markdown, **Excel files XLSX/XLS**) ✅
   - URL import (fetch content from URLs)
   - API import (fetch from configured APIs)
+  - Excel file processing: Multi-sheet support, table formatting, sheet name preservation
   - Document list with preview
   - Search within documents
   - Delete documents
@@ -372,6 +376,7 @@ Constraints and preferences:
 - **Query Test**:
   - Test semantic search queries
   - See retrieved documents and relevance scores
+  - **Improved UI**: Results grouped by document, sheet names displayed for Excel files, text highlighting for query matches ✅
   - Preview how RAG will be used in analysis steps
 
 **Dashboard Page (`/dashboard`):** ✅ **REDESIGNED**
@@ -461,7 +466,7 @@ Constraints and preferences:
     - Step name (unique identifier)
     - Tool selection (relevant tools for step type)
     - Step-specific configuration:
-      - LLM: Model, system prompt, user prompt template, temperature, max tokens
+      - LLM: Model, system prompt, user prompt template, temperature
       - API: Endpoint path, HTTP method, headers, body template
       - RAG: RAG selection, query template, result format
       - Database: Query template, result processing
@@ -529,7 +534,8 @@ Users can create, edit, and manage their own custom analysis pipelines using the
   - System analyses belong to a special system organization (or can be identified by `is_system=True`)
   - User pipelines (`is_system=false`) belong to user's personal organization or shared organizations
 - **Step Configuration Structure**:
-  - Each step has: `step_name`, `order`, `step_type`, `system_prompt`, `user_prompt_template`, `model`, `temperature`, `max_tokens`, `tool_id`, `include_context`, `is_summary` (marks step that produces final summary)
+  - Each step has: `step_name`, `order`, `step_type`, `system_prompt`, `user_prompt_template`, `model`, `temperature`, `tool_id`, `include_context`, `is_summary` (marks step that produces final summary)
+  - **Note**: `max_tokens` parameter removed - models use their default maximum output capacity to avoid truncation ✅
   - Steps are stored as JSON array in `analysis_types.config.steps`
   - Steps sorted by `order` field during execution
 - **Dynamic Execution**:
@@ -712,6 +718,7 @@ Users can create any flow they need - the platform is domain-agnostic.
   - System prompt defines role, output rules, style.
 - Each step uses structured prompt with any computed context (from previous steps, tools, RAGs).
   - Record model used, token counts, and estimated cost.
+  - **No output truncation**: Models use their default maximum output capacity (no `max_tokens` limit) to ensure complete responses ✅
   - Default model is configurable; routed through OpenRouter for easy switching.
 
 
@@ -731,6 +738,9 @@ Users can create any flow they need - the platform is domain-agnostic.
 - **RAG Tools**: Link to user's RAG knowledge bases
   - Each RAG is a tool that can be used in analysis steps
   - Semantic search queries return relevant document context
+  - **Excel file support**: Excel files (XLSX/XLS) are fully supported with multi-sheet processing ✅
+  - **Smart sheet expansion**: When Excel chunks match, all chunks from the primary matching sheet are retrieved for complete context ✅
+  - **Comprehensive logging**: Detailed logging for RAG query extraction, search execution, and result formatting ✅
   - Example: User creates "Company Protocols RAG" → can query it in steps for protocol information
 - **Custom Tools**: Extensible system for user-defined tool types
   - Future: Plugin system for custom tool implementations
@@ -1393,4 +1403,52 @@ customer-llm-package/
 - Ollama Models: https://ollama.com/library
 - YandexGPT Lite: https://huggingface.co/yandex/YaLM-2-8B-pretrain
 - OpenRouter Pricing: https://openrouter.ai/models
+
+### 15) Recent Implementation Updates (November 2024)
+
+**Excel File Support in RAG** ✅
+- Added full support for Excel files (XLSX/XLS) in RAG document processing
+- Multi-sheet processing: All sheets in Excel files are extracted and processed
+- Table formatting: Excel sheets are converted to formatted pipe-separated tables
+- Sheet name preservation: Sheet names are included in chunk metadata and displayed in search results
+- Sheet-level chunking: Chunks respect sheet boundaries, preventing data from different sheets from mixing
+
+**Smart Excel Sheet Expansion** ✅
+- When a RAG query matches chunks from an Excel file, the system identifies the primary matching sheet
+- All chunks from the primary matching sheet are automatically retrieved to ensure complete context
+- Prevents incomplete results when querying structured Excel data (e.g., student lists, financial data)
+- Filters out chunks from other sheets to avoid exceeding LLM token limits
+
+**RAG Query Enhancements** ✅
+- Comprehensive logging: Added detailed logging throughout RAG query extraction and execution
+  - Query extraction process (AI-based and fallback methods)
+  - Search parameters and raw results
+  - Sheet expansion and chunk filtering
+  - Formatted result statistics
+- Adaptive `top_k`: Automatically increases from 50 to 100 for list/count queries (detects keywords like "список", "сколько")
+- Improved query extraction: Enhanced AI prompts for better query extraction from natural language
+
+**RAG UI Improvements** ✅
+- Terminology update: Changed "Источники" to "Совпадения" (Sources → Matches) for clarity
+- Result grouping: Search results are now grouped by document with clear document titles
+- Sheet name display: Excel sheet names are displayed as badges in search results (e.g., "Лист: кросс клиенты")
+- Text highlighting: Query terms are visually highlighted with yellow background in search result chunks
+- Improved chat messages: Clearer messages showing total matches and document count
+
+**Step Configuration Simplification** ✅
+- Removed `max_tokens` parameter: Completely removed from step configurations (both UI and backend)
+- No truncation: Models now use their default maximum output capacity (typically 16K-32K tokens)
+- Benefits: Ensures complete responses without artificial truncation, especially for list-generation tasks
+- Token estimation: Conservative estimate (8000 tokens) used for balance checking when `max_tokens` is not set
+
+**Test Step Improvements** ✅
+- Increased timeout: Test step operations increased from 60 seconds to 5 minutes (300 seconds)
+- Improved result display: Test result modal now matches the cleaner formatting used in flow diagram
+- Separated prompts: System and User prompts displayed in distinct, visually differentiated blocks
+
+**General Platform Principles** ✅
+- Platform remains general-purpose and domain-agnostic
+- No case-specific logic: Removed any hardcoded logic for specific use cases
+- Excel support works for any Excel file type (financial, sales, inventory, student data, etc.)
+- All features work across different domains and use cases
 

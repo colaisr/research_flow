@@ -112,7 +112,7 @@ async def upload_public_document(
     file_ext = Path(filename).suffix.lower()
     
     # Check file type BEFORE creating document record
-    supported_extensions = [".pdf", ".docx", ".doc", ".txt", ".html", ".htm"]
+    supported_extensions = [".pdf", ".docx", ".doc", ".txt", ".html", ".htm", ".xlsx", ".xls"]
     
     if file_ext not in supported_extensions:
         raise HTTPException(

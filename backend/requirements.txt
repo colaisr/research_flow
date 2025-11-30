@@ -44,6 +44,7 @@ chromadb==0.4.22
 pdfplumber==0.10.3
 python-docx==1.1.0
 beautifulsoup4==4.12.2
+openpyxl==3.1.2  # Excel file support (XLSX) for pandas
 # OCR support
 pytesseract==0.3.10
 pdf2image==1.16.3

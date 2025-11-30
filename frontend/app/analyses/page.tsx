@@ -22,7 +22,6 @@ interface AnalysisType {
       system_prompt: string
       user_prompt_template: string
       temperature: number
-      max_tokens: number
       data_sources: string[]
     }>
     estimated_cost: number

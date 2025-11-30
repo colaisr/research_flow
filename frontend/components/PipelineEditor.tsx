@@ -58,7 +58,6 @@ interface StepConfig {
   system_prompt: string
   user_prompt_template: string
   temperature: number
-  max_tokens: number
   data_sources: string[]
   tool_references?: ToolReference[]
 }
@@ -150,7 +149,7 @@ async function testStep(
       payload,
       { 
         withCredentials: true,
-        timeout: 60000, // 60 seconds timeout for LLM calls
+        timeout: 300000, // 5 minutes timeout - RAG queries and complex LLM calls can take longer
       }
     )
     return data
@@ -234,7 +233,6 @@ const DEFAULT_STEP_TEMPLATE: Partial<StepConfig> = {
   system_prompt: 'Вы эксперт-аналитик.',
   user_prompt_template: 'Выполните анализ и предоставьте результаты.',
   temperature: 0.7,
-  max_tokens: 2000,
   data_sources: [],
 }
 
@@ -1618,7 +1616,7 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
           </span>
           {!showAdvanced && (
             <span className="text-xs text-gray-500 font-normal">
-              {modelDisplayName} • {temperatureDisplay} • {step.max_tokens} токенов
+              {modelDisplayName} • {temperatureDisplay}
             </span>
           )}
         </button>
@@ -1640,16 +1638,6 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
                 {currentModel?.has_failures && (
                   <p className="mt-1 text-xs text-orange-600">⚠️ У этой модели были зафиксированы ошибки</p>
                 )}
-              </div>
-              <div>
-                <label className="block text-sm mb-1 text-gray-700">Макс. токенов</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={step.max_tokens}
-                  onChange={(e) => onUpdate({ max_tokens: parseInt(e.target.value) })}
-                  className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
               </div>
             </div>
             <div>

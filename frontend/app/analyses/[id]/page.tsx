@@ -34,7 +34,6 @@ interface StepConfig {
   system_prompt?: string
   user_prompt_template?: string
   temperature?: number
-  max_tokens?: number
   data_sources?: string[]
 }
 
@@ -451,21 +450,6 @@ export default function AnalysisDetailPage() {
                                 ) : (
                                   <span className="text-gray-900 font-medium">
                                     {step.temperature ?? '—'}
-                                  </span>
-                                )}
-                              </div>
-                              <div>
-                                <label className="text-xs text-gray-600 font-medium mb-1 block">Макс. токенов:</label>
-                                {isEditing ? (
-                                  <input
-                                    type="number"
-                                    value={step.max_tokens || ''}
-                                    onChange={(e) => updateStepConfig(index, 'max_tokens', parseInt(e.target.value) || undefined)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                  />
-                                ) : (
-                                  <span className="text-gray-900 font-medium">
-                                    {step.max_tokens ? step.max_tokens.toLocaleString() : '—'}
                                   </span>
                                 )}
                               </div>

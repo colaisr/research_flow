@@ -594,7 +594,7 @@ async def upload_document(
     # Check file type BEFORE creating document record
     filename = file.filename or "file"
     file_ext = Path(filename).suffix.lower()
-    supported_extensions = [".pdf", ".docx", ".doc", ".txt", ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"]
+    supported_extensions = [".pdf", ".docx", ".doc", ".txt", ".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".xlsx", ".xls"]
     
     if file_ext not in supported_extensions:
         raise HTTPException(
@@ -1339,10 +1339,16 @@ def _process_document_embeddings(
     
     # Chunk text
     processor = DocumentProcessor()
+    
+    # Include document metadata to help with chunking strategy
+    doc_metadata = doc.document_metadata or {}
+    file_type = doc_metadata.get('file_type', '')
+    
     chunks = processor.chunk_text(doc.content, metadata={
         "document_id": doc_id,
         "rag_id": rag_id,
         "title": doc.title,
+        "file_type": file_type,  # Pass file type so Excel files get special chunking
     })
     
     if not chunks:

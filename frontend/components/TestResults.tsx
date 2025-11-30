@@ -164,16 +164,54 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
                     {step.input && (
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 mb-1">Входной промпт:</label>
-                        <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                          <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans">{step.input}</pre>
-                        </div>
+                        {(() => {
+                          // Parse System: and User: sections if present
+                          const inputText = step.input
+                          const systemMatch = inputText.match(/^System:\s*(.*?)(?=\n\nUser:|$)/s)
+                          const userMatch = inputText.match(/\n\nUser:\s*(.*)$/s)
+                          
+                          if (systemMatch && userMatch) {
+                            // Display System and User prompts separately
+                            return (
+                              <div className="space-y-2">
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">System:</label>
+                                  <div className="p-2 bg-blue-50 rounded border border-blue-200">
+                                    <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                                      {systemMatch[1].trim()}
+                                    </pre>
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-600 mb-1">User:</label>
+                                  <div className="p-2 bg-gray-50 rounded border border-gray-200">
+                                    <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                                      {userMatch[1].trim()}
+                                    </pre>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          } else {
+                            // Fallback: display as single block
+                            return (
+                              <div className="p-2 bg-gray-50 rounded border border-gray-200">
+                                <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                                  {inputText}
+                                </pre>
+                              </div>
+                            )
+                          }
+                        })()}
                       </div>
                     )}
                     {step.output && (
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 mb-1">Результат:</label>
-                        <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                          <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans">{step.output}</pre>
+                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                            {step.output}
+                          </pre>
                         </div>
                       </div>
                     )}
@@ -257,17 +295,55 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
           {stepResult.input && (
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">Входной промпт:</label>
-              <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans">{stepResult.input}</pre>
-              </div>
+              {(() => {
+                // Parse System: and User: sections if present
+                const inputText = stepResult.input
+                const systemMatch = inputText.match(/^System:\s*(.*?)(?=\n\nUser:|$)/s)
+                const userMatch = inputText.match(/\n\nUser:\s*(.*)$/s)
+                
+                if (systemMatch && userMatch) {
+                  // Display System and User prompts separately
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1.5">System:</label>
+                        <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                          <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                            {systemMatch[1].trim()}
+                          </pre>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1.5">User:</label>
+                        <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                          <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                            {userMatch[1].trim()}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                } else {
+                  // Fallback: display as single block
+                  return (
+                    <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                      <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                        {inputText}
+                      </pre>
+                    </div>
+                  )
+                }
+              })()}
             </div>
           )}
 
           {stepResult.output && (
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">Результат:</label>
-              <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans">{stepResult.output}</pre>
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                  {stepResult.output}
+                </pre>
               </div>
             </div>
           )}

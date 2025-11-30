@@ -61,6 +61,10 @@ class DocumentProcessor:
                 # Image files - use AI OCR via OpenRouter
                 text, image_metadata = self._extract_text_from_image(file_path)
                 metadata.update(image_metadata)
+            elif file_ext in [".xlsx", ".xls"]:
+                # Excel files - extract all sheets as formatted tables
+                text, excel_metadata = self._extract_text_from_excel(file_path)
+                metadata.update(excel_metadata)
             else:
                 raise ValueError(f"Unsupported file type: {file_ext}")
             
@@ -450,9 +454,12 @@ class DocumentProcessor:
     def chunk_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Chunk text into overlapping segments for embedding.
         
+        For Excel files, chunks by sheet to preserve sheet context.
+        For other documents, uses standard chunking with boundary detection.
+        
         Args:
             text: Text to chunk
-            metadata: Optional metadata to attach to each chunk
+            metadata: Optional metadata to attach to each chunk (may include 'file_type' from document metadata)
             
         Returns:
             List of chunk dicts with keys: 'text', 'metadata', 'chunk_index'
@@ -460,8 +467,163 @@ class DocumentProcessor:
         if not text.strip():
             return []
         
-        # Estimate tokens (rough approximation: 1 token ≈ 4 characters)
-        # This is a simple heuristic; for production, consider using tiktoken
+        # Check if this is an Excel file by looking for sheet markers
+        # Excel extraction format: "[Лист: SheetName]" followed by content
+        file_type = metadata.get('file_type', '').lower() if metadata else ''
+        is_excel = file_type in ['.xlsx', '.xls'] or '[Лист:' in text
+        
+        if is_excel:
+            return self._chunk_excel_text(text, metadata)
+        else:
+            return self._chunk_standard_text(text, metadata)
+    
+    def _chunk_excel_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Chunk Excel file text by sheet boundaries.
+        
+        Each sheet is chunked separately, and sheet name is preserved in metadata
+        and included at the start of each chunk for better searchability.
+        
+        Args:
+            text: Extracted Excel text with [Лист: SheetName] markers
+            metadata: Optional metadata
+            
+        Returns:
+            List of chunks with sheet context preserved
+        """
+        import re
+        
+        # Split text by sheet markers: [Лист: SheetName]
+        sheet_pattern = r'\[Лист:\s*([^\]]+)\]'
+        
+        # Find all sheet markers and their positions
+        sheet_matches = list(re.finditer(sheet_pattern, text))
+        
+        if not sheet_matches:
+            # No sheet markers found, fall back to standard chunking
+            logger.warning("Excel file has no sheet markers, using standard chunking")
+            return self._chunk_standard_text(text, metadata)
+        
+        all_chunks = []
+        chunk_index = 0
+        
+        # Process each sheet separately
+        for i, match in enumerate(sheet_matches):
+            sheet_name = match.group(1).strip()
+            sheet_start = match.end()
+            
+            # Find where this sheet ends (start of next sheet or end of text)
+            if i + 1 < len(sheet_matches):
+                sheet_end = sheet_matches[i + 1].start()
+            else:
+                sheet_end = len(text)
+            
+            # Extract sheet content
+            sheet_content = text[sheet_start:sheet_end].strip()
+            
+            if not sheet_content or sheet_content == '(пустой лист)':
+                # Skip empty sheets but still create a minimal chunk for searchability
+                chunk_metadata = {
+                    "chunk_index": chunk_index,
+                    "sheet_name": sheet_name,
+                    "chunk_start": sheet_start,
+                    "chunk_end": sheet_end,
+                    **(metadata or {}),
+                }
+                all_chunks.append({
+                    "text": f"[Лист: {sheet_name}]\n(пустой лист)",
+                    "metadata": chunk_metadata,
+                    "chunk_index": chunk_index,
+                })
+                chunk_index += 1
+                continue
+            
+            # Chunk this sheet's content
+            # Ensure sheet name is included in each chunk for better searchability
+            sheet_chunks = self._chunk_single_sheet(sheet_content, sheet_name, chunk_index, sheet_start, metadata)
+            
+            all_chunks.extend(sheet_chunks)
+            chunk_index += len(sheet_chunks)
+        
+        logger.info(f"Chunked Excel text into {len(all_chunks)} chunks across {len(sheet_matches)} sheets")
+        return all_chunks
+    
+    def _chunk_single_sheet(self, sheet_content: str, sheet_name: str, start_chunk_index: int, 
+                           sheet_start_pos: int, metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Chunk a single sheet's content with sheet name preserved.
+        
+        Args:
+            sheet_content: Content of one sheet (without [Лист:] header)
+            sheet_name: Name of the sheet
+            start_chunk_index: Starting chunk index
+            sheet_start_pos: Character position where sheet starts in full text
+            metadata: Base metadata
+            
+        Returns:
+            List of chunks for this sheet
+        """
+        chunk_size_chars = self.chunk_size_tokens * 4
+        chunk_overlap_chars = self.chunk_overlap_tokens * 4
+        
+        chunks = []
+        start = 0
+        chunk_index = start_chunk_index
+        
+        # Ensure sheet name header is included in the content
+        sheet_header = f"[Лист: {sheet_name}]"
+        
+        while start < len(sheet_content):
+            # Calculate end position
+            end = start + chunk_size_chars - len(sheet_header) - 10  # Reserve space for header
+            
+            # Extract chunk content
+            chunk_content = sheet_content[start:end] if end < len(sheet_content) else sheet_content[start:]
+            
+            # Try to break at paragraph boundary (table row boundaries are usually double newlines)
+            if end < len(sheet_content):
+                overlap_region = sheet_content[max(start, end - chunk_overlap_chars):end]
+                para_break = overlap_region.rfind('\n\n')
+                
+                if para_break != -1:
+                    end = max(start, end - chunk_overlap_chars) + para_break + 2
+                    chunk_content = sheet_content[start:end]
+            
+            # Prepend sheet header to each chunk for better searchability
+            full_chunk_text = f"{sheet_header}\n\n{chunk_content.strip()}"
+            
+            # Create chunk metadata with sheet name
+            chunk_metadata = {
+                "chunk_index": chunk_index,
+                "sheet_name": sheet_name,
+                "chunk_start": sheet_start_pos + start,
+                "chunk_end": sheet_start_pos + min(end, len(sheet_content)),
+                **(metadata or {}),
+            }
+            
+            chunks.append({
+                "text": full_chunk_text,
+                "metadata": chunk_metadata,
+                "chunk_index": chunk_index,
+            })
+            
+            # Move start position (with overlap)
+            if end >= len(sheet_content):
+                break
+            
+            start = end - chunk_overlap_chars
+            chunk_index += 1
+        
+        return chunks
+    
+    def _chunk_standard_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Standard text chunking with boundary detection.
+        
+        Args:
+            text: Text to chunk
+            metadata: Optional metadata
+            
+        Returns:
+            List of chunks
+        """
         chunk_size_chars = self.chunk_size_tokens * 4
         chunk_overlap_chars = self.chunk_overlap_tokens * 4
         
@@ -693,4 +855,150 @@ class DocumentProcessor:
             metadata["extraction_success"] = False
             metadata["error"] = str(e)
             raise
+    
+    def _extract_text_from_excel(self, file_path: Path) -> Tuple[str, Dict[str, Any]]:
+        """Extract text from Excel file (XLSX/XLS), converting all sheets to formatted text tables.
+        
+        Each sheet is extracted as a formatted table with headers and rows.
+        This preserves structure for semantic search queries while making data queryable.
+        
+        Args:
+            file_path: Path to Excel file (.xlsx or .xls)
+            
+        Returns:
+            Tuple of (extracted_text, metadata_dict)
+        """
+        import pandas as pd
+        
+        metadata = {
+            "filename": file_path.name,
+            "file_size": file_path.stat().st_size,
+            "file_type": file_path.suffix.lower(),
+            "sheet_count": 0,
+            "total_rows": 0,
+            "sheets": [],
+        }
+        
+        text_parts = []
+        
+        try:
+            # Read all sheets from Excel file
+            # pd.read_excel() with sheet_name=None returns dict of {sheet_name: DataFrame}
+            excel_file = pd.ExcelFile(file_path, engine='openpyxl' if file_path.suffix.lower() == '.xlsx' else None)
+            all_sheets = pd.read_excel(excel_file, sheet_name=None, engine='openpyxl' if file_path.suffix.lower() == '.xlsx' else None)
+            
+            metadata["sheet_count"] = len(all_sheets)
+            
+            # Process each sheet
+            for sheet_name, df in all_sheets.items():
+                sheet_metadata = {
+                    "sheet_name": sheet_name,
+                    "rows": len(df),
+                    "columns": len(df.columns),
+                }
+                metadata["sheets"].append(sheet_metadata)
+                metadata["total_rows"] += len(df)
+                
+                # Skip empty sheets
+                if df.empty:
+                    text_parts.append(f"[Лист: {sheet_name}]\n(пустой лист)\n")
+                    continue
+                
+                # Convert DataFrame to formatted text table
+                # Replace NaN with empty strings for cleaner output
+                df_cleaned = df.fillna("")
+                
+                # Format as table (similar to PDF table formatting)
+                # Use pipe-separated format for readability
+                formatted_table = self._format_dataframe_table(df_cleaned, sheet_name)
+                
+                text_parts.append(formatted_table)
+            
+            combined_text = "\n\n" + "=" * 80 + "\n\n".join(text_parts)
+            metadata["text_length"] = len(combined_text)
+            metadata["extraction_success"] = True
+            
+            return combined_text, metadata
+            
+        except ImportError as e:
+            error_msg = "pandas and openpyxl are required for Excel file processing. Install with: pip install pandas openpyxl"
+            logger.error(f"{error_msg}: {e}")
+            metadata["extraction_success"] = False
+            metadata["error"] = error_msg
+            raise ImportError(error_msg) from e
+        except Exception as e:
+            logger.error(f"Failed to extract text from Excel file {file_path}: {e}")
+            metadata["extraction_success"] = False
+            metadata["error"] = str(e)
+            raise
+    
+    def _format_dataframe_table(self, df, sheet_name: str) -> str:
+        """Format pandas DataFrame as a readable text table.
+        
+        Args:
+            df: pandas DataFrame to format
+            sheet_name: Name of the Excel sheet
+            
+        Returns:
+            Formatted table string with headers and rows
+        """
+        import pandas as pd
+        
+        if df.empty:
+            return f"[Лист: {sheet_name}]\n(пустой лист)"
+        
+        # Start with sheet name header
+        lines = [f"[Лист: {sheet_name}]", ""]
+        
+        # Format column names as header row
+        column_names = [str(col) for col in df.columns]
+        
+        # Convert all data to strings, handling different data types
+        # Format dates, numbers, and preserve text
+        formatted_rows = []
+        for idx, row in df.iterrows():
+            formatted_row = []
+            for val in row:
+                if pd.isna(val):
+                    formatted_val = ""
+                elif isinstance(val, (int, float)):
+                    # Format numbers (remove unnecessary decimals for integers)
+                    if isinstance(val, float) and val.is_integer():
+                        formatted_val = str(int(val))
+                    else:
+                        formatted_val = str(val)
+                elif isinstance(val, pd.Timestamp):
+                    # Format dates consistently
+                    formatted_val = val.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    formatted_val = str(val).strip()
+                
+                formatted_row.append(formatted_val)
+            
+            formatted_rows.append(formatted_row)
+        
+        # Calculate column widths (including header)
+        all_rows = [column_names] + formatted_rows
+        num_cols = len(column_names)
+        col_widths = [0] * num_cols
+        
+        for row in all_rows:
+            for i, cell in enumerate(row[:num_cols]):
+                col_widths[i] = max(col_widths[i], len(str(cell)))
+        
+        # Format header row
+        header_cells = [str(col).ljust(col_widths[i]) for i, col in enumerate(column_names)]
+        lines.append(" | ".join(header_cells))
+        lines.append("-" * (sum(col_widths) + 3 * (num_cols - 1)))
+        
+        # Format data rows (limit to first 1000 rows to avoid huge documents)
+        max_rows = 1000
+        for row_idx, row in enumerate(formatted_rows[:max_rows]):
+            row_cells = [str(cell).ljust(col_widths[i]) for i, cell in enumerate(row[:num_cols])]
+            lines.append(" | ".join(row_cells))
+        
+        if len(formatted_rows) > max_rows:
+            lines.append(f"\n... (показано {max_rows} из {len(formatted_rows)} строк)")
+        
+        return "\n".join(lines)
 

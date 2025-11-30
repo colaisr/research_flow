@@ -228,7 +228,8 @@ def _process_tool_references(
     from app.models.user_tool import UserTool
     
     tool_references = step_config.get("tool_references", [])
-    logger.info(f"Processing {len(tool_references)} tool reference(s)")
+    logger.info(f"[Step Tool Execution] Processing {len(tool_references)} tool reference(s) in step")
+    
     # Get pipeline name from context for consumption tracking
     source_name = context.get("_source_name")
     user_id = context.get("_user_id")
@@ -287,8 +288,9 @@ def _process_tool_references(
         
         # Execute tool with context (AI-based extraction)
         try:
+            logger.info(f"[Step Tool Execution] Executing tool '{tool.display_name}' (id: {tool_id}, type: {tool.tool_type}), variable: {variable_name}")
             if f'{{{variable_name}}}' not in template:
-                logger.error(f"Tool reference {{{variable_name}}} not found in template")
+                logger.error(f"[Step Tool Execution] Tool reference {{{variable_name}}} not found in template")
             tool_result = tool_executor.execute_tool_with_context(
                 tool=tool,
                 prompt_text=template,
@@ -298,15 +300,20 @@ def _process_tool_references(
                 llm_client=llm_client
             )
             
+            # Log result size for RAG tools
+            if tool.tool_type == "rag":
+                result_preview = tool_result[:200] + "..." if len(tool_result) > 200 else tool_result
+                logger.info(f"[Step Tool Execution] RAG tool '{tool.display_name}' returned result ({len(tool_result)} chars): {result_preview}")
+            
             # Replace tool reference with result
             # Escape braces in tool_result to prevent format() errors
             # We'll unescape them after format() is called
             escaped_result = tool_result.replace('{', '{{').replace('}', '}}')
             template = template.replace(f"{{{variable_name}}}", escaped_result)
-            logger.info(f"Executed tool {tool.display_name} (id: {tool_id}), variable: {variable_name}")
+            logger.info(f"[Step Tool Execution] Successfully executed tool {tool.display_name} (id: {tool_id}), variable: {variable_name}")
             
         except Exception as e:
-            logger.error(f"Tool execution failed for {tool.display_name} (id: {tool_id}): {e}", exc_info=True)
+            logger.error(f"[Step Tool Execution] Tool execution failed for {tool.display_name} (id: {tool_id}): {e}", exc_info=True)
             template = template.replace(f"{{{variable_name}}}", f"[Tool {tool.display_name} execution failed: {str(e)}]")
     
     return template
@@ -339,7 +346,7 @@ class BaseAnalyzer:
         Args:
             context: Context dictionary with instrument, timeframe, market_data, previous_steps
             llm_client: LLM client instance
-            step_config: Optional step configuration dict with model, temperature, max_tokens, 
+            step_config: Optional step configuration dict with model, temperature, 
                         system_prompt, user_prompt_template
         
         Returns:
@@ -374,7 +381,7 @@ class BaseAnalyzer:
             
             model = step_config.get("model")
             temperature = step_config.get("temperature", 0.7)
-            max_tokens = step_config.get("max_tokens")
+            # max_tokens removed - model will use its default maximum (no truncation)
         else:
             # Fall back to hardcoded prompts (backward compatibility)
             system_prompt = self.get_system_prompt()
@@ -393,7 +400,7 @@ class BaseAnalyzer:
             
             model = None
             temperature = 0.7
-            max_tokens = None
+            # max_tokens removed - model will use its default maximum (no truncation)
         
         # Check token availability BEFORE making LLM call
         # We need to estimate tokens needed (rough estimate: 1 token ≈ 4 characters)
@@ -404,7 +411,9 @@ class BaseAnalyzer:
         if db and user_id and organization_id:
             # Estimate tokens needed (rough: prompt length / 4, plus some buffer for response)
             estimated_input_tokens = len(system_prompt + user_prompt) // 4
-            estimated_output_tokens = max_tokens if max_tokens else 1000  # Default estimate
+            # Conservative estimate for output tokens (model uses full capacity, typically 16K-32K)
+            # We estimate 8000 as middle ground to ensure sufficient balance
+            estimated_output_tokens = 8000
             estimated_total = estimated_input_tokens + estimated_output_tokens
             
             from app.services.balance import get_token_balance
@@ -428,12 +437,12 @@ class BaseAnalyzer:
                 )
         
         # Make LLM call with configuration
+        # Note: max_tokens parameter removed - model will use its default maximum (no truncation)
         result = llm_client.call(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             model=model,
             temperature=temperature,
-            max_tokens=max_tokens,
         )
         
         # Extract token information

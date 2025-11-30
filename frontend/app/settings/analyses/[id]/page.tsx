@@ -24,7 +24,6 @@ interface StepConfig {
   system_prompt: string
   user_prompt_template: string
   temperature: number
-  max_tokens: number
   data_sources: string[]
   num_candles?: number
 }
@@ -318,16 +317,6 @@ export default function AnalysisTypeEditPage() {
                                   max="2"
                                   value={step.temperature}
                                   onChange={(e) => updateStepConfig(index, 'temperature', parseFloat(e.target.value))}
-                                  className="mt-1 w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-gray-500 dark:text-gray-400">Max Tokens:</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={step.max_tokens}
-                                  onChange={(e) => updateStepConfig(index, 'max_tokens', parseInt(e.target.value))}
                                   className="mt-1 w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                                 />
                               </div>

@@ -1,7 +1,7 @@
 """
 Tool execution engine for user-configured tools.
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 import logging
 import re
@@ -130,7 +130,12 @@ class ToolExecutor:
             ValueError: If tool execution fails or parameter extraction fails
         """
         step_context = step_context or {}
-        context_window = 200  # Fixed context window (200 chars before/after)
+        # Use larger context window for RAG tools (they need more context to understand the query)
+        # For other tools, 200 chars is usually enough
+        if tool.tool_type == ToolType.RAG.value:
+            context_window = 1000  # 1000 chars before/after for RAG queries
+        else:
+            context_window = 200  # Fixed context window (200 chars before/after)
         
         # Find tool reference in prompt
         tool_ref_pattern = f"{{{tool_variable_name}}}"
@@ -141,9 +146,36 @@ class ToolExecutor:
             return f"[Tool {tool.display_name} execution failed: reference not found]"
         
         # Extract context around tool reference
-        start = max(0, tool_position - context_window)
-        end = min(len(prompt_text), tool_position + len(tool_ref_pattern) + context_window)
+        # For RAG tools, try to capture the entire sentence/question
+        if tool.tool_type == ToolType.RAG.value:
+            # Start from beginning of line or sentence, end at end of line or sentence
+            # Find sentence start (previous newline, or beginning of text)
+            line_start = prompt_text.rfind('\n', 0, tool_position)
+            if line_start == -1:
+                line_start = 0
+            else:
+                line_start += 1  # Start after newline
+            
+            # Find sentence end (next newline, or end of text)
+            line_end = prompt_text.find('\n', tool_position + len(tool_ref_pattern))
+            if line_end == -1:
+                line_end = len(prompt_text)
+            
+            # Expand context around the line
+            start = max(0, line_start - context_window)
+            end = min(len(prompt_text), line_end + context_window)
+        else:
+            start = max(0, tool_position - context_window)
+            end = min(len(prompt_text), tool_position + len(tool_ref_pattern) + context_window)
+        
         context_text = prompt_text[start:end]
+        
+        # Enhanced logging for RAG tools
+        if tool.tool_type == ToolType.RAG.value:
+            logger.info(f"[RAG Tool] Tool reference found at position {tool_position} in prompt (length: {len(prompt_text)})")
+            logger.info(f"[RAG Tool] Context window: chars {start} to {end} ({len(context_text)} chars)")
+            logger.info(f"[RAG Tool] Context text around tool reference:\n{context_text}")
+            logger.info(f"[RAG Tool] Full prompt text:\n{prompt_text}")
         
         # Extract parameters using AI
         try:
@@ -231,14 +263,37 @@ class ToolExecutor:
             # Parse JSON response
             params = self._parse_extraction_response(content, tool.tool_type)
             
-            # Cache result
-            _extraction_cache[cache_key] = params
+            # Enhanced logging for RAG tools
+            if tool.tool_type == ToolType.RAG.value:
+                extracted_query = params.get('query', '')
+                if not extracted_query or not extracted_query.strip():
+                    logger.warning(f"[RAG Tool] WARNING: Extracted query is empty or whitespace for tool '{tool.display_name}'")
+                    logger.warning(f"[RAG Tool] LLM response content: {content}")
+                    logger.warning(f"[RAG Tool] Parsed params: {params}")
+                else:
+                    logger.info(f"[RAG Tool] Successfully extracted query for tool '{tool.display_name}': '{extracted_query}'")
+                logger.info(f"[RAG Tool] Extraction context window: {len(context_text)} chars, model={model}")
+            else:
+                logger.info(f"Successfully extracted parameters for {tool.display_name}: {params}")
             
-            logger.info(f"Successfully extracted parameters for {tool.display_name}: {params}")
+            # Cache result only if extraction was successful
+            if tool.tool_type != ToolType.RAG.value or params.get('query', '').strip():
+                _extraction_cache[cache_key] = params
+            else:
+                logger.warning(f"[RAG Tool] Not caching empty query extraction result")
+            
             return params
             
         except Exception as e:
             logger.error(f"AI extraction failed for {tool.display_name}: {e}", exc_info=True)
+            logger.error(f"LLM response content (if available): {content if 'content' in locals() else 'N/A'}")
+            # For RAG tools, fallback to extracting from context directly if AI extraction fails
+            if tool.tool_type == ToolType.RAG.value:
+                logger.warning(f"[RAG Tool] Attempting fallback extraction for tool '{tool.display_name}'")
+                fallback_params = self._fallback_extract_rag_query(context_text, tool_variable_name)
+                if fallback_params.get('query', '').strip():
+                    logger.info(f"[RAG Tool] Fallback extraction successful: '{fallback_params.get('query')}'")
+                    return fallback_params
             # Fallback to empty params (tool may have defaults)
             return {}
     
@@ -296,8 +351,28 @@ IMPORTANT:
 """
         elif tool_type == ToolType.RAG.value:
             return base_prompt + """
-For RAG tools, extract the search query:
-{"query": "transactions from Tom Jankins on 21/5/2025"}
+For RAG tools, extract a clear, concise search query from the context.
+
+IMPORTANT:
+- Extract the MAIN question or information request from the text around the tool reference
+- The query should be a natural language search query that would find relevant documents
+- Remove phrases like "на основании отчета" (based on report), "используя" (using), etc. - just extract the core information need
+- If there are multiple questions, extract the one most relevant to the tool reference location
+- The query should be in the same language as the context text
+- Keep it concise but include key search terms
+
+Examples:
+- Context: "сколько клиентов пришло из кросс продаж - на основании отчета {rag_tool}"
+  Query: "сколько клиентов пришло из кросс продаж"
+  
+- Context: "верни список клиентов учеников 9го класса {rag_tool}"
+  Query: "список клиентов учеников 9го класса"
+  
+- Context: "find all transactions from Tom Jankins on 21/5/2025 using {rag_tool}"
+  Query: "transactions from Tom Jankins on 21/5/2025"
+
+Return ONLY valid JSON with the query string:
+{"query": "extracted search query here"}
 """
         else:
             return base_prompt
@@ -526,6 +601,55 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         
         return {"query": query_text}
     
+    def _fallback_extract_rag_query(self, context_text: str, tool_variable_name: str) -> Dict[str, Any]:
+        """Fallback method to extract RAG query when AI extraction fails.
+        
+        Uses simple pattern matching to extract query from context.
+        
+        Args:
+            context_text: Text around tool reference
+            tool_variable_name: Variable name used in prompt
+            
+        Returns:
+            Parameters dict with query string
+        """
+        # Remove tool reference
+        tool_ref_pattern = f"{{{tool_variable_name}}}"
+        query_text = context_text.replace(tool_ref_pattern, "")
+        
+        # Remove common phrases that don't help with search
+        phrases_to_remove = [
+            "на основании отчета",
+            "based on report",
+            "используя",
+            "using",
+            "с помощью",
+            "with help of",
+            "через",
+            "through",
+        ]
+        for phrase in phrases_to_remove:
+            query_text = query_text.replace(phrase, "", 1)  # Remove only first occurrence
+        
+        # Clean up
+        query_text = re.sub(r'\s+', ' ', query_text).strip()
+        
+        # Try to extract just the sentence/question containing the tool reference
+        # Look for sentence boundaries
+        if '.' in query_text or '?' in query_text or '!' in query_text:
+            # Find the sentence containing the tool reference (now removed)
+            sentences = re.split(r'[.!?]\s+', query_text)
+            if sentences:
+                # Use the first non-empty sentence (most likely contains the query)
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if sentence and len(sentence) > 10:  # Must be meaningful
+                        query_text = sentence
+                        break
+        
+        logger.info(f"[RAG Tool] Fallback extraction extracted: '{query_text}'")
+        return {"query": query_text}
+    
     def _format_tool_result(self, result: Dict[str, Any], tool_type: str, tool: Optional[UserTool] = None) -> str:
         """Format tool execution result as string for prompt injection.
         
@@ -540,22 +664,55 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         if tool_type == ToolType.RAG.value:
             # Format RAG results as "Relevant context: ..."
             if "results" in result and result["results"]:
+                query = result.get("query", "unknown query")
+                rag_name = result.get("rag_name", "unknown RAG")
+                logger.info(f"[RAG Tool] Formatting {len(result['results'])} results for query: '{query}' in RAG '{rag_name}'")
+                
                 formatted = "Relevant context from knowledge base"
-                if "rag_name" in result:
-                    formatted += f" ({result['rag_name']})"
+                if rag_name:
+                    formatted += f" ({rag_name})"
                 formatted += ":\n"
-                # Include all results (up to top_k, which is now 10 by default)
+                
+                # Include all results (up to top_k, default 50, increased to 100 for list queries)
+                total_chars = 0
+                truncated_count = 0
                 for idx, item in enumerate(result["results"], 1):
                     document_text = item.get('document', '')
+                    metadata = item.get('metadata', {})
+                    doc_title = metadata.get('title', 'Unknown')
+                    sheet_name = metadata.get('sheet_name')
+                    distance = item.get('distance')
+                    
                     if document_text:
-                        # Include full content, not truncated (let LLM decide what's relevant)
-                        # Only truncate if extremely long (>2000 chars) to avoid token limits
-                        if len(document_text) > 2000:
-                            truncated = document_text[:2000] + "..."
-                            formatted += f"{idx}. {truncated}\n"
+                        # For Excel files (with sheet_name), don't truncate - we want complete data
+                        # For other files, truncate if extremely long (>5000 chars) to avoid token limits
+                        is_excel_chunk = sheet_name is not None
+                        truncate_threshold = 5000 if is_excel_chunk else 2000
+                        
+                        if len(document_text) > truncate_threshold and not is_excel_chunk:
+                            truncated = document_text[:truncate_threshold] + "..."
+                            formatted += f"{idx}. [{doc_title}"
+                            if sheet_name:
+                                formatted += f", Лист: {sheet_name}"
+                            formatted += f", distance: {distance:.4f}] {truncated}\n"
+                            truncated_count += 1
+                            total_chars += len(truncated)
+                            logger.info(f"[RAG Tool] Result {idx} truncated from {len(document_text)} to {truncate_threshold} chars: {doc_title}")
                         else:
-                            formatted += f"{idx}. {document_text}\n"
+                            formatted += f"{idx}. [{doc_title}"
+                            if sheet_name:
+                                formatted += f", Лист: {sheet_name}"
+                            formatted += f", distance: {distance:.4f}] {document_text}\n"
+                            total_chars += len(document_text)
+                            if is_excel_chunk:
+                                logger.info(f"[RAG Tool] Result {idx} included fully ({len(document_text)} chars) - Excel chunk, no truncation: {doc_title}")
+                            else:
+                                logger.info(f"[RAG Tool] Result {idx} included fully ({len(document_text)} chars): {doc_title}")
+                
+                logger.info(f"[RAG Tool] Formatted result: {len(result['results'])} results, {truncated_count} truncated, total ~{total_chars} chars")
+                logger.info(f"[RAG Tool] Formatted text preview (first 500 chars):\n{formatted[:500]}...")
                 return formatted
+            logger.warning(f"[RAG Tool] No results found for query: '{result.get('query', 'unknown')}'")
             return "Relevant context: No results found."
         
         elif tool_type == ToolType.DATABASE.value:
@@ -738,10 +895,44 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         
         query = params.get('query', '').strip()
         if not query:
-            raise ValueError("RAG tool query cannot be empty")
+            logger.error(f"[RAG Tool] ERROR: Empty query extracted for tool '{tool.display_name}' (tool_id={tool.id})")
+            logger.error(f"[RAG Tool] Extraction params were: {params}")
+            raise ValueError("RAG tool query cannot be empty. Please check the prompt and ensure the query is properly formatted.")
         
-        top_k = params.get('top_k', 10)  # Default to 10 results (increased from 5 for better coverage)
+        # Log the extracted query for debugging
+        logger.info(f"[RAG Tool] Executing RAG query for tool '{tool.display_name}' (tool_id={tool.id}): query='{query}'")
+        
+        # Validate query is meaningful (not just whitespace or common stop phrases)
+        if len(query) < 3:
+            logger.warning(f"[RAG Tool] WARNING: Query is very short ({len(query)} chars): '{query}'")
+        
+        # Check for common issues
+        if query.lower() in ['', 'n/a', 'none', 'null']:
+            logger.error(f"[RAG Tool] ERROR: Query appears to be invalid placeholder: '{query}'")
+            raise ValueError(f"RAG tool query appears to be invalid: '{query}'. Please ensure your prompt contains a valid search query.")
+        
+        # Determine optimal top_k based on query intent
+        # For queries asking for lists, counts, or "all", use higher top_k
+        base_top_k = params.get('top_k', 50)  # Increased default from 10 to 50 for better coverage
+        
+        # Detect if query is asking for a list/count/all items
+        query_lower = query.lower()
+        list_keywords = [
+            'список', 'list', 'все', 'all', 'перечисли', 'найди все', 'find all',
+            'сколько', 'how many', 'count', 'всех', 'всего'
+        ]
+        is_list_query = any(keyword in query_lower for keyword in list_keywords)
+        
+        if is_list_query and base_top_k == 50:  # Only increase if using default
+            # For list queries, use even higher top_k to ensure we get all relevant chunks
+            top_k = 100
+            logger.info(f"[RAG Tool] Detected list/count query, increasing top_k from {base_top_k} to {top_k}")
+        else:
+            top_k = base_top_k
+        
         min_score = params.get('min_score')  # Optional min_score override
+        
+        logger.info(f"[RAG Tool] Search parameters: top_k={top_k}, min_score={min_score}, is_list_query={is_list_query}")
         
         # Decrypt tool config to get rag_id
         try:
@@ -761,6 +952,8 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         
         if not rag:
             raise ValueError(f"RAG knowledge base {rag_id} not found or not accessible")
+        
+        logger.info(f"[RAG Tool] Found RAG '{rag.name}' (rag_id={rag_id}, org_id={tool.organization_id}) with {rag.document_count} documents")
         
         # Generate query embedding
         # Token consumption is charged to the tool owner (tool.user_id)
@@ -789,6 +982,7 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         vector_db = VectorDB()
         try:
             results = vector_db.search(rag_id, query_embedding, top_k=top_k)
+            logger.info(f"[RAG Tool] Vector DB search returned {len(results)} raw results (before filtering)")
         except Exception as e:
             logger.error(f"Failed to search vector DB for RAG {rag_id}: {e}")
             raise ValueError(f"Failed to search knowledge base: {str(e)}")
@@ -801,22 +995,118 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         if effective_min_score is None:
             effective_min_score = RAG_MIN_SIMILARITY_SCORE
         
+        logger.info(f"[RAG Tool] Using minimum score threshold: {effective_min_score}")
+        
         formatted_results = []
-        for result in results:
+        filtered_count = 0
+        for idx, result in enumerate(results):
             distance = result.get('distance')
+            doc_text = result.get('document', '')
+            doc_metadata = result.get('metadata', {})
+            doc_title = doc_metadata.get('title', 'Unknown')
+            sheet_name = doc_metadata.get('sheet_name', None)
+            
+            # Log each result for debugging
+            logger.info(f"[RAG Tool] Result {idx + 1}/{len(results)}: distance={distance:.4f}, doc_title='{doc_title}', sheet_name={sheet_name}, preview='{doc_text[:100]}...'")
             
             # Filter by minimum score if specified
             # For ChromaDB L2 distance: lower is better, so we check if distance <= threshold
             if effective_min_score is not None and distance is not None:
                 if distance > effective_min_score:
+                    filtered_count += 1
+                    logger.debug(f"[RAG Tool] Result {idx + 1} filtered out: distance {distance:.4f} > threshold {effective_min_score}")
                     continue  # Skip results below threshold
             
             formatted_results.append({
-                "document": result.get('document', ''),
-                "metadata": result.get('metadata', {}),
+                "document": doc_text,
+                "metadata": doc_metadata,
                 "distance": distance,
                 "id": result.get('id'),
             })
+        
+        logger.info(f"[RAG Tool] Final results: {len(formatted_results)} matches after filtering (filtered {filtered_count} results below threshold)")
+        
+        # For Excel files: expand results to include ALL chunks from matching sheets
+        # This ensures we get complete sheet data without truncation
+        matching_sheets = set()
+        sheet_to_doc_id = {}  # Track which document each sheet belongs to
+        
+        for result in formatted_results:
+            sheet_name = result['metadata'].get('sheet_name')
+            if sheet_name:  # This is an Excel file chunk
+                matching_sheets.add(sheet_name)
+                doc_id = result['metadata'].get('document_id')
+                if doc_id:
+                    sheet_to_doc_id[sheet_name] = doc_id
+        
+        if matching_sheets:
+            logger.info(f"[RAG Tool] Detected Excel file with {len(matching_sheets)} matching sheet(s): {matching_sheets}")
+            
+            # Smart expansion: Only expand sheets that are most relevant to the query
+            # Count how many chunks we have from each sheet
+            sheet_chunk_counts = {}
+            for result in formatted_results:
+                sheet_name = result['metadata'].get('sheet_name')
+                if sheet_name:
+                    sheet_chunk_counts[sheet_name] = sheet_chunk_counts.get(sheet_name, 0) + 1
+            
+            # Find the sheet with the most matching chunks (most relevant)
+            if sheet_chunk_counts:
+                primary_sheet = max(sheet_chunk_counts.items(), key=lambda x: x[1])[0]
+                logger.info(f"[RAG Tool] Primary sheet (most relevant): '{primary_sheet}' with {sheet_chunk_counts[primary_sheet]} matching chunks")
+                logger.info(f"[RAG Tool] Expanding to include ALL chunks from primary sheet '{primary_sheet}' (to avoid truncation)")
+                
+                # Track which chunks we already have (by ID) to avoid duplicates
+                existing_chunk_ids = {result.get('id') for result in formatted_results if result.get('id')}
+                
+                # Get all chunks from the primary sheet only
+                doc_id = sheet_to_doc_id.get(primary_sheet)
+                try:
+                    all_sheet_chunks = vector_db.get_chunks_by_sheet(rag_id, primary_sheet, document_id=doc_id)
+                    logger.info(f"[RAG Tool] Retrieved {len(all_sheet_chunks)} total chunks from sheet '{primary_sheet}'")
+                    
+                    expanded_results = formatted_results.copy()
+                    new_chunks_count = 0
+                    for chunk in all_sheet_chunks:
+                        chunk_id = chunk.get('id')
+                        # Only add if we don't already have it
+                        if chunk_id and chunk_id not in existing_chunk_ids:
+                            # Use the best distance from original search if available
+                            # Otherwise, use a moderate distance to indicate it's from sheet expansion
+                            chunk['distance'] = chunk.get('distance') or 1.0
+                            expanded_results.append(chunk)
+                            existing_chunk_ids.add(chunk_id)
+                            new_chunks_count += 1
+                    
+                    logger.info(f"[RAG Tool] Added {new_chunks_count} new chunks from sheet '{primary_sheet}' (already had {len(all_sheet_chunks) - new_chunks_count})")
+                    
+                    # Filter to ONLY include chunks from the primary sheet
+                    # This ensures we only send relevant data to the LLM without noise from other sheets
+                    filtered_results = [r for r in expanded_results if r['metadata'].get('sheet_name') == primary_sheet]
+                    
+                    original_count = len(formatted_results)
+                    removed_from_other_sheets = len(expanded_results) - len(filtered_results)
+                    formatted_results = filtered_results
+                    logger.info(f"[RAG Tool] After sheet expansion and filtering: {len(formatted_results)} total chunks (was {original_count} before)")
+                    logger.info(f"[RAG Tool] Removed {removed_from_other_sheets} chunks from other sheets, keeping only '{primary_sheet}' sheet")
+                except Exception as e:
+                    logger.warning(f"[RAG Tool] Failed to get all chunks from sheet '{primary_sheet}': {e}")
+                    # Continue with original results if expansion fails
+            else:
+                logger.warning(f"[RAG Tool] No sheet chunk counts found, skipping expansion")
+        
+        # Log document breakdown
+        doc_counts = {}
+        for result in formatted_results:
+            doc_id = result['metadata'].get('document_id', 'unknown')
+            doc_title = result['metadata'].get('title', 'Unknown')
+            sheet_name = result['metadata'].get('sheet_name')
+            key = f"{doc_title}"
+            if sheet_name:
+                key += f" (Лист: {sheet_name})"
+            doc_counts[key] = doc_counts.get(key, 0) + 1
+        
+        logger.info(f"[RAG Tool] Results breakdown by document: {doc_counts}")
         
         # Note: Token/cost counts to RAG Owner's account (handled by EmbeddingService using global API key)
         # The Owner is the one who pays for all queries (via organization's OpenRouter API key)

@@ -103,6 +103,20 @@ class VectorDBBackend(ABC):
             document_id: Document ID (used to filter chunks by metadata['document_id'])
         """
         pass
+    
+    @abstractmethod
+    def get_chunks_by_sheet(self, rag_id: int, sheet_name: str, document_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all chunks from a specific sheet (for Excel files).
+        
+        Args:
+            rag_id: RAG knowledge base ID
+            sheet_name: Name of the sheet
+            document_id: Optional document ID to filter by
+            
+        Returns:
+            List of dicts with keys: 'document', 'metadata', 'distance', 'id'
+        """
+        pass
 
 
 class ChromaDBBackend(VectorDBBackend):
@@ -295,6 +309,51 @@ class ChromaDBBackend(VectorDBBackend):
         except Exception as e:
             logger.warning(f"Failed to delete chunks for document {document_id} from RAG {rag_id}: {e}")
             # Don't raise - allow deletion to continue even if vector DB deletion fails
+    
+    def get_chunks_by_sheet(self, rag_id: int, sheet_name: str, document_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all chunks from a specific sheet (for Excel files).
+        
+        Args:
+            rag_id: RAG knowledge base ID
+            sheet_name: Name of the sheet
+            document_id: Optional document ID to filter by (if None, gets from all documents)
+            
+        Returns:
+            List of dicts with keys: 'document', 'metadata', 'distance', 'id'
+            Note: distance will be None since this is not a similarity search
+        """
+        collection = self._get_collection(rag_id)
+        try:
+            # Build where clause - ChromaDB requires $and operator for multiple conditions
+            if document_id is not None:
+                where_clause = {
+                    "$and": [
+                        {"sheet_name": sheet_name},
+                        {"document_id": document_id}
+                    ]
+                }
+            else:
+                where_clause = {"sheet_name": sheet_name}
+            
+            # Get all chunks matching the filter
+            results = collection.get(where=where_clause)
+            
+            # Transform to standard format
+            output = []
+            if results['ids']:
+                for i in range(len(results['ids'])):
+                    output.append({
+                        'document': results['documents'][i] if results['documents'] else '',
+                        'metadata': results['metadatas'][i] if results['metadatas'] else {},
+                        'distance': None,  # Not a similarity search
+                        'id': results['ids'][i],
+                    })
+            
+            logger.info(f"Retrieved {len(output)} chunks from sheet '{sheet_name}' in RAG {rag_id}")
+            return output
+        except Exception as e:
+            logger.warning(f"Failed to get chunks by sheet '{sheet_name}' from RAG {rag_id}: {e}")
+            return []
 
 
 class QdrantBackend(VectorDBBackend):
@@ -337,6 +396,10 @@ class QdrantBackend(VectorDBBackend):
     
     def delete_document(self, rag_id: int, document_id: int) -> None:
         """Delete all chunks for a specific document."""
+        raise NotImplementedError("Qdrant backend not yet implemented")
+    
+    def get_chunks_by_sheet(self, rag_id: int, sheet_name: str, document_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all chunks from a specific sheet (for Excel files)."""
         raise NotImplementedError("Qdrant backend not yet implemented")
 
 
@@ -411,4 +474,8 @@ class VectorDB:
     def delete_document(self, rag_id: int, document_id: int) -> None:
         """Delete all chunks for a specific document."""
         self.backend.delete_document(rag_id, document_id)
+    
+    def get_chunks_by_sheet(self, rag_id: int, sheet_name: str, document_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all chunks from a specific sheet (for Excel files)."""
+        return self.backend.get_chunks_by_sheet(rag_id, sheet_name, document_id)
 

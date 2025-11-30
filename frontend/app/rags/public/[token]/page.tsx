@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { useParams } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
+import React from 'react'
 import { API_BASE_URL } from '@/lib/config'
 
 interface PublicRAG {
@@ -32,6 +33,7 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  query?: string  // Store query for highlighting matching text
   sources?: Array<{
     document: string
     metadata: Record<string, any>
@@ -188,12 +190,35 @@ export default function PublicRAGEditorPage() {
 
     try {
       const response = await queryPublicRAG(token, queryInput, 5)
+      
+      // Group results by document (chunks from same document grouped together)
+      const groupedByDocument = new Map<string, any[]>()
+      response.results.forEach((result: any) => {
+        const docId = result.metadata?.document_id || 'unknown'
+        const docTitle = result.metadata?.title || 'Неизвестный документ'
+        const key = `${docId}_${docTitle}`
+        if (!groupedByDocument.has(key)) {
+          groupedByDocument.set(key, [])
+        }
+        groupedByDocument.get(key)!.push(result)
+      })
+      
+      const documentCount = groupedByDocument.size
+      const totalMatches = response.results.length
+      
+      // Create a clearer message
+      let messageContent = ''
+      if (totalMatches === 0) {
+        messageContent = 'Релевантные совпадения не найдены.'
+      } else {
+        messageContent = `Найдено ${totalMatches} ${totalMatches === 1 ? 'совпадение' : totalMatches < 5 ? 'совпадения' : 'совпадений'} в ${documentCount} ${documentCount === 1 ? 'документе' : documentCount < 5 ? 'документах' : 'документах'}.`
+      }
+      
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.results.length > 0
-          ? `Найдено ${response.results.length} релевантных фрагментов:\n\n${response.results.map((r: any, idx: number) => `[${idx + 1}] ${r.document.substring(0, 200)}...`).join('\n\n')}`
-          : 'Не найдено релевантных документов.',
+        content: messageContent,
+        query: queryInput.trim(),  // Store query for text highlighting
         sources: response.results.map((r: any) => ({
           document: r.document,
           metadata: r.metadata || {},
@@ -431,33 +456,89 @@ export default function PublicRAGEditorPage() {
                           }`}
                         >
                           <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                          {msg.sources && msg.sources.length > 0 && (
-                            <div className="mt-4 pt-4 border-t border-gray-300">
-                              <p className="text-xs font-semibold mb-3 text-gray-600 flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                Источники ({msg.sources.length}):
-                              </p>
-                              <div className="space-y-2">
-                                {msg.sources.map((source, idx) => (
-                                  <div key={idx} className="text-xs bg-gray-50 rounded-lg p-2.5 border border-gray-200">
-                                    <div className="flex items-start justify-between gap-2 mb-1">
-                                      <span className="font-semibold text-gray-700">Документ {idx + 1}</span>
-                                      {source.distance !== undefined && (
-                                        <span className="text-gray-500 font-medium">
-                                          {(1 - source.distance).toFixed(2)}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-gray-600 leading-relaxed line-clamp-3">
-                                      {source.document}
-                                    </p>
-                                  </div>
-                                ))}
+                          {msg.sources && msg.sources.length > 0 && (() => {
+                            // Group sources by document
+                            const groupedByDocument = new Map<string, typeof msg.sources>()
+                            msg.sources.forEach((source) => {
+                              const docId = source.metadata?.document_id || 'unknown'
+                              const docTitle = source.metadata?.title || 'Неизвестный документ'
+                              const key = `${docId}_${docTitle}`
+                              if (!groupedByDocument.has(key)) {
+                                groupedByDocument.set(key, [])
+                              }
+                              groupedByDocument.get(key)!.push(source)
+                            })
+                            
+                            const totalMatches = msg.sources.length
+                            const documentCount = groupedByDocument.size
+                            
+                            return (
+                              <div className="mt-4 pt-4 border-t border-gray-300">
+                                <p className="text-xs font-semibold mb-3 text-gray-600 flex items-center gap-1">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  Совпадения ({totalMatches} {totalMatches === 1 ? 'совпадение' : totalMatches < 5 ? 'совпадения' : 'совпадений'} в {documentCount} {documentCount === 1 ? 'документе' : 'документах'}):
+                                </p>
+                                <div className="space-y-3">
+                                  {Array.from(groupedByDocument.entries()).map(([key, sources], docIdx) => {
+                                    const docTitle = sources[0].metadata?.title || 'Неизвестный документ'
+                                    const docId = sources[0].metadata?.document_id
+                                    
+                                    // Sort sources by relevance (distance ascending)
+                                    const sortedSources = [...sources].sort((a, b) => {
+                                      const distA = a.distance ?? Infinity
+                                      const distB = b.distance ?? Infinity
+                                      return distA - distB
+                                    })
+                                    
+                                    // Check if all chunks are from the same sheet (Excel files)
+                                    const sheetNames = sortedSources
+                                      .map(s => s.metadata?.sheet_name)
+                                      .filter(Boolean)
+                                      .filter((v, i, a) => a.indexOf(v) === i) // unique
+                                    
+                                    return (
+                                      <div key={key} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <span className="text-xs font-semibold text-gray-700">{docTitle}</span>
+                                          {sheetNames.length === 1 && sheetNames[0] && (
+                                            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded border border-blue-200">
+                                              Лист: {sheetNames[0]}
+                                            </span>
+                                          )}
+                                          {sortedSources.length > 1 && (
+                                            <span className="text-xs text-gray-500">
+                                              ({sortedSources.length} {sortedSources.length === 1 ? 'фрагмент' : sortedSources.length < 5 ? 'фрагмента' : 'фрагментов'})
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="space-y-2">
+                                          {sortedSources.map((source, chunkIdx) => (
+                                            <div key={chunkIdx} className="text-xs bg-white rounded p-2 border border-gray-200">
+                                              <div className="flex items-start justify-between gap-2 mb-1">
+                                                {sortedSources.length > 1 && (
+                                                  <span className="text-gray-500 text-xs">Фрагмент {chunkIdx + 1}</span>
+                                                )}
+                                                {source.distance !== undefined && (
+                                                  <span className="text-gray-500 font-medium text-xs">
+                                                    Релевантность: {(1 - source.distance).toFixed(2)}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            <p className="text-gray-600 leading-relaxed line-clamp-4">
+                                              {msg.query ? highlightText(source.document, msg.query) : source.document}
+                                            </p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
                               </div>
-                            </div>
-                          )}
+                            )
+                          })()}
                         </div>
                       </div>
                     ))
