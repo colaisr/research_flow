@@ -276,7 +276,7 @@ export default function ConsumptionPage() {
 
         {/* Statistics Cards */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
               <div className="text-sm text-gray-600 mb-1">Всего токенов</div>
               <div className="text-3xl font-bold text-gray-900">
@@ -293,15 +293,6 @@ export default function ConsumptionPage() {
               </div>
               <div className="text-xs text-gray-500 mt-1">
                 {subscription?.tokens_remaining?.toLocaleString() || 0} из подписки + {subscription?.token_balance?.toLocaleString() || 0} на балансе
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-              <div className="text-sm text-gray-600 mb-1">Стоимость (₽)</div>
-              <div className="text-2xl font-semibold text-gray-700">
-                ₽{Number(stats.total_price_rub).toFixed(2)}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                Период: {new Date(stats.period_start).toLocaleDateString('ru-RU')} - {new Date(stats.period_end).toLocaleDateString('ru-RU')}
               </div>
             </div>
           </div>
