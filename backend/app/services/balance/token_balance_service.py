@@ -218,16 +218,19 @@ def charge_tokens(
     if subscription:
         subscription_tokens_allocated = subscription.tokens_allocated
         subscription_tokens_used = subscription.tokens_used_this_period
+        # Allow negative subscription tokens - we'll use balance to cover any excess
         subscription_tokens_available = subscription.tokens_allocated - subscription.tokens_used_this_period
+    else:
+        subscription_tokens_available = 0
     
     # Get token balance
     balance = get_token_balance(db, user_id, organization_id)
     balance_tokens_available = balance.balance
     
-    # Calculate total available
+    # Calculate total available (subscription can be negative, but balance covers it)
     total_available = subscription_tokens_available + balance_tokens_available
     
-    # Check if we have enough tokens
+    # Only block if total available is insufficient (both subscription + balance exhausted)
     if total_available < amount:
         return TokenChargeResult(
             success=False,
@@ -238,17 +241,16 @@ def charge_tokens(
             message=f"Недостаточно токенов. Доступно: {total_available}, Требуется: {amount}"
         )
     
-    # Charge tokens based on priority
+    # Charge tokens: allow subscription to go negative, use balance to cover excess
     tokens_charged_from_subscription = 0
     tokens_charged_from_balance = 0
-    remaining_amount = amount
     
-    # Priority 1: Charge from subscription if available
-    if subscription and subscription_tokens_available > 0:
-        tokens_charged_from_subscription = min(remaining_amount, subscription_tokens_available)
-        remaining_amount -= tokens_charged_from_subscription
+    # Priority 1: Charge from subscription first (allows negative)
+    if subscription:
+        # Charge all from subscription first
+        tokens_charged_from_subscription = amount
         
-        # Update subscription
+        # Update subscription (may go negative)
         db.execute(
             text("""
                 UPDATE user_subscriptions
@@ -261,24 +263,46 @@ def charge_tokens(
                 "amount": tokens_charged_from_subscription,
             }
         )
-    
-    # Priority 2: Charge remaining from balance if needed
-    if remaining_amount > 0 and balance_tokens_available > 0:
-        tokens_charged_from_balance = min(remaining_amount, balance_tokens_available)
         
-        # Update balance
-        db.execute(
-            text("""
-                UPDATE token_balances
-                SET balance = balance - :amount,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = :balance_id
-            """),
-            {
-                "balance_id": balance.id,
-                "amount": tokens_charged_from_balance,
-            }
-        )
+        # Calculate new subscription available (may be negative)
+        new_subscription_available = subscription_tokens_available - amount
+        
+        # Priority 2: If subscription went negative, use balance to cover the negative part
+        if new_subscription_available < 0 and balance_tokens_available > 0:
+            # Use balance to cover the negative subscription
+            balance_needed = min(-new_subscription_available, balance_tokens_available)
+            
+            if balance_needed > 0:
+                tokens_charged_from_balance = balance_needed
+                tokens_charged_from_subscription = amount - balance_needed
+                
+                # Adjust subscription (reduce charge by balance amount)
+                db.execute(
+                    text("""
+                        UPDATE user_subscriptions
+                        SET tokens_used_this_period = tokens_used_this_period - :amount,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :subscription_id
+                    """),
+                    {
+                        "subscription_id": subscription.id,
+                        "amount": balance_needed,
+                    }
+                )
+                
+                # Charge from balance
+                db.execute(
+                    text("""
+                        UPDATE token_balances
+                        SET balance = balance - :amount,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :balance_id
+                    """),
+                    {
+                        "balance_id": balance.id,
+                        "amount": balance_needed,
+                    }
+                )
     
     db.commit()
     
@@ -327,7 +351,8 @@ def get_available_tokens(
     
     subscription_tokens_available = 0
     if subscription:
-        subscription_tokens_available = subscription.tokens_allocated - subscription.tokens_used_this_period
+        # Ensure subscription_tokens_available is never negative (can't have negative available)
+        subscription_tokens_available = max(0, subscription.tokens_allocated - subscription.tokens_used_this_period)
     
     # Get token balance
     balance = get_token_balance(db, user_id, organization_id)

@@ -408,33 +408,9 @@ class BaseAnalyzer:
         user_id = context.get("_user_id")
         organization_id = context.get("_organization_id")
         
-        if db and user_id and organization_id:
-            # Estimate tokens needed (rough: prompt length / 4, plus some buffer for response)
-            estimated_input_tokens = len(system_prompt + user_prompt) // 4
-            # Conservative estimate for output tokens (model uses full capacity, typically 16K-32K)
-            # We estimate 8000 as middle ground to ensure sufficient balance
-            estimated_output_tokens = 8000
-            estimated_total = estimated_input_tokens + estimated_output_tokens
-            
-            from app.services.balance import get_token_balance
-            from app.services.subscription import get_active_subscription
-            
-            # Get available tokens
-            subscription = get_active_subscription(db, user_id, organization_id)
-            subscription_tokens_available = 0
-            if subscription:
-                subscription_tokens_available = subscription.tokens_allocated - subscription.tokens_used_this_period
-            
-            balance = get_token_balance(db, user_id, organization_id)
-            balance_tokens_available = balance.balance
-            
-            total_available = subscription_tokens_available + balance_tokens_available
-            
-            # Block if insufficient tokens (with some buffer for estimation error)
-            if total_available < estimated_total:
-                raise ValueError(
-                    f"Недостаточно токенов. Доступно: {total_available}"
-                )
+        # No pre-check - allow query to proceed, tokens will be charged after the call completes
+        # This allows using subscription tokens even if they go slightly negative,
+        # and then falling back to balance. Only blocks if both subscription + balance are exhausted.
         
         # Make LLM call with configuration
         # Note: max_tokens parameter removed - model will use its default maximum (no truncation)

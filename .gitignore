@@ -69,3 +69,10 @@ frontend.log
 # RAG data files (local storage)
 backend/data/rag_vectors/
 backend/data/rag_documents/
+
+# Vector database files
+*.sqlite3
+*.sqlite
+*.db
+backend/data/rag_vectors/
+data/rag_vectors/

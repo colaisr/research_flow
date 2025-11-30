@@ -1419,6 +1419,28 @@ customer-llm-package/
 - Prevents incomplete results when querying structured Excel data (e.g., student lists, financial data)
 - Filters out chunks from other sheets to avoid exceeding LLM token limits
 
+**File-Based Excel Extraction** ✅ (November 2024)
+- **New Approach**: RAG for discovery, direct file loading for extraction
+  - Semantic search identifies which Excel file/sheet is relevant
+  - System loads the actual Excel file and extracts structured data (pandas → JSON)
+  - Structured data (complete sheet) is passed to LLM in clean JSON format
+- **Benefits**:
+  - Complete data reliability: All rows from the sheet are available (no chunking issues)
+  - Structured format: Excel data converted to JSON for better LLM parsing
+  - General-purpose: Works with any Excel file type (financial, sales, inventory, student data, etc.)
+  - Filtering flexibility: LLM can filter based on natural language prompts (e.g., "only grade 9 students")
+- **Implementation**:
+  - New `ExcelLoader` module: Loads Excel sheets as structured JSON data
+  - Detects Excel files from RAG search results (via `sheet_name` metadata)
+  - Identifies primary matching sheet (most relevant based on chunk matches)
+  - Loads actual Excel file from storage and converts to structured JSON
+  - Falls back to chunk-based approach if file loading fails
+- **LLM Processing**:
+  - LLM receives complete structured JSON data (all rows from matching sheet)
+  - LLM can filter, transform, or extract data based on user's natural language prompt
+  - No pre-filtering: Platform remains general-purpose and domain-agnostic
+- **Compatibility**: Backward compatible with chunk-based approach (fallback mechanism)
+
 **RAG Query Enhancements** ✅
 - Comprehensive logging: Added detailed logging throughout RAG query extraction and execution
   - Query extraction process (AI-based and fallback methods)

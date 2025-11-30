@@ -103,7 +103,7 @@ class VectorDBBackend(ABC):
             document_id: Document ID (used to filter chunks by metadata['document_id'])
         """
         pass
-    
+
     @abstractmethod
     def get_chunks_by_sheet(self, rag_id: int, sheet_name: str, document_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get all chunks from a specific sheet (for Excel files).

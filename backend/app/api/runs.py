@@ -79,7 +79,8 @@ async def create_run(
     subscription = get_active_subscription(db, current_user.id, current_organization.id)
     subscription_tokens_available = 0
     if subscription:
-        subscription_tokens_available = subscription.tokens_allocated - subscription.tokens_used_this_period
+        # Ensure subscription_tokens_available is never negative (can't have negative available)
+        subscription_tokens_available = max(0, subscription.tokens_allocated - subscription.tokens_used_this_period)
     
     balance = get_token_balance(db, current_user.id, current_organization.id)
     balance_tokens_available = balance.balance

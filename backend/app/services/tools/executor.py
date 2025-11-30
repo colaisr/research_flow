@@ -14,7 +14,8 @@ from app.models.rag_access import RAGAccess, RAGRole
 from app.services.data.adapters import CCXTAdapter, YFinanceAdapter, TinkoffAdapter, get_tinkoff_token
 from app.services.tools.encryption import decrypt_tool_config
 from app.services.llm.client import LLMClient
-from app.services.rag import VectorDB, EmbeddingService
+from app.services.rag import VectorDB, EmbeddingService, RAGStorage, ExcelLoader
+from app.models.rag_document import RAGDocument
 from app.core.config import RAG_MIN_SIMILARITY_SCORE
 
 logger = logging.getLogger(__name__)
@@ -681,33 +682,49 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
                     metadata = item.get('metadata', {})
                     doc_title = metadata.get('title', 'Unknown')
                     sheet_name = metadata.get('sheet_name')
+                    data_type = metadata.get('data_type', 'text_chunks')
                     distance = item.get('distance')
                     
                     if document_text:
-                        # For Excel files (with sheet_name), don't truncate - we want complete data
-                        # For other files, truncate if extremely long (>5000 chars) to avoid token limits
+                        # Check if this is structured Excel data
+                        is_structured_excel = data_type == 'excel_structured'
                         is_excel_chunk = sheet_name is not None
-                        truncate_threshold = 5000 if is_excel_chunk else 2000
                         
-                        if len(document_text) > truncate_threshold and not is_excel_chunk:
-                            truncated = document_text[:truncate_threshold] + "..."
-                            formatted += f"{idx}. [{doc_title}"
-                            if sheet_name:
-                                formatted += f", Лист: {sheet_name}"
-                            formatted += f", distance: {distance:.4f}] {truncated}\n"
-                            truncated_count += 1
-                            total_chars += len(truncated)
-                            logger.info(f"[RAG Tool] Result {idx} truncated from {len(document_text)} to {truncate_threshold} chars: {doc_title}")
-                        else:
-                            formatted += f"{idx}. [{doc_title}"
-                            if sheet_name:
-                                formatted += f", Лист: {sheet_name}"
-                            formatted += f", distance: {distance:.4f}] {document_text}\n"
+                        # Structured Excel data is already formatted and should not be truncated
+                        # Regular Excel chunks should not be truncated either
+                        # Other files: truncate if extremely long
+                        if is_structured_excel:
+                            # Structured Excel data is already well-formatted, include as-is
+                            formatted += f"{document_text}\n"
                             total_chars += len(document_text)
-                            if is_excel_chunk:
-                                logger.info(f"[RAG Tool] Result {idx} included fully ({len(document_text)} chars) - Excel chunk, no truncation: {doc_title}")
+                            row_count = metadata.get('row_count', 0)
+                            logger.info(
+                                f"[RAG Tool] Result {idx} included fully ({len(document_text)} chars) - "
+                                f"Structured Excel data: {row_count} rows from sheet '{sheet_name}'"
+                            )
+                        else:
+                            # Regular chunk-based results
+                            truncate_threshold = 5000 if is_excel_chunk else 2000
+                            
+                            if len(document_text) > truncate_threshold and not is_excel_chunk:
+                                truncated = document_text[:truncate_threshold] + "..."
+                                formatted += f"{idx}. [{doc_title}"
+                                if sheet_name:
+                                    formatted += f", Лист: {sheet_name}"
+                                formatted += f", distance: {distance:.4f}] {truncated}\n"
+                                truncated_count += 1
+                                total_chars += len(truncated)
+                                logger.info(f"[RAG Tool] Result {idx} truncated from {len(document_text)} to {truncate_threshold} chars: {doc_title}")
                             else:
-                                logger.info(f"[RAG Tool] Result {idx} included fully ({len(document_text)} chars): {doc_title}")
+                                formatted += f"{idx}. [{doc_title}"
+                                if sheet_name:
+                                    formatted += f", Лист: {sheet_name}"
+                                formatted += f", distance: {distance:.4f}] {document_text}\n"
+                                total_chars += len(document_text)
+                                if is_excel_chunk:
+                                    logger.info(f"[RAG Tool] Result {idx} included fully ({len(document_text)} chars) - Excel chunk, no truncation: {doc_title}")
+                                else:
+                                    logger.info(f"[RAG Tool] Result {idx} included fully ({len(document_text)} chars): {doc_title}")
                 
                 logger.info(f"[RAG Tool] Formatted result: {len(result['results'])} results, {truncated_count} truncated, total ~{total_chars} chars")
                 logger.info(f"[RAG Tool] Formatted text preview (first 500 chars):\n{formatted[:500]}...")
@@ -1026,74 +1043,128 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         
         logger.info(f"[RAG Tool] Final results: {len(formatted_results)} matches after filtering (filtered {filtered_count} results below threshold)")
         
-        # For Excel files: expand results to include ALL chunks from matching sheets
-        # This ensures we get complete sheet data without truncation
+        # NEW APPROACH: For Excel files, load actual file and extract structured data
+        # This ensures complete, reliable data extraction instead of relying on chunks
         matching_sheets = set()
         sheet_to_doc_id = {}  # Track which document each sheet belongs to
+        sheet_to_doc_title = {}  # Track document titles
         
         for result in formatted_results:
             sheet_name = result['metadata'].get('sheet_name')
             if sheet_name:  # This is an Excel file chunk
                 matching_sheets.add(sheet_name)
                 doc_id = result['metadata'].get('document_id')
+                doc_title = result['metadata'].get('title', 'Unknown')
                 if doc_id:
                     sheet_to_doc_id[sheet_name] = doc_id
+                    sheet_to_doc_title[sheet_name] = doc_title
         
         if matching_sheets:
             logger.info(f"[RAG Tool] Detected Excel file with {len(matching_sheets)} matching sheet(s): {matching_sheets}")
             
-            # Smart expansion: Only expand sheets that are most relevant to the query
-            # Count how many chunks we have from each sheet
+            # Find the primary (most relevant) sheet
             sheet_chunk_counts = {}
             for result in formatted_results:
                 sheet_name = result['metadata'].get('sheet_name')
                 if sheet_name:
                     sheet_chunk_counts[sheet_name] = sheet_chunk_counts.get(sheet_name, 0) + 1
             
-            # Find the sheet with the most matching chunks (most relevant)
             if sheet_chunk_counts:
                 primary_sheet = max(sheet_chunk_counts.items(), key=lambda x: x[1])[0]
-                logger.info(f"[RAG Tool] Primary sheet (most relevant): '{primary_sheet}' with {sheet_chunk_counts[primary_sheet]} matching chunks")
-                logger.info(f"[RAG Tool] Expanding to include ALL chunks from primary sheet '{primary_sheet}' (to avoid truncation)")
-                
-                # Track which chunks we already have (by ID) to avoid duplicates
-                existing_chunk_ids = {result.get('id') for result in formatted_results if result.get('id')}
-                
-                # Get all chunks from the primary sheet only
                 doc_id = sheet_to_doc_id.get(primary_sheet)
+                doc_title = sheet_to_doc_title.get(primary_sheet, 'Unknown')
+                
+                logger.info(f"[RAG Tool] Primary sheet (most relevant): '{primary_sheet}' with {sheet_chunk_counts[primary_sheet]} matching chunks")
+                logger.info(f"[RAG Tool] Loading actual Excel file for structured data extraction (doc_id={doc_id}, sheet='{primary_sheet}')")
+                
+                # Try to load Excel file and extract structured data
+                excel_loaded = False
                 try:
-                    all_sheet_chunks = vector_db.get_chunks_by_sheet(rag_id, primary_sheet, document_id=doc_id)
-                    logger.info(f"[RAG Tool] Retrieved {len(all_sheet_chunks)} total chunks from sheet '{primary_sheet}'")
+                    # Get document from database
+                    doc = self.db.query(RAGDocument).filter(
+                        RAGDocument.id == doc_id,
+                        RAGDocument.rag_id == rag_id
+                    ).first()
                     
-                    expanded_results = formatted_results.copy()
-                    new_chunks_count = 0
-                    for chunk in all_sheet_chunks:
-                        chunk_id = chunk.get('id')
-                        # Only add if we don't already have it
-                        if chunk_id and chunk_id not in existing_chunk_ids:
-                            # Use the best distance from original search if available
-                            # Otherwise, use a moderate distance to indicate it's from sheet expansion
-                            chunk['distance'] = chunk.get('distance') or 1.0
-                            expanded_results.append(chunk)
-                            existing_chunk_ids.add(chunk_id)
-                            new_chunks_count += 1
-                    
-                    logger.info(f"[RAG Tool] Added {new_chunks_count} new chunks from sheet '{primary_sheet}' (already had {len(all_sheet_chunks) - new_chunks_count})")
-                    
-                    # Filter to ONLY include chunks from the primary sheet
-                    # This ensures we only send relevant data to the LLM without noise from other sheets
-                    filtered_results = [r for r in expanded_results if r['metadata'].get('sheet_name') == primary_sheet]
-                    
-                    original_count = len(formatted_results)
-                    removed_from_other_sheets = len(expanded_results) - len(filtered_results)
-                    formatted_results = filtered_results
-                    logger.info(f"[RAG Tool] After sheet expansion and filtering: {len(formatted_results)} total chunks (was {original_count} before)")
-                    logger.info(f"[RAG Tool] Removed {removed_from_other_sheets} chunks from other sheets, keeping only '{primary_sheet}' sheet")
+                    if doc and doc.file_path:
+                        # Get absolute path to Excel file
+                        storage = RAGStorage()
+                        file_path = storage.get_absolute_path(doc.file_path)
+                        
+                        # Load sheet as structured data
+                        structured_data = ExcelLoader.load_sheet_as_structured_data(
+                            file_path=file_path,
+                            sheet_name=primary_sheet,
+                            max_rows=10000  # Limit to 10K rows to avoid token limits
+                        )
+                        
+                        if structured_data.get("success"):
+                            # Success! Replace chunks with structured data
+                            logger.info(
+                                f"[RAG Tool] Successfully loaded Excel sheet '{primary_sheet}': "
+                                f"{structured_data.get('row_count', 0)} rows, "
+                                f"{len(structured_data.get('columns', []))} columns"
+                            )
+                            
+                            # Replace formatted_results with structured data
+                            formatted_results = [{
+                                "document": ExcelLoader.format_structured_data_for_llm(
+                                    structured_data, doc_title
+                                ),
+                                "metadata": {
+                                    "document_id": doc_id,
+                                    "title": doc_title,
+                                    "sheet_name": primary_sheet,
+                                    "data_type": "excel_structured",
+                                    "row_count": structured_data.get("row_count", 0),
+                                    "columns": structured_data.get("columns", []),
+                                },
+                                "distance": 0.0,  # Perfect match since we loaded the actual file
+                                "id": f"excel_structured_{doc_id}_{primary_sheet}",
+                            }]
+                            
+                            excel_loaded = True
+                            logger.info(f"[RAG Tool] Using structured Excel data instead of chunks for reliable extraction")
+                        else:
+                            error = structured_data.get("error", "Unknown error")
+                            logger.warning(f"[RAG Tool] Failed to load Excel file: {error}. Falling back to chunks.")
+                    else:
+                        logger.warning(f"[RAG Tool] Document {doc_id} not found or has no file_path. Falling back to chunks.")
+                        
                 except Exception as e:
-                    logger.warning(f"[RAG Tool] Failed to get all chunks from sheet '{primary_sheet}': {e}")
-                    # Continue with original results if expansion fails
+                    logger.warning(f"[RAG Tool] Error loading Excel file for structured extraction: {e}. Falling back to chunks.", exc_info=True)
+                
+                # If Excel loading failed, fall back to chunk-based approach (legacy)
+                if not excel_loaded:
+                    logger.info(f"[RAG Tool] Falling back to chunk-based approach (sheet expansion)")
+                    # Use the existing sheet expansion logic as fallback
+                    existing_chunk_ids = {result.get('id') for result in formatted_results if result.get('id')}
+                    
+                    try:
+                        all_sheet_chunks = vector_db.get_chunks_by_sheet(rag_id, primary_sheet, document_id=doc_id)
+                        logger.info(f"[RAG Tool] Retrieved {len(all_sheet_chunks)} total chunks from sheet '{primary_sheet}'")
+                        
+                        expanded_results = formatted_results.copy()
+                        new_chunks_count = 0
+                        for chunk in all_sheet_chunks:
+                            chunk_id = chunk.get('id')
+                            if chunk_id and chunk_id not in existing_chunk_ids:
+                                chunk['distance'] = chunk.get('distance') or 1.0
+                                expanded_results.append(chunk)
+                                existing_chunk_ids.add(chunk_id)
+                                new_chunks_count += 1
+                        
+                        logger.info(f"[RAG Tool] Added {new_chunks_count} new chunks from sheet '{primary_sheet}'")
+                        
+                        # Filter to ONLY include chunks from the primary sheet
+                        filtered_results = [r for r in expanded_results if r['metadata'].get('sheet_name') == primary_sheet]
+                        formatted_results = filtered_results
+                        logger.info(f"[RAG Tool] After sheet expansion: {len(formatted_results)} total chunks")
+                    except Exception as e:
+                        logger.warning(f"[RAG Tool] Failed to get chunks from sheet '{primary_sheet}': {e}")
+                        # Keep original results
             else:
-                logger.warning(f"[RAG Tool] No sheet chunk counts found, skipping expansion")
+                logger.warning(f"[RAG Tool] No sheet chunk counts found, skipping Excel loading")
         
         # Log document breakdown
         doc_counts = {}
@@ -1101,9 +1172,12 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
             doc_id = result['metadata'].get('document_id', 'unknown')
             doc_title = result['metadata'].get('title', 'Unknown')
             sheet_name = result['metadata'].get('sheet_name')
+            data_type = result['metadata'].get('data_type', 'text_chunks')
             key = f"{doc_title}"
             if sheet_name:
                 key += f" (Лист: {sheet_name})"
+            if data_type == 'excel_structured':
+                key += " [STRUCTURED]"
             doc_counts[key] = doc_counts.get(key, 0) + 1
         
         logger.info(f"[RAG Tool] Results breakdown by document: {doc_counts}")

@@ -199,7 +199,7 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
                                 <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
                                   {inputText}
                                 </pre>
-                              </div>
+                        </div>
                             )
                           }
                         })()}
@@ -326,11 +326,11 @@ export default function TestResults({ result, onClose, isPipeline = false }: Tes
                 } else {
                   // Fallback: display as single block
                   return (
-                    <div className="p-3 bg-gray-50 rounded border border-gray-200">
+              <div className="p-3 bg-gray-50 rounded border border-gray-200">
                       <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
                         {inputText}
                       </pre>
-                    </div>
+              </div>
                   )
                 }
               })()}
