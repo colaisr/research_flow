@@ -83,6 +83,60 @@ async function deletePublicDocument(token: string, docId: number) {
   return data
 }
 
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text
+  
+  // Extract meaningful query terms (split by spaces, filter out very short words)
+  const queryTerms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(term => term.length >= 2)  // Only highlight terms with 2+ characters
+    .filter((term, index, self) => self.indexOf(term) === index)  // Remove duplicates
+  
+  if (queryTerms.length === 0) return text
+  
+  // Create regex pattern to match all query terms (case-insensitive)
+  const pattern = new RegExp(`(${queryTerms.map(term => 
+    term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')  // Escape special regex characters
+  ).join('|')})`, 'gi')
+  
+  // Split text by matches and wrap matches in highlight spans
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  let match
+  
+  // Create a new regex for iteration (regexes are stateful in JS)
+  const regex = new RegExp(pattern.source, pattern.flags)
+  
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before match
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index))
+    }
+    
+    // Add highlighted match
+    parts.push(
+      <mark key={match.index} className="bg-yellow-200 text-gray-900 px-0.5 rounded font-medium">
+        {match[0]}
+      </mark>
+    )
+    
+    lastIndex = regex.lastIndex
+    
+    // Prevent infinite loops on zero-length matches
+    if (match[0].length === 0) {
+      regex.lastIndex++
+    }
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex))
+  }
+  
+  return parts.length > 0 ? <>{parts}</> : text
+}
+
 export default function PublicRAGEditorPage() {
   const params = useParams()
   const token = params.token as string
