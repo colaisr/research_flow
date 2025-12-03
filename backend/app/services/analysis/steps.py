@@ -12,6 +12,30 @@ from app.services.tools import ToolExecutor
 logger = logging.getLogger(__name__)
 
 
+def _normalize_step_name_for_variable(step_name: str) -> str:
+    """
+    Normalize step name to a valid Python variable name.
+    Replaces spaces and other invalid characters with underscores.
+    
+    Examples:
+        "current offering" -> "current_offering"
+        "step 1" -> "step_1"
+        "my-step" -> "my_step"
+    """
+    # Replace spaces and hyphens with underscores
+    normalized = step_name.replace(' ', '_').replace('-', '_')
+    # Remove any other non-word characters except underscores
+    normalized = re.sub(r'[^\w]', '_', normalized)
+    # Collapse multiple underscores into one
+    normalized = re.sub(r'_+', '_', normalized)
+    # Remove leading/trailing underscores
+    normalized = normalized.strip('_')
+    # Ensure it starts with a letter or underscore (Python identifier requirement)
+    if normalized and not normalized[0].isalpha() and normalized[0] != '_':
+        normalized = '_' + normalized
+    return normalized
+
+
 def format_user_prompt_template(
     template: str, 
     context: Dict[str, Any], 
@@ -97,7 +121,9 @@ def format_user_prompt_template(
         step_output = previous_steps.get(step_name, {}).get("output", "Не доступно")
         if not is_merge_step and len(step_output) > 100:
             step_output = step_output[:100] + "..."
-        format_dict[f"{step_name}_output"] = step_output
+        # Normalize step name for variable (handles spaces, special chars)
+        var_name = _normalize_step_name_for_variable(step_name)
+        format_dict[f"{var_name}_output"] = step_output
     
     # Add any other step outputs dynamically (for custom steps)
     for step_name, step_result in previous_steps.items():
@@ -107,7 +133,9 @@ def format_user_prompt_template(
             # Also don't truncate for merge steps
             if step_name != "fetch_market_data" and not is_merge_step and len(step_output) > 100:
                 step_output = step_output[:100] + "..."
-            format_dict[f"{step_name}_output"] = step_output
+            # Normalize step name for variable (handles spaces, special chars)
+            var_name = _normalize_step_name_for_variable(step_name)
+            format_dict[f"{var_name}_output"] = step_output
     
     # Replace hardcoded "last X candles" text in template with actual num_candles value
     # This handles cases where templates have hardcoded text like "last 20 candles"
@@ -133,10 +161,11 @@ def format_user_prompt_template(
     remaining_tool_refs = re.findall(r'\{([^}]+)\}', template)
     if remaining_tool_refs:
         # Check if any of them look like tool references (not standard variables)
-        standard_vars = ['instrument', 'timeframe', 'market_data_summary'] + [f'{step}_output' for step in standard_steps]
+        standard_vars = ['instrument', 'timeframe', 'market_data_summary'] + [f'{_normalize_step_name_for_variable(step)}_output' for step in standard_steps]
         for step_name in previous_steps.keys():
             if step_name not in standard_steps:
-                standard_vars.append(f'{step_name}_output')
+                var_name = _normalize_step_name_for_variable(step_name)
+                standard_vars.append(f'{var_name}_output')
         
         # If step_config has tool_references, add them to available vars for better error message
         tool_var_names = []
@@ -161,12 +190,13 @@ def format_user_prompt_template(
         # Provide helpful error message for invalid variables
         invalid_var = str(e).strip("'")
         available_vars = ['instrument', 'timeframe', 'market_data_summary']
-        # Add standard step outputs
-        available_vars.extend([f'{step}_output' for step in standard_steps])
-        # Add any custom step outputs
+        # Add standard step outputs (normalized)
+        available_vars.extend([f'{_normalize_step_name_for_variable(step)}_output' for step in standard_steps])
+        # Add any custom step outputs (normalized)
         for step_name in previous_steps.keys():
             if step_name not in standard_steps:
-                available_vars.append(f'{step_name}_output')
+                var_name = _normalize_step_name_for_variable(step_name)
+                available_vars.append(f'{var_name}_output')
         
         # Add tool variable names if available
         if step_config and "tool_references" in step_config:
@@ -246,9 +276,10 @@ def _process_tool_references(
         "instrument": context.get("instrument", ""),
         "timeframe": context.get("timeframe", ""),
     }
-    # Add previous step outputs to context
+    # Add previous step outputs to context (normalized for valid variable names)
     for step_name, step_result in context.get("previous_steps", {}).items():
-        step_context[f"{step_name}_output"] = step_result.get("output", "")
+        var_name = _normalize_step_name_for_variable(step_name)
+        step_context[f"{var_name}_output"] = step_result.get("output", "")
     
     # Get model from step_config for AI extraction (use same model as step)
     step_model = step_config.get("model")

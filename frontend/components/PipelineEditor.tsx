@@ -15,6 +15,32 @@ import { useAuth } from '@/hooks/useAuth'
 import TestResults from '@/components/TestResults'
 import FlowDiagram from '@/components/FlowDiagram'
 
+/**
+ * Normalize step name to a valid Python variable name.
+ * Replaces spaces and other invalid characters with underscores.
+ * This matches the backend normalization logic.
+ * 
+ * Examples:
+ *   "current offering" -> "current_offering"
+ *   "step 1" -> "step_1"
+ *   "my-step" -> "my_step"
+ */
+function normalizeStepNameForVariable(stepName: string): string {
+  // Replace spaces and hyphens with underscores
+  let normalized = stepName.replace(/[\s-]/g, '_')
+  // Remove any other non-word characters except underscores
+  normalized = normalized.replace(/[^\w]/g, '_')
+  // Collapse multiple underscores into one
+  normalized = normalized.replace(/_+/g, '_')
+  // Remove leading/trailing underscores
+  normalized = normalized.replace(/^_+|_+$/g, '')
+  // Ensure it starts with a letter or underscore (Python identifier requirement)
+  if (normalized && !/^[a-zA-Z_]/.test(normalized)) {
+    normalized = '_' + normalized
+  }
+  return normalized
+}
+
 interface Model {
   id: number
   name: string
@@ -1528,7 +1554,11 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
           const previousSteps = allSteps.slice(0, stepIndex)
           // Removed trading-specific variables: {instrument}, {timeframe}, {market_data_summary}
           // These are only relevant for trading pipelines and are handled automatically by the backend
-          const stepOutputVars = previousSteps.map(s => `{${s.step_name}_output}`)
+          // Normalize step names to valid variable names (handles spaces, special chars)
+          const stepOutputVars = previousSteps.map(s => {
+            const varName = normalizeStepNameForVariable(s.step_name)
+            return `{${varName}_output}`
+          })
           // Add all tool variables (simplified - no configuration needed)
           const toolVars = tools
             .filter(tool => tool.is_active)
@@ -1744,12 +1774,15 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
   // These are only relevant for trading pipelines and are handled automatically by the backend
   const standardVars: Array<{ name: string; desc: string }> = []
   
-  // Previous step outputs
-  const stepOutputVars = previousSteps.map((step, index) => ({
-    name: `{${step.step_name}_output}`,
-    desc: `Вывод из шага "${step.step_name}"`,
-    uniqueKey: `step-output-${index}-${step.step_name}`, // Unique key for React
-  }))
+  // Previous step outputs (normalized for valid variable names)
+  const stepOutputVars = previousSteps.map((step, index) => {
+    const varName = normalizeStepNameForVariable(step.step_name)
+    return {
+      name: `{${varName}_output}`,
+      desc: `Вывод из шага "${step.step_name}"`,
+      uniqueKey: `step-output-${index}-${step.step_name}`, // Unique key for React
+    }
+  })
   
   // All available tools as variables (simplified - no configuration needed)
   const toolVars = tools

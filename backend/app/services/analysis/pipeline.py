@@ -597,14 +597,18 @@ class AnalysisPipeline:
         """
         dependencies = []
         # Find all {step_name_output} references in template
+        # Note: Variable names are normalized (spaces -> underscores), so we need to normalize step names too
         import re
+        from app.services.analysis.steps import _normalize_step_name_for_variable
+        
         pattern = r'\{(\w+)_output\}'
         matches = re.findall(pattern, template)
         
         for var_name in matches:
-            # Find step with this name
+            # Find step whose normalized name matches this variable name
             for idx, (step_name, _, _) in enumerate(all_steps):
-                if step_name == var_name:
+                normalized_step_name = _normalize_step_name_for_variable(step_name)
+                if normalized_step_name == var_name:
                     dependencies.append(idx)
                     break
         
