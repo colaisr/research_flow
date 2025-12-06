@@ -59,6 +59,7 @@ Constraints and preferences:
   - Next.js (React) + TailwindCSS + shadcn/ui
   - Data fetching: React Query (TanStack Query) or SWR
   - Pages: Dashboard (trigger run), Run detail (intrasteps), Settings
+  - Onboarding: React Joyride for user guidance hints
 
 - Deployment (single VM, no Docker)
   - Monorepo checked out to `/srv/research-flow/` (contains `backend/` and `frontend/` subdirectories)
@@ -1154,6 +1155,88 @@ System processes are created via Python scripts in `backend/scripts/` directory.
 - **Analyses**: Filter tabs (My processes / Example processes), expandable step configuration
 - **Pipeline Editor**: Inline step management, variable palette, test functionality
 - **Run Details**: Timeline view with expandable steps, prominent result section
+
+### 12d) Onboarding Hints System ✅ **COMPLETE**
+
+**Purpose**: Non-intrusive, informative hints to guide new users through creating their first analysis flows, with emphasis on key features like RAG tools, variable usage, and workflow creation.
+
+**UI Framework**: React Joyride
+- React-native framework built specifically for React/Next.js
+- TypeScript support with full type definitions
+- Supports tooltips, spotlights, and beacons
+- Built-in skip/close functionality
+- Customizable styling compatible with TailwindCSS
+- Accessible with ARIA attributes and keyboard navigation
+
+**Implementation**:
+- **State Management**: Hint state stored in `localStorage` (per user, client-side only)
+- **Permanent Dismissal**: Once dismissed, hints stay off permanently (no re-enable option)
+- **Existing Users**: All users (new and existing) see hints by default when feature is deployed
+- **Context-Aware**: Hints show based on context (empty states, first-time actions, step count, etc.)
+
+**Hint Flows**:
+
+1. **Flow 1: Dashboard Hints** (`/dashboard`)
+   - Welcome header hint (first login)
+   - Create process quick action
+   - Statistics cards context
+
+2. **Flow 2: Analyses Page Hints** (`/analyses`)
+   - Create first process button
+   - System processes tab (example processes)
+   - Duplicate button for system processes
+
+3. **Flow 3: Pipeline Editor Hints** (`/pipelines/new`, `/pipelines/{id}/edit`)
+   - Add first step button (when no steps)
+   - Tool variables palette (on first step)
+   - Variable usage (when multiple steps exist)
+   - Contextual display based on step count and selection
+
+4. **Flow 4: Tools Page Hints** (`/tools`)
+   - Create first tool button
+   - Empty state explanation
+
+5. **Flow 6: RAG Editor Hints** (`/rags/{id}`)
+   - RAG sharing introduction (public access feature)
+   - Public access modes explanation
+   - Public access URL display
+
+6. **Flow 7: Contextual Hints** (Throughout app)
+   - First run success celebration (after first successful run)
+   - Use RAG suggestion (when user has RAGs but process doesn't use them)
+
+7. **Flow 8: Organizations Page Hints** (`/organizations/{id}`)
+   - Invite user button
+   - Organization sharing benefits
+
+**User Control**:
+- **Dismiss Individual Hint**: Click "×" (close) button → hint is permanently dismissed
+- **Complete Flow**: Click "Завершить" (Complete) button → current hint dismissed, flow marked as complete
+- **Skip Entire Flow**: Click "Пропустить обучение" (Skip Tutorial) → entire flow skipped permanently
+- **Global Disable**: Option to disable all hints permanently (one-time action, no re-enable)
+
+**State Management** (`frontend/lib/onboarding/hintState.ts`):
+- `dismissedHints`: Array of dismissed hint IDs (permanent)
+- `skippedFlows`: Array of skipped flow IDs (permanent)
+- `hintsDisabled`: Global disable flag (permanent)
+- `completedFlows`: Tracking array for completed flows
+
+**Technical Details**:
+- **Component**: `HintDisplay` (`frontend/components/OnboardingProvider.tsx`)
+- **Configuration**: `frontend/lib/onboarding/hints.ts` (centralized hint definitions)
+- **State**: `frontend/lib/onboarding/hintState.ts` (localStorage management)
+- **Context**: `frontend/contexts/OnboardingContext.tsx` (React context for hint state)
+- **Styling**: Custom CSS for beacons (orange color, larger size, pulsing animation)
+- **Target Elements**: Data attributes (`data-hint="..."`) on target elements
+
+**Key Features**:
+- **Contextual Display**: Hints only show when relevant (e.g., variable hints only when steps exist)
+- **Visual Design**: Orange beacons with pulsing animation for visibility
+- **Non-Intrusive**: Easy to dismiss, doesn't block user workflow
+- **Russian Language**: All hint text in Russian
+- **Light Theme**: Designed for light theme only
+
+**Documentation**: See `docs/ONBOARDING_HINTS_PLAN.md` for complete hint map and implementation details.
 
 
 ### 14) On-Premise LLM Deployment Guide
