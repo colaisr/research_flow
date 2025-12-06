@@ -8,6 +8,8 @@ import React from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import { useAuth } from '@/hooks/useAuth'
 import Link from 'next/link'
+import HintDisplay from '@/components/OnboardingProvider'
+import { ragEditorHints } from '@/lib/onboarding/hints'
 
 interface RAG {
   id: number
@@ -620,8 +622,35 @@ export default function RAGEditorPage() {
     )
   }
 
+  // Determine which hints to show
+  const hasDocuments = documents.length > 0
+  // Hint 6.5: Show share button hint when RAG has documents and public access is disabled
+  const shouldShowShareHint = rag?.user_role === 'owner' && hasDocuments && !rag.public_access_enabled && !showPublicAccessModal
+  // Hint 6.6: Show modal explanation when modal is open and public access is not yet enabled
+  const shouldShowModalHint = showPublicAccessModal && rag?.user_role === 'owner' && !rag.public_access_enabled
+  // Hint 6.7: Show URL hint when public access is enabled and modal is open
+  const shouldShowUrlHint = rag?.public_access_enabled && showPublicAccessModal && rag?.user_role === 'owner'
+
+  // Filter hints based on conditions
+  const visibleHints = ragEditorHints.filter(hint => {
+    if (hint.id === '6.5') return shouldShowShareHint
+    if (hint.id === '6.6') return shouldShowModalHint
+    if (hint.id === '6.7') return shouldShowUrlHint
+    return false
+  })
+
+  const shouldShowHints = visibleHints.length > 0 && isAuthenticated
+
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-gray-50 overflow-hidden">
+      {shouldShowHints && (
+        <HintDisplay 
+          key={`rag-${ragId}-${showPublicAccessModal}-${rag?.public_access_enabled}`}
+          steps={visibleHints} 
+          flowId="rag-editor" 
+          autoStart={shouldShowHints}
+        />
+      )}
       {/* Header - Redesigned Toolbar */}
       <div className="bg-white border-b border-gray-200 shadow-sm flex-shrink-0">
         <div className="max-w-full mx-auto px-6 py-4">
@@ -692,6 +721,7 @@ export default function RAGEditorPage() {
                     onClick={() => setShowPublicAccessModal(true)}
                     className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm hover:shadow-md flex-shrink-0"
                     title="Поделиться базой знаний"
+                    data-hint="rag-share-button"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
@@ -1272,7 +1302,7 @@ export default function RAGEditorPage() {
       {/* Public Access Modal */}
       {showPublicAccessModal && rag?.user_role === 'owner' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-2xl w-full max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-2xl w-full max-h-[90vh] flex flex-col" data-hint="public-access-modal">
             <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
@@ -1339,6 +1369,7 @@ export default function RAGEditorPage() {
                             value={`${typeof window !== 'undefined' ? window.location.origin : ''}/rags/public/${rag.public_access_token}`}
                             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700 text-sm"
                             onClick={(e) => (e.target as HTMLInputElement).select()}
+                            data-hint="public-access-url"
                           />
                           <button
                             onClick={() => {

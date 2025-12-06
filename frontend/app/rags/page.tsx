@@ -139,6 +139,7 @@ export default function RAGsPage() {
           <Link
             href="/rags/new"
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            data-hint="create-rag-button"
           >
             + Create Knowledge Base
           </Link>
@@ -157,7 +158,7 @@ export default function RAGsPage() {
 
         {/* RAGs Grid */}
         {filteredRAGs.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+          <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300" data-hint="rags-empty-state">
             <p className="text-gray-600 mb-4">No knowledge bases found</p>
             <Link
               href="/rags/new"

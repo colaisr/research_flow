@@ -1,5 +1,6 @@
 import Providers from './providers'
 import LayoutWrapper from '@/components/LayoutWrapper'
+import { OnboardingProvider } from '@/contexts/OnboardingContext'
 import './globals.css'
 
 export default function RootLayout({
@@ -14,9 +15,11 @@ export default function RootLayout({
       </head>
       <body>
         <Providers>
-          <LayoutWrapper>
-            {children}
-          </LayoutWrapper>
+          <OnboardingProvider>
+            <LayoutWrapper>
+              {children}
+            </LayoutWrapper>
+          </OnboardingProvider>
         </Providers>
       </body>
     </html>

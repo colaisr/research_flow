@@ -7,6 +7,8 @@ import { useRequireAuth, useAuth } from '@/hooks/useAuth'
 import { useOrganizations } from '@/hooks/useOrganizations'
 import { API_BASE_URL } from '@/lib/config'
 import apiClient from '@/lib/api'
+import HintDisplay from '@/components/OnboardingProvider'
+import { organizationsHints } from '@/lib/onboarding/hints'
 
 interface OrganizationMember {
   id: number
@@ -296,8 +298,16 @@ export default function OrganizationManagementPage() {
     )
   }
 
+  // Check if organization has only 1 member (just owner) - show hints
+  const shouldShowHints = isOwner && members.length === 1
+
   return (
     <div className="max-w-4xl mx-auto p-6">
+      <HintDisplay 
+        steps={organizationsHints} 
+        flowId="organizations" 
+        autoStart={shouldShowHints}
+      />
       <div className="mb-6">
         <button
           onClick={() => router.push('/user-settings?tab=organizations')}
@@ -375,6 +385,7 @@ export default function OrganizationManagementPage() {
                 setShowAddUserForm(false)
               }}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+              data-hint="invite-user-button"
             >
               {showInviteForm ? 'Отмена' : '+ Пригласить'}
             </button>
@@ -382,7 +393,7 @@ export default function OrganizationManagementPage() {
         </div>
 
         {showInviteForm && (
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4" data-hint="invite-form">
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">

@@ -3,9 +3,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { useParams, useRouter } from 'next/navigation'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import Tooltip from '@/components/Tooltip'
+import HintDisplay from '@/components/OnboardingProvider'
+import { contextualHints } from '@/lib/onboarding/hints'
+import { useAuth } from '@/hooks/useAuth'
 
 interface RunStep {
   step_name: string
@@ -42,11 +45,31 @@ async function fetchRun(id: string) {
   return data
 }
 
+interface RunListItem {
+  id: number
+  trigger_type: string
+  instrument: string
+  timeframe: string
+  status: string
+  created_at: string
+  finished_at: string | null
+  cost_est_total: number
+  analysis_type_id: number | null
+}
+
+async function fetchAllRuns() {
+  const { data } = await axios.get<RunListItem[]>(`${API_BASE_URL}/api/runs`, {
+    withCredentials: true
+  })
+  return data
+}
+
 export default function RunDetailPage() {
   const params = useParams()
   const router = useRouter()
   const queryClient = useQueryClient()
   const runId = params.id as string
+  const { isAuthenticated } = useAuth()
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
   const [copied, setCopied] = useState(false)
 
@@ -67,6 +90,23 @@ export default function RunDetailPage() {
     // Don't cache stale data when polling - always fetch fresh
     staleTime: 0,
   })
+
+  // Fetch all runs to check if this is the first successful run
+  const { data: allRuns = [] } = useQuery({
+    queryKey: ['runs'],
+    queryFn: fetchAllRuns,
+    enabled: isAuthenticated !== false && run?.status === 'succeeded',
+  })
+
+  // Check if this is the first successful run
+  const isFirstSuccessfulRun = useMemo(() => {
+    if (!run || run.status !== 'succeeded') return false
+    // Check if there are any other succeeded runs with lower ID (created earlier)
+    const otherSucceededRuns = allRuns.filter(
+      r => r.status === 'succeeded' && r.id < run.id
+    )
+    return otherSucceededRuns.length === 0
+  }, [run, allRuns])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -262,8 +302,24 @@ export default function RunDetailPage() {
     final_recommendation: 'Финальная рекомендация',
   }
 
+  // Filter hints for this page
+  const visibleHints = contextualHints.filter(hint => {
+    if (hint.id === '7.1') return isFirstSuccessfulRun
+    return false
+  })
+
+  const shouldShowHints = visibleHints.length > 0 && isAuthenticated
+
   return (
     <div className="p-8">
+      {shouldShowHints && (
+        <HintDisplay 
+          key={`run-${runId}-${isFirstSuccessfulRun}`}
+          steps={visibleHints} 
+          flowId="contextual" 
+          autoStart={shouldShowHints}
+        />
+      )}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -274,7 +330,7 @@ export default function RunDetailPage() {
             >
               <span>←</span> Назад к запускам
             </button>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-3xl font-bold text-gray-900" data-hint="first-run-success">
               Run #{run.id}
             </h1>
             {run.analysis_type_config && (

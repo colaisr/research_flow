@@ -8,6 +8,8 @@ import { useState } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import { useAuth } from '@/hooks/useAuth'
 import { fetchEffectiveFeatures } from '@/lib/api/features'
+import HintDisplay from '@/components/OnboardingProvider'
+import { toolsHints } from '@/lib/onboarding/hints'
 
 interface Tool {
   id: number
@@ -204,8 +206,16 @@ export default function ToolsPage() {
     )
   }
 
+  // Check if user has no tools (show hints)
+  const hasNoTools = filteredTools.length === 0 && !searchQuery && !toolTypeFilter
+
   return (
     <div className="p-8">
+      <HintDisplay 
+        steps={toolsHints} 
+        flowId="tools" 
+        autoStart={hasNoTools}
+      />
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6 flex justify-between items-center">
@@ -216,6 +226,7 @@ export default function ToolsPage() {
           <Link
             href="/tools/new"
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+            data-hint="create-tool-button"
           >
             Создать инструмент
           </Link>
@@ -246,7 +257,7 @@ export default function ToolsPage() {
 
         {/* Tools List */}
         {filteredTools.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
+          <div className="bg-white rounded-lg shadow p-8 text-center" data-hint="tools-empty-state">
             <p className="text-gray-600 mb-4">
               {searchQuery || toolTypeFilter
                 ? 'Инструменты не найдены'

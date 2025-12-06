@@ -7,6 +7,8 @@ import Link from 'next/link'
 import { useEffect } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { API_BASE_URL } from '@/lib/config'
+import HintDisplay from '@/components/OnboardingProvider'
+import { dashboardHints } from '@/lib/onboarding/hints'
 
 interface AnalysisType {
   id: number
@@ -114,6 +116,30 @@ export default function DashboardPage() {
     queryFn: fetchAnalysisTypes,
   })
 
+  // Only show hints if user is authenticated and loaded
+  const shouldShowHints = !authLoading && isAuthenticated && user
+
+  // Debug: log hint state for new users (must be before any conditional returns)
+  useEffect(() => {
+    if (shouldShowHints && user) {
+      const hintState = localStorage.getItem('researchflow_hints')
+      const parsedState = hintState ? JSON.parse(hintState) : null
+      console.log('[Onboarding] Dashboard hint check:', {
+        shouldShowHints,
+        userEmail: user.email,
+        hintState: parsedState || 'not set (new user)',
+        isReady: true,
+        dashboardFlowSkipped: parsedState?.skippedFlows?.includes('dashboard') || false,
+        // Helper: Run this in console to reset hints for testing: localStorage.removeItem('researchflow_hints')
+      })
+      
+      // If this is a new user (no hint state) but flow is skipped, log a warning
+      if (!parsedState && localStorage.getItem('researchflow_hints')) {
+        console.warn('[Onboarding] Warning: Hint state exists but could not be parsed')
+      }
+    }
+  }, [shouldShowHints, user])
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'succeeded':
@@ -182,9 +208,16 @@ export default function DashboardPage() {
 
   return (
     <div className="p-8">
+      {shouldShowHints && (
+        <HintDisplay 
+          steps={dashboardHints} 
+          flowId="dashboard" 
+          autoStart={true}
+        />
+      )}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Welcome Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6" data-hint="welcome-header">
           <div className="flex justify-between items-start">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -197,6 +230,7 @@ export default function DashboardPage() {
             <button
               onClick={() => router.push('/pipelines/new')}
               className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm hover:shadow-md flex items-center gap-2"
+              data-hint="create-process-action"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -207,7 +241,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-hint="statistics-cards">
           {/* Pipelines Card */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between mb-4">

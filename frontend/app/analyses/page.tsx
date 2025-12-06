@@ -4,9 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import { useAuth } from '@/hooks/useAuth'
+import HintDisplay from '@/components/OnboardingProvider'
+import { analysesHints } from '@/lib/onboarding/hints'
 
 interface AnalysisType {
   id: number
@@ -98,6 +100,32 @@ export default function AnalysesPage() {
     }
   }
 
+  // Check if user has no personal processes (show hints on "my" tab)
+  // Or if on "system" tab with system processes (show hint 2.3)
+  const hasNoPersonalProcesses = !isLoading && filter === 'my' && analysisTypes.length === 0
+  const hasSystemProcesses = !isLoading && filter === 'system' && analysisTypes.length > 0
+  const shouldShowHints = hasNoPersonalProcesses || hasSystemProcesses
+
+  // Debug logging - MUST be before any conditional returns (Rules of Hooks)
+  useEffect(() => {
+    if (!isLoading && typeof window !== 'undefined') {
+      setTimeout(() => {
+        console.debug('[Analyses] Hint conditions:', {
+          isLoading,
+          filter,
+          analysisTypesLength: analysisTypes.length,
+          hasNoPersonalProcesses,
+          hasSystemProcesses,
+          shouldShowHints,
+          isAuthenticated,
+          createButtonExists: !!document.querySelector('[data-hint="create-process-button"]'),
+          systemTabExists: !!document.querySelector('[data-hint="system-processes-tab"]'),
+          duplicateButtonExists: !!document.querySelector('[data-hint="duplicate-button"]'),
+        })
+      }, 500)
+    }
+  }, [isLoading, filter, analysisTypes.length, hasNoPersonalProcesses, hasSystemProcesses, shouldShowHints, isAuthenticated])
+
   if (isLoading) {
     return (
       <div className="p-8">
@@ -128,6 +156,14 @@ export default function AnalysesPage() {
 
   return (
     <div className="p-8">
+      {!isLoading && isAuthenticated && (
+        <HintDisplay 
+          key={`${filter}-${analysisTypes.length}`}
+          steps={analysesHints} 
+          flowId="analyses" 
+          autoStart={shouldShowHints}
+        />
+      )}
       <div className="max-w-7xl mx-auto">
         <div className="mb-6 flex justify-between items-center">
           <div>
@@ -141,6 +177,7 @@ export default function AnalysesPage() {
           <button
             onClick={() => router.push('/pipelines/new')}
             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm hover:shadow-md"
+            data-hint="create-process-button"
           >
             Создать процесс
           </button>
@@ -166,6 +203,7 @@ export default function AnalysesPage() {
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
+              data-hint="system-processes-tab"
             >
               Примеры процессов
             </button>
@@ -238,25 +276,18 @@ export default function AnalysesPage() {
                 <div className="flex gap-2 mt-auto pt-4 border-t border-gray-200">
                   {analysis.is_system ? (
                     <>
+                      {/* For system/example processes: only show duplicate button */}
                       <button
                         onClick={() => handleDuplicate(analysis.id)}
-                        className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
+                        className="w-full px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
                         title="Дублировать"
+                        data-hint="duplicate-button"
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
+                        <span>Дублировать</span>
                       </button>
-                      <Link
-                        href={`/analyses/${analysis.id}`}
-                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-center transition-colors shadow-sm flex items-center justify-center"
-                        title="Запустить"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </Link>
                       {isPlatformAdmin && (
                         <button
                           onClick={() => handleDelete(analysis.id, analysis.display_name)}
@@ -301,17 +332,17 @@ export default function AnalysesPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
                       </button>
+                      <button
+                        onClick={() => router.push(`/runs?analysis_type_id=${analysis.id}`)}
+                        className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
+                        title="История"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
                     </>
                   )}
-                  <button
-                    onClick={() => router.push(`/runs?analysis_type_id=${analysis.id}`)}
-                    className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
-                    title="История"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </button>
                 </div>
               </div>
             ))}

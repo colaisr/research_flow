@@ -1,7 +1,7 @@
 /**
  * API client functions for token package endpoints.
  */
-import axios from 'axios'
+import apiClient from '@/lib/api'
 import { API_BASE_URL } from '@/lib/config'
 
 export interface TokenPackage {
@@ -45,18 +45,30 @@ export interface PurchaseHistory {
 }
 
 export async function fetchTokenPackages(): Promise<TokenPackage[]> {
-  const { data } = await axios.get<TokenPackage[]>(
-    `${API_BASE_URL}/api/token-packages`,
-    { withCredentials: true }
-  )
-  return data
+  try {
+    const response = await apiClient.get<TokenPackage[]>(
+      `${API_BASE_URL}/api/token-packages`,
+      {
+        withCredentials: true,
+        validateStatus: (status) => status === 200 || status === 401, // Don't throw on 401
+      }
+    )
+    
+    if (response.status === 401) {
+      return [] // Not authenticated, return empty array
+    }
+    
+    return response.data
+  } catch {
+    return [] // Return empty array on any error
+  }
 }
 
 export async function purchaseTokenPackage(
   packageId: number,
   request: PurchaseTokenPackageRequest
 ): Promise<PurchaseTokenPackageResponse> {
-  const { data } = await axios.post<PurchaseTokenPackageResponse>(
+  const { data } = await apiClient.post<PurchaseTokenPackageResponse>(
     `${API_BASE_URL}/api/token-packages/${packageId}/purchase`,
     request,
     { withCredentials: true }
@@ -68,10 +80,22 @@ export async function fetchPurchaseHistory(
   limit: number = 50,
   offset: number = 0
 ): Promise<PurchaseHistory> {
-  const { data } = await axios.get<PurchaseHistory>(
-    `${API_BASE_URL}/api/token-packages/purchases?limit=${limit}&offset=${offset}`,
-    { withCredentials: true }
-  )
-  return data
+  try {
+    const response = await apiClient.get<PurchaseHistory>(
+      `${API_BASE_URL}/api/token-packages/purchases?limit=${limit}&offset=${offset}`,
+      {
+        withCredentials: true,
+        validateStatus: (status) => status === 200 || status === 401, // Don't throw on 401
+      }
+    )
+    
+    if (response.status === 401) {
+      return { purchases: [], total: 0 } // Not authenticated, return empty history
+    }
+    
+    return response.data
+  } catch {
+    return { purchases: [], total: 0 } // Return empty history on any error
+  }
 }
 

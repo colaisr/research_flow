@@ -6,6 +6,7 @@ import apiClient from '@/lib/api'
 import { API_BASE_URL } from '@/lib/config'
 import { useRouter, usePathname } from 'next/navigation'
 import { useOrganizationContext } from '@/contexts/OrganizationContext'
+import { useAuth } from '@/hooks/useAuth'
 
 export interface Organization {
   id: number
@@ -19,10 +20,20 @@ export interface Organization {
 }
 
 async function fetchOrganizations(): Promise<Organization[]> {
-  const { data } = await apiClient.get<Organization[]>(`${API_BASE_URL}/api/organizations`, {
-    withCredentials: true
-  })
-  return data
+  try {
+    const response = await apiClient.get<Organization[]>(`${API_BASE_URL}/api/organizations`, {
+      withCredentials: true,
+      validateStatus: (status) => status === 200 || status === 401, // Don't throw on 401
+    })
+    
+    if (response.status === 401) {
+      return [] // Not authenticated, return empty array
+    }
+    
+    return response.data
+  } catch {
+    return [] // Return empty array on any error
+  }
 }
 
 async function switchOrganization(organizationId: number): Promise<Organization> {
@@ -54,12 +65,13 @@ export function useOrganizations() {
   const queryClient = useQueryClient()
   const { setCurrentOrganizationId } = useOrganizationContext()
   const pathname = usePathname()
+  const { isAuthenticated } = useAuth()
   const isPublicRAGPage = pathname?.startsWith('/rags/public/')
   
   const { data: organizations = [], isLoading } = useQuery({
     queryKey: ['organizations'],
     queryFn: fetchOrganizations,
-    enabled: !isPublicRAGPage, // Don't fetch on public RAG pages
+    enabled: isAuthenticated && !isPublicRAGPage, // Only fetch if authenticated and not on public RAG pages
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 

@@ -394,6 +394,7 @@ function PricingSection() {
   const { data: packages, isLoading: packagesLoading } = useQuery({
     queryKey: ['token-packages'],
     queryFn: fetchTokenPackages,
+    retry: false, // Don't retry on 401
   })
 
   const formatTokens = (tokens: number): string => {

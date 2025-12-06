@@ -14,6 +14,8 @@ import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import TestResults from '@/components/TestResults'
 import FlowDiagram from '@/components/FlowDiagram'
+import HintDisplay from '@/components/OnboardingProvider'
+import { pipelineEditorHints, contextualHints } from '@/lib/onboarding/hints'
 
 /**
  * Normalize step name to a valid Python variable name.
@@ -1185,7 +1187,7 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
                   items={steps.map((_, index) => index.toString())}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="space-y-3">
+                  <div className="space-y-3" data-hint="use-rag-suggestion">
                     {steps.map((step, index) => (
                       <SortableStepItem
                         key={index}
@@ -1216,7 +1218,60 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
             )}
           </div>
 
-          {/* Add Step - Always visible at bottom */}
+          {/* Onboarding Hints - Show conditionally based on step count and state */}
+          {isNew && (
+            <>
+              <HintDisplay 
+                key={`pipeline-hints-${steps.length}-${selectedStepIndex ?? 'none'}`}
+                steps={pipelineEditorHints.filter(hint => {
+                  // Hint 3.2: Only show when no steps (add first step)
+                  if (hint.id === '3.2') {
+                    return steps.length === 0
+                  }
+                  // Hint 3.4: Show on first step (step 1) - explains tool variables
+                  if (hint.id === '3.4') {
+                    return steps.length === 1 && selectedStepIndex === 0
+                  }
+                  // Hint 3.5: Combined variable hint - only show when there are previous steps (step 2+)
+                  // This hint covers all variable usage: step outputs, tool variables, and how to use them
+                  if (hint.id === '3.5') {
+                    return steps.length > 1 && selectedStepIndex !== null && selectedStepIndex > 0
+                  }
+                  return true
+                })} 
+                flowId="pipeline-editor" 
+                autoStart={steps.length >= 0}
+              />
+              {/* Hint 7.3: Use RAG in Process - Show when user has RAGs but process doesn't use them */}
+              {(() => {
+                // Check if user has RAG tools
+                const hasRAGTools = tools.some(tool => tool.tool_type === 'rag')
+                
+                // Check if current pipeline uses any RAG tools
+                const usesRAGTools = steps.some(step => {
+                  if (!step.tool_references || step.tool_references.length === 0) return false
+                  return step.tool_references.some(ref => {
+                    const tool = tools.find(t => t.id === ref.tool_id)
+                    return tool?.tool_type === 'rag'
+                  })
+                })
+                
+                // Show hint if user has RAG tools but process doesn't use them
+                const shouldShowRAGHint = hasRAGTools && !usesRAGTools && steps.length > 0
+                
+                if (!shouldShowRAGHint) return null
+                
+                return (
+                  <HintDisplay 
+                    key={`rag-suggestion-hint-${steps.length}`}
+                    steps={contextualHints.filter(hint => hint.id === '7.3')} 
+                    flowId="contextual" 
+                    autoStart={shouldShowRAGHint}
+                  />
+                )
+              })()}
+            </>
+          )}
           <div className="p-6 pt-0 border-t border-gray-200 bg-white flex-shrink-0">
             <div className="flex gap-2 items-center">
               <input
@@ -1236,6 +1291,7 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
                 onClick={() => addStep()}
                 disabled={!newStepName.trim()}
                 className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-1"
+                data-hint="add-step-button"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1549,6 +1605,7 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
         {/* User Prompt Template */}
         <div>
           <label className="block text-sm font-semibold text-gray-900 mb-2">Пользовательский промпт</label>
+        <div data-hint="prompt-editor">
         {(() => {
           // Get available variables
           const previousSteps = allSteps.slice(0, stepIndex)
@@ -1629,6 +1686,7 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
             </>
           )
         })()}
+        </div>
         </div>
       </div>
 
@@ -1843,7 +1901,7 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
       // Add tool reference (simplified format - no extraction_method or extraction_config)
       const newRef: ToolReference = {
         tool_id: toolVar.toolId,
-        variable_name: toolVar.variableName
+        variable_name: toolVar.variableName,
         // extraction_method and extraction_config removed - AI-based extraction is automatic
       }
       const currentRefs = activeStep.tool_references || []
@@ -1856,7 +1914,7 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
   }
   
   return (
-    <div className="mb-2">
+    <div className="mb-2" data-hint="variable-palette">
       <div className="flex flex-wrap gap-1.5 items-center">
         <span className="text-xs text-gray-500 mr-1">Переменные:</span>
         {standardVars.map((v) => {
@@ -1876,20 +1934,22 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
         {stepOutputVars.length > 0 && (
           <>
             <span className="text-xs text-gray-300 self-center">•</span>
-            {stepOutputVars.map((v) => {
-              const ref = editorRef ? editorRef(currentStepIndex) : undefined
-              return (
-                <button
-                  key={v.uniqueKey || v.name}
-                  type="button"
-                  onClick={() => onInsertVariable(v.name, ref)}
-                  className="text-xs px-2 py-0.5 bg-purple-50 hover:bg-purple-100 rounded border border-purple-200 text-purple-700 font-mono cursor-pointer transition-colors"
-                  title={v.desc}
-                >
-                  {v.name}
-                </button>
-              )
-            })}
+            <span data-hint="step-output-variables" className="contents">
+              {stepOutputVars.map((v) => {
+                const ref = editorRef ? editorRef(currentStepIndex) : undefined
+                return (
+                  <button
+                    key={v.uniqueKey || v.name}
+                    type="button"
+                    onClick={() => onInsertVariable(v.name, ref)}
+                    className="text-xs px-2 py-0.5 bg-purple-50 hover:bg-purple-100 rounded border border-purple-200 text-purple-700 font-mono cursor-pointer transition-colors"
+                    title={v.desc}
+                  >
+                    {v.name}
+                  </button>
+                )
+              })}
+            </span>
           </>
         )}
         {toolVars.length > 0 && (
