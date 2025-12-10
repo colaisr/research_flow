@@ -1108,7 +1108,6 @@ function DraggableProcessCard({
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
   } = useDraggable({
     id: `process-${analysis.id}`,
