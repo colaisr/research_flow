@@ -95,7 +95,8 @@ Constraints and preferences:
   - `users`: id, email, hashed_password, full_name, is_active, role (enum: admin/org_admin/org_user), created_at, updated_at
   - `organizations`: id, name, slug, owner_id, is_personal (boolean), created_at, updated_at
   - `organization_members`: id, organization_id, user_id, role (org_admin/org_user), invited_by, joined_at
-  - `analysis_types`: id, organization_id (required), name, display_name, description, version, config (JSON with steps configuration), is_active, is_system, created_at, updated_at
+  - `process_categories`: id, name, organization_id (required), user_id (nullable - null for org-wide folders), display_order, created_at, updated_at
+  - `analysis_types`: id, organization_id (required), name, display_name, description, version, config (JSON with steps configuration), is_active, is_system, category_id (nullable FK to process_categories - null for "Мои процессы"), created_at, updated_at
   - `analysis_runs`: id, trigger_type (manual/scheduled), analysis_type_id, status (queued/running/succeeded/failed/model_failure), input_params (JSON), created_at, finished_at, cost_est_total
   - `analysis_steps`: id, run_id, step_name, step_type (llm/data_transform/api_call/rag_query/etc), input_blob, output_blob, tool_id (nullable, links to user_tools), llm_model (nullable), tokens (nullable), cost_est, created_at
   - `user_tools`: id, user_id (required), organization_id (nullable - home org), tool_type (database/api/rag/custom), name, display_name, config (JSON with connection details, credentials), is_active, is_shared (default true), created_at, updated_at
@@ -139,9 +140,14 @@ Constraints and preferences:
     - `GET /api/analyses` → list user's analysis flows (filtered by user_id)
     - `GET /api/analyses/{id}` → get analysis flow details
     - `POST /api/analyses` → create new analysis flow
-    - `PUT /api/analyses/{id}` → update analysis flow
+    - `PUT /api/analyses/{id}` → update analysis flow (includes `category_id` for moving to folders)
     - `DELETE /api/analyses/{id}` → delete analysis flow
-    - `POST /api/analyses/{id}/duplicate` → duplicate analysis flow
+    - `POST /api/analyses/{id}/duplicate` → duplicate analysis flow (new copy goes to "Мои процессы" with `category_id=null`)
+  - **Process Categories** (Folders):
+    - `GET /api/process-categories` → list all categories for current organization
+    - `POST /api/process-categories` → create new category (folder) with name and display_order
+    - `PUT /api/process-categories/{id}` → update category (name, display_order)
+    - `DELETE /api/process-categories/{id}` → delete category (processes moved to "Мои процессы")
   - **Runs**:
     - `POST /api/runs` → manual trigger (analysis_type_id, input_params) → `run_id`
     - `GET /api/runs/{id}` → run status + all step outputs
@@ -278,15 +284,59 @@ Constraints and preferences:
 - **Step-by-Step Verification**: Users can verify each step's output before proceeding
 - **User Ownership**: All analyses, tools, and RAGs are user-specific (with optional sharing in future)
 
-**Analyses Page (`/analyses`):**
+**Analyses Page (`/analyses`):** ✅ **FOLDER-BASED TAB SYSTEM IMPLEMENTED**
+- **Folder-Based Tab System**: 
+  - **Default Folders**:
+    - **"Мои процессы"** (My Processes): Default folder for user-created processes (cannot be removed)
+      - Shows only processes with `category_id === null`
+      - Not "all processes" - it's a specific folder where processes are placed by default
+    - **"Примеры процессов"** (Example Processes): System processes (`is_system=True`) visible to all users
+  - **Custom Folders**: Users can create unlimited custom folders via "+" button
+    - Each folder is a `ProcessCategory` with `name`, `display_order`, `organization_id`, `user_id`
+    - Folders can be renamed by double-clicking the tab name
+    - Folders can be deleted (processes moved to "Мои процессы" on deletion)
+  - **Tab Reordering**: All tabs (default and custom) can be reordered via drag-and-drop
+    - Order persisted in `localStorage` as `unifiedTabsOrder`
+    - Custom folder order also stored in database (`display_order` field)
+    - Any tab can be placed in any position (no restrictions)
+  - **Process Organization**:
+    - Processes belong to exactly one folder (or "Мои процессы" if `category_id === null`)
+    - Each process appears in only one folder at a time
+    - Processes can be moved between folders via drag-and-drop
+    - System processes cannot be moved (remain in "Примеры процессов")
+    - Duplicated system processes automatically go to "Мои процессы"
+  - **Drag-and-Drop Features**:
+    - **Tab Reordering**: Drag tabs to reorder (uses `@dnd-kit/sortable`)
+    - **Process to Folder**: Drag process cards to folder tabs to move them
+      - Visual feedback: Target tab highlights with blue background and ring
+      - Collision detection: Uses `pointerWithin` algorithm (detects drop target by mouse pointer position, not center of dragged item)
+      - Drag handle: Grip icon (☰) on process cards for easy dragging
+      - Automatic tab switching: View switches to target folder when process is dropped
+    - **Optimistic Updates**: UI updates immediately, backend syncs in background
+  - **Database Schema**:
+    - `process_categories` table: `id`, `name`, `organization_id`, `user_id` (nullable for org-wide), `display_order`, `created_at`, `updated_at`
+    - `analysis_types.category_id`: Foreign key to `process_categories.id` (nullable for "Мои процессы")
+  - **API Endpoints**:
+    - `GET /api/process-categories` - List all categories for current organization
+    - `POST /api/process-categories` - Create new category (folder)
+    - `PUT /api/process-categories/{id}` - Update category (name, display_order)
+    - `DELETE /api/process-categories/{id}` - Delete category (moves processes to "Мои процессы")
+    - `PUT /api/analyses/{id}` - Update analysis (includes `category_id` for moving processes)
+  - **Filtering Logic**:
+    - "Мои процессы": Shows processes where `category_id === null`
+    - Custom folders: Shows processes where `category_id === <folder_id>`
+    - "Примеры процессов": Shows system processes (`is_system=True`)
+    - Each process appears in exactly one folder
 - **List View**: Card grid showing:
   - Analyses from current organization context ONLY
+  - Filtered by selected folder/tab
   - No organization filter (complete separation - only current org visible)
   - Analysis name and description
   - Number of steps
   - Estimated cost range
   - Last run timestamp and status
   - Actions: "Edit", "Run", "View History", "Duplicate", "Delete"
+  - Drag handle (☰) on process cards for moving between folders
   - Organization selector in navigation (switching org reloads page with new org's analyses)
   
   - **Detail View (`/analyses/{id}`)**: 
@@ -1556,4 +1606,128 @@ customer-llm-package/
 - No case-specific logic: Removed any hardcoded logic for specific use cases
 - Excel support works for any Excel file type (financial, sales, inventory, student data, etc.)
 - All features work across different domains and use cases
+
+### 16) Folder-Based Tab System for Analyses Page (December 2024) ✅
+
+**Purpose**: Organize analysis processes into user-defined folders with intuitive drag-and-drop interface.
+
+**Key Features**:
+
+**Folder Structure**:
+- **"Мои процессы"** (My Processes): Default folder that cannot be removed
+  - Contains processes with `category_id === null`
+  - Not "all processes" - it's a specific default folder
+  - Processes are placed here by default when created
+- **"Примеры процессов"** (Example Processes): System processes tab (read-only)
+  - Shows all system processes (`is_system=True`)
+  - Cannot be removed or reordered separately (part of unified tab system)
+- **Custom Folders**: User-created folders for organizing processes
+  - Created via "+" button with inline name editing
+  - Can be renamed by double-clicking tab name
+  - Can be deleted (processes automatically moved to "Мои процессы")
+  - Unlimited number of custom folders
+
+**Database Schema**:
+- **`process_categories` table**:
+  - `id`: Primary key
+  - `name`: Folder name (user-defined)
+  - `organization_id`: Required, links to organization
+  - `user_id`: Nullable - null for org-wide folders, set for user-specific folders
+  - `display_order`: Integer for sorting custom folders
+  - `created_at`, `updated_at`: Timestamps
+- **`analysis_types.category_id`**: 
+  - Foreign key to `process_categories.id` (nullable)
+  - `null` = process in "Мои процессы"
+  - `number` = process in specific folder
+
+**Tab Management**:
+- **Unified Tab Order**: Single source of truth for all tab positions
+  - Stored in `localStorage` as `unifiedTabsOrder` array
+  - Contains: `'all'`, `'system'`, or category `number` IDs
+  - Persists across page reloads
+- **Tab Reordering**: All tabs can be freely reordered via drag-and-drop
+  - Uses `@dnd-kit/sortable` for tab reordering
+  - Custom folder order synced to database (`display_order`)
+  - Any tab can be placed in any position (no restrictions)
+- **Tab Creation**: 
+  - Click "+" button to create new folder
+  - Tab name immediately enters edit mode for quick naming
+  - New folder appears in tab list with optimistic UI update
+
+**Process Organization**:
+- **One Process, One Folder**: Each process belongs to exactly one folder
+  - Processes with `category_id === null` appear in "Мои процессы"
+  - Processes with `category_id === <folder_id>` appear in that folder
+  - No process appears in multiple folders
+- **Process Movement**: Drag-and-drop processes between folders
+  - Drag handle (☰) icon on each process card
+  - Drop on folder tab to move process
+  - Visual feedback: Target tab highlights with blue background and ring
+  - Automatic tab switching: View switches to target folder on drop
+  - Optimistic updates: UI updates immediately, backend syncs
+- **System Process Handling**:
+  - System processes cannot be moved (remain in "Примеры процессов")
+  - When system process is duplicated, new copy goes to "Мои процессы" (`category_id=null`)
+
+**Drag-and-Drop Implementation**:
+- **Library**: `@dnd-kit/core` and `@dnd-kit/sortable`
+- **Collision Detection**: `pointerWithin` algorithm
+  - Detects drop target by mouse pointer position (not center of dragged item)
+  - More intuitive: drop target aligns with where user points
+  - Better UX: easier to drop accurately on small targets like tabs
+- **Tab Reordering**:
+  - `SortableContext` with `horizontalListSortingStrategy`
+  - `useSortable` hook for each tab
+  - `arrayMove` utility for reordering logic
+- **Process Dragging**:
+  - `useDraggable` hook for process cards
+  - `useDroppable` hook for folder tabs
+  - `DragOverlay` shows preview following cursor
+  - Drag handle on process cards for clear interaction point
+- **Visual Feedback**:
+  - Target tab highlights with `bg-blue-50` and `ring-2 ring-blue-300` when hovered
+  - Dragged item shows semi-transparent overlay
+  - Smooth transitions and animations
+
+**API Endpoints**:
+- **Process Categories**:
+  - `GET /api/process-categories`: List all categories for current organization
+  - `POST /api/process-categories`: Create new category (`name`, `display_order`)
+  - `PUT /api/process-categories/{id}`: Update category (`name`, `display_order`)
+  - `DELETE /api/process-categories/{id}`: Delete category (processes moved to "Мои процессы")
+- **Analysis Updates**:
+  - `PUT /api/analyses/{id}`: Update analysis (includes `category_id` for moving processes)
+  - Response includes `category_id` field in `AnalysisTypeResponse`
+
+**Frontend Implementation**:
+- **State Management**:
+  - `selectedTab`: Current active tab (`'all'`, `'system'`, or `number`)
+  - `unifiedTabsOrder`: Complete tab order from localStorage
+  - `activeDragId`: Currently dragged item ID
+- **Filtering Logic**:
+  - "Мои процессы": `allUserProcesses.filter(p => p.category_id === null)`
+  - Custom folders: `allUserProcesses.filter(p => p.category_id === selectedTab)`
+  - "Примеры процессов": `systemProcesses` (all system processes)
+- **Optimistic Updates**:
+  - Process moves update cache immediately
+  - Tab switches automatically to target folder
+  - Backend sync happens in background
+  - Error handling with rollback on failure
+- **Type Safety**:
+  - `category_id` normalized to `number | null` (never `NaN`)
+  - Proper type checking in filtering logic
+  - Response data validation
+
+**User Experience**:
+- **Intuitive Organization**: Users can create folders for any purpose
+- **Quick Access**: Double-click to rename folders, drag to reorder
+- **Visual Clarity**: Clear indication of which folder a process belongs to
+- **Smooth Interactions**: Optimistic updates make UI feel instant
+- **Error Handling**: Clear error messages if operations fail
+
+**Migration Notes**:
+- Existing processes have `category_id = null` (in "Мои процессы")
+- New `process_categories` table created via Alembic migration
+- Backend gracefully handles missing table (returns empty list)
+- Frontend handles missing categories gracefully (shows default tabs only)
 
