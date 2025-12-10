@@ -173,7 +173,7 @@ export default function Sidebar() {
                     Research <span className="text-blue-600">Flow</span>
                   </div>
                   <div className="text-xs text-gray-500 leading-tight">
-                    Research Platform
+                    Платформа исследований
                   </div>
                 </div>
               )}
@@ -371,7 +371,7 @@ export default function Sidebar() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
                     <span className="truncate flex-1 min-w-0 text-left">
-                      {currentOrganization?.name || 'Select'}
+                      {currentOrganization?.name || 'Выбрать'}
                     </span>
                     <svg 
                       className={`w-3 h-3 flex-shrink-0 transition-transform ${isOrgDropdownOpen ? 'rotate-180' : ''}`}

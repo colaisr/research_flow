@@ -59,7 +59,7 @@ function RunsContent() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Loading runs...</p>
+          <p className="text-gray-600 dark:text-gray-400">Загрузка запусков...</p>
         </div>
       </div>
     )
@@ -71,7 +71,7 @@ function RunsContent() {
         <div className="max-w-7xl mx-auto">
           <div className="bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 rounded p-4">
             <p className="text-red-700 dark:text-red-400">
-              Error loading runs: {error instanceof Error ? error.message : 'Unknown error'}
+              Ошибка загрузки запусков: {error instanceof Error ? error.message : 'Неизвестная ошибка'}
             </p>
           </div>
         </div>
@@ -84,11 +84,11 @@ function RunsContent() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Analysis Runs
+            Запуски анализов
           </h1>
           {analysisTypeId && (
             <p className="text-gray-600 dark:text-gray-400">
-              Filtered by analysis type ID: {analysisTypeId}
+              Отфильтровано по типу анализа ID: {analysisTypeId}
             </p>
           )}
         </div>
@@ -97,8 +97,8 @@ function RunsContent() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <p className="text-gray-600 dark:text-gray-400">
               {analysisTypeId 
-                ? 'No runs found for this analysis type.' 
-                : 'No runs yet. Create one from the Home or Analyses page!'}
+                ? 'Запусков для этого типа анализа не найдено.' 
+                : 'Пока нет запусков. Создайте один на странице Главная или Анализы!'}
             </p>
           </div>
         ) : (
@@ -111,22 +111,22 @@ function RunsContent() {
                       ID
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Instrument
+                      Инструмент
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Timeframe
+                      Таймфрейм
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Status
+                      Статус
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Cost
+                      Стоимость
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Created
+                      Создано
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Actions
+                      Действия
                     </th>
                   </tr>
                 </thead>
@@ -144,7 +144,11 @@ function RunsContent() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(run.status)}`}>
-                          {run.status === 'model_failure' ? 'Model Failure' : run.status}
+                          {run.status === 'model_failure' ? 'Ошибка модели' : 
+                           run.status === 'succeeded' ? 'Успешно' :
+                           run.status === 'failed' ? 'Ошибка' :
+                           run.status === 'running' ? 'Выполняется' :
+                           run.status === 'queued' ? 'В очереди' : run.status}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
@@ -158,7 +162,7 @@ function RunsContent() {
                           href={`/runs/${run.id}`}
                           className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                         >
-                          View
+                          Просмотр
                         </Link>
                       </td>
                     </tr>
@@ -178,7 +182,7 @@ export default function RunsPage() {
     <Suspense fallback={
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Loading runs...</p>
+          <p className="text-gray-600 dark:text-gray-400">Загрузка запусков...</p>
         </div>
       </div>
     }>

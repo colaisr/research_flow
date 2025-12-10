@@ -255,7 +255,7 @@ export default function OrganizationManagementPage() {
             onClick={() => router.push('/user-settings?tab=organizations')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg"
           >
-            Back to Organizations
+            Назад к организациям
           </button>
         </div>
       </div>
@@ -291,7 +291,7 @@ export default function OrganizationManagementPage() {
             onClick={() => router.push('/user-settings?tab=organizations')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg"
           >
-            Back to Organizations
+            Назад к организациям
           </button>
         </div>
       </div>

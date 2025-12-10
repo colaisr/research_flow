@@ -5,20 +5,20 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard' },
-  { name: 'Analyses', href: '/analyses' },
-  { name: 'Runs', href: '/runs' },
-  { name: 'Schedules', href: '/schedules' },
-  { name: 'Settings', href: '/settings' },
+  { name: 'Дашборд', href: '/dashboard' },
+  { name: 'Анализы', href: '/analyses' },
+  { name: 'Запуски', href: '/runs' },
+  { name: 'Расписания', href: '/schedules' },
+  { name: 'Настройки', href: '/settings' },
 ]
 
 const getRoleLabel = (role: string | null | undefined) => {
   if (!role) return null
   switch (role) {
     case 'admin':
-      return 'Platform Admin'
+      return 'Администратор платформы'
     case 'user':
-      return 'User'
+      return 'Пользователь'
     default:
       return role
   }
@@ -92,14 +92,14 @@ export default function Navigation() {
                   href="/admin/settings"
                   className="text-sm text-blue-600 hover:text-blue-700"
                 >
-                  Admin Settings
+                  Настройки администратора
                 </Link>
               )}
               <button
                 onClick={() => logout()}
                 className="text-sm text-gray-500 hover:text-gray-700"
               >
-                Logout
+                Выйти
               </button>
             </div>
           )}

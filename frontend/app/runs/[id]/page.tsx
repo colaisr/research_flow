@@ -152,7 +152,7 @@ export default function RunDetailPage() {
       const failures = failureStep.input_blob.failures
       if (failures.length > 0) {
         const firstFailure = failures[0]
-        return `${firstFailure.step} step failed: ${firstFailure.model} - ${firstFailure.error.split('\n')[0]}`
+        return `Шаг ${firstFailure.step} завершился ошибкой: ${firstFailure.model} - ${firstFailure.error.split('\n')[0]}`
       }
     }
     
@@ -163,8 +163,8 @@ export default function RunDetailPage() {
     )
     if (errorSteps.length > 0) {
       const firstError = errorSteps[0]
-      const errorMsg = firstError.output_blob?.replace('Error: ', '') || 'Model error'
-      return `${firstError.step_name} step: ${errorMsg.split('\n')[0]}`
+      const errorMsg = firstError.output_blob?.replace('Error: ', '') || 'Ошибка модели'
+      return `Шаг ${firstError.step_name}: ${errorMsg.split('\n')[0]}`
     }
     
     return null
@@ -175,7 +175,7 @@ export default function RunDetailPage() {
     const errorStep = run.steps.find(s => s.step_name === 'pipeline_error')
     if (errorStep && errorStep.input_blob) {
       return {
-        message: errorStep.output_blob || errorStep.input_blob.error || 'Unknown error',
+        message: errorStep.output_blob || errorStep.input_blob.error || 'Неизвестная ошибка',
         traceback: errorStep.input_blob.traceback || null
       }
     }
@@ -331,7 +331,7 @@ export default function RunDetailPage() {
               <span>←</span> Назад к запускам
             </button>
             <h1 className="text-3xl font-bold text-gray-900" data-hint="first-run-success">
-              Run #{run.id}
+              Запуск #{run.id}
             </h1>
             {run.analysis_type_config && (
               <p className="text-sm text-gray-500 mt-1">

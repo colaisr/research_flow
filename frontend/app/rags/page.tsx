@@ -52,13 +52,13 @@ export default function RAGsPage() {
       queryClient.invalidateQueries({ queryKey: ['rags'] })
     },
     onError: (error: any) => {
-      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error'
-      alert(`Failed to delete RAG: ${errorMessage}`)
+      const errorMessage = error.response?.data?.detail || error.message || 'Неизвестная ошибка'
+      alert(`Не удалось удалить базу знаний: ${errorMessage}`)
     }
   })
 
   const handleDelete = (ragId: number, ragName: string) => {
-    if (confirm(`Are you sure you want to delete "${ragName}"? This action cannot be undone. All documents and embeddings will be deleted.`)) {
+    if (confirm(`Вы уверены, что хотите удалить "${ragName}"? Это действие нельзя отменить. Все документы и эмбеддинги будут удалены.`)) {
       deleteMutation.mutate(ragId)
     }
   }
@@ -81,15 +81,15 @@ export default function RAGsPage() {
   const getRoleLabel = (role: string | null) => {
     switch (role) {
       case 'owner':
-        return 'Owner'
+        return 'Владелец'
       case 'editor':
-        return 'Editor'
+        return 'Редактор'
       case 'file_manager':
-        return 'File Manager'
+        return 'Менеджер файлов'
       case 'viewer':
-        return 'Viewer'
+        return 'Зритель'
       default:
-        return 'No Access'
+        return 'Нет доступа'
     }
   }
 
@@ -107,7 +107,7 @@ export default function RAGsPage() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600">Loading RAGs...</p>
+          <p className="text-gray-600">Загрузка баз знаний...</p>
         </div>
       </div>
     )
@@ -119,7 +119,7 @@ export default function RAGsPage() {
         <div className="max-w-7xl mx-auto">
           <div className="bg-red-100 border border-red-400 rounded p-4">
             <p className="text-red-700">
-              Error loading RAGs: {error instanceof Error ? error.message : 'Unknown error'}
+              Ошибка загрузки баз знаний: {error instanceof Error ? error.message : 'Неизвестная ошибка'}
             </p>
           </div>
         </div>
@@ -133,15 +133,15 @@ export default function RAGsPage() {
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Knowledge Bases</h1>
-            <p className="text-gray-600 mt-1">Manage your RAG knowledge bases</p>
+            <h1 className="text-3xl font-bold text-gray-900">Базы знаний</h1>
+            <p className="text-gray-600 mt-1">Управление вашими базами знаний</p>
           </div>
           <Link
             href="/rags/new"
             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
             data-hint="create-rag-button"
           >
-            + Create Knowledge Base
+            + Создать базу знаний
           </Link>
         </div>
 
@@ -149,7 +149,7 @@ export default function RAGsPage() {
         <div className="mb-6">
           <input
             type="text"
-            placeholder="Search knowledge bases..."
+            placeholder="Поиск баз знаний..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -159,12 +159,12 @@ export default function RAGsPage() {
         {/* RAGs Grid */}
         {filteredRAGs.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300" data-hint="rags-empty-state">
-            <p className="text-gray-600 mb-4">No knowledge bases found</p>
+            <p className="text-gray-600 mb-4">Базы знаний не найдены</p>
             <Link
               href="/rags/new"
               className="text-blue-600 hover:text-blue-700 font-medium"
             >
-              Create your first knowledge base →
+              Создайте свою первую базу знаний →
             </Link>
           </div>
         ) : (
@@ -192,11 +192,11 @@ export default function RAGsPage() {
 
                 <div className="flex items-center gap-4 text-sm text-gray-600 mb-4">
                   <span>
-                    <span className="font-medium">{rag.document_count}</span> documents
+                    <span className="font-medium">{rag.document_count}</span> документов
                   </span>
                   {rag.updated_at && (
                     <span>
-                      Updated {new Date(rag.updated_at).toLocaleDateString()}
+                      Обновлено {new Date(rag.updated_at).toLocaleDateString('ru-RU')}
                     </span>
                   )}
                 </div>
@@ -206,7 +206,7 @@ export default function RAGsPage() {
                     href={`/rags/${rag.id}`}
                     className="flex-1 bg-blue-600 text-white text-center px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                   >
-                    Open Editor
+                    Открыть редактор
                   </Link>
                   {rag.user_role === 'owner' && (
                     <>
@@ -214,14 +214,14 @@ export default function RAGsPage() {
                         onClick={() => router.push(`/rags/${rag.id}?edit=true`)}
                         className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                       >
-                        Edit
+                        Редактировать
                       </button>
                       <button
                         onClick={() => handleDelete(rag.id, rag.name)}
                         className="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
                         disabled={deleteMutation.isPending}
                       >
-                        {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+                        {deleteMutation.isPending ? 'Удаление...' : 'Удалить'}
                       </button>
                     </>
                   )}

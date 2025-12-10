@@ -100,7 +100,7 @@ export default function NewToolPage() {
 
   const handleStep1Next = () => {
     if (!toolType) {
-      alert('Please select a tool type')
+      alert('Пожалуйста, выберите тип инструмента')
       return
     }
     if (toolType === 'rag') {
@@ -109,7 +109,7 @@ export default function NewToolPage() {
       return
     }
     if (!creationMethod) {
-      alert('Please select creation method')
+      alert('Пожалуйста, выберите метод создания')
       return
     }
     setStep(2)

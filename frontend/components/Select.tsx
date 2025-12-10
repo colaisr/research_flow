@@ -52,7 +52,7 @@ export default function Select({ value, onChange, options, className = '', disab
       >
         <span className="flex items-center gap-1 truncate">
           {selectedOption?.hasFailures && <span>⚠️</span>}
-          <span>{selectedOption?.label || 'Select...'}</span>
+          <span>{selectedOption?.label || 'Выбрать...'}</span>
         </span>
         <svg
           className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}

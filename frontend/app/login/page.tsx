@@ -35,7 +35,7 @@ export default function LoginPage() {
       router.push('/dashboard')
     },
     onError: (err: any) => {
-      const errorDetail = err.response?.data?.detail || 'Login failed'
+      const errorDetail = err.response?.data?.detail || 'Ошибка входа'
       setError(errorDetail)
       // Show resend verification option and code input if email not verified
       if (errorDetail.includes('Email address not verified') || errorDetail.includes('не подтвержден')) {

@@ -173,7 +173,7 @@ export default function AnalysisTypeEditPage() {
             onClick={() => router.push('/settings')}
             className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 mb-4"
           >
-            ← Back to Settings
+            ← Назад к настройкам
           </button>
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
             Edit: {analysis.display_name}
