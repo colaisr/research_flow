@@ -79,10 +79,14 @@ async def list_schedules(
             AnalysisType.id == schedule.analysis_type_id
         ).first()
         
+        # Skip schedules for deleted or inactive processes
+        if not analysis_type or analysis_type.is_active == 0:
+            continue
+        
         result.append(ScheduleResponse(
             id=schedule.id,
             analysis_type_id=schedule.analysis_type_id,
-            analysis_type_name=analysis_type.display_name if analysis_type else f"Process {schedule.analysis_type_id}",
+            analysis_type_name=analysis_type.display_name,
             schedule_type=schedule.schedule_type,
             schedule_config=schedule.schedule_config,
             is_active=schedule.is_active,

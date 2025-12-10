@@ -137,6 +137,11 @@ def execute_schedule(schedule_id: int):
             logger.error(f"Analysis type {schedule.analysis_type_id} not found for schedule {schedule_id}")
             return
         
+        # Skip if analysis type is deleted/inactive
+        if analysis_type.is_active == 0:
+            logger.info(f"Analysis type {schedule.analysis_type_id} is deleted/inactive, skipping schedule {schedule_id}")
+            return
+        
         # Get default instrument (or use N/A if not needed)
         # Check if process needs market data by looking at config
         # A process needs market data if any step has tool_references (tools that fetch market data)
