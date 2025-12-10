@@ -41,17 +41,17 @@ function RunsContent() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'succeeded':
-        return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+        return 'text-green-700 bg-green-50'
       case 'failed':
-        return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'
+        return 'text-red-700 bg-red-50'
       case 'model_failure':
-        return 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20'
+        return 'text-orange-700 bg-orange-50'
       case 'running':
-        return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'
+        return 'text-blue-700 bg-blue-50'
       case 'queued':
-        return 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20'
+        return 'text-yellow-700 bg-yellow-50'
       default:
-        return 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800'
+        return 'text-gray-700 bg-gray-50'
     }
   }
 
@@ -59,7 +59,7 @@ function RunsContent() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Загрузка запусков...</p>
+          <p className="text-gray-600">Загрузка запусков...</p>
         </div>
       </div>
     )
@@ -69,8 +69,8 @@ function RunsContent() {
     return (
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 rounded p-4">
-            <p className="text-red-700 dark:text-red-400">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-700">
               Ошибка загрузки запусков: {error instanceof Error ? error.message : 'Неизвестная ошибка'}
             </p>
           </div>
@@ -83,64 +83,64 @@ function RunsContent() {
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Запуски анализов
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Запуски
           </h1>
           {analysisTypeId && (
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-600">
               Отфильтровано по типу анализа ID: {analysisTypeId}
             </p>
           )}
         </div>
 
         {runs.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <p className="text-gray-600 dark:text-gray-400">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <p className="text-gray-600">
               {analysisTypeId 
                 ? 'Запусков для этого типа анализа не найдено.' 
                 : 'Пока нет запусков. Создайте один на странице Главная или Анализы!'}
             </p>
           </div>
         ) : (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead className="bg-gray-50 dark:bg-gray-700">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       ID
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Инструмент
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Таймфрейм
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Статус
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Стоимость
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Создано
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Действия
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                <tbody className="bg-white divide-y divide-gray-200">
                   {runs.map((run) => (
-                    <tr key={run.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                    <tr key={run.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         #{run.id}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {run.instrument}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {run.instrument || 'N/A'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {run.timeframe}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {run.timeframe || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(run.status)}`}>
@@ -151,16 +151,16 @@ function RunsContent() {
                            run.status === 'queued' ? 'В очереди' : run.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         ${run.cost_est_total.toFixed(4)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                        {new Date(run.created_at).toLocaleString()}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {new Date(run.created_at).toLocaleString('ru-RU')}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <Link
                           href={`/runs/${run.id}`}
-                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                          className="text-blue-600 hover:text-blue-800 font-medium transition-colors"
                         >
                           Просмотр
                         </Link>
@@ -182,7 +182,7 @@ export default function RunsPage() {
     <Suspense fallback={
       <div className="p-8">
         <div className="max-w-7xl mx-auto">
-          <p className="text-gray-600 dark:text-gray-400">Загрузка запусков...</p>
+          <p className="text-gray-600">Загрузка запусков...</p>
         </div>
       </div>
     }>
