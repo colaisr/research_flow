@@ -13,6 +13,7 @@ from app.core.auth import get_current_admin_user_dependency, get_current_user_de
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.organization_tool_access import OrganizationToolAccess
+from app.models.schedule import Schedule
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -355,6 +356,14 @@ async def delete_analysis_type(
                 status_code=403,
                 detail="You can only delete your own pipelines"
             )
+    
+    # Delete all associated schedules first
+    schedules_deleted = db.query(Schedule).filter(
+        Schedule.analysis_type_id == analysis_type_id
+    ).delete()
+    
+    if schedules_deleted > 0:
+        logger.info(f"Deleted {schedules_deleted} schedule(s) associated with analysis type {analysis_type_id}")
     
     # Soft delete by setting is_active = 0
     analysis_type.is_active = 0
