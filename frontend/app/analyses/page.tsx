@@ -4,7 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { API_BASE_URL } from '@/lib/config'
 import { useAuth } from '@/hooks/useAuth'
 import HintDisplay from '@/components/OnboardingProvider'
@@ -80,19 +83,19 @@ async function fetchCategories() {
   return data
 }
 
-async function createCategory(name: string) {
+async function createCategory(name: string, display_order?: number) {
   const { data } = await axios.post<ProcessCategory>(
     `${API_BASE_URL}/api/process-categories`,
-    { name },
+    { name, display_order },
     { withCredentials: true }
   )
   return data
 }
 
-async function updateCategory(id: number, name: string) {
+async function updateCategory(id: number, name?: string, display_order?: number) {
   const { data } = await axios.put<ProcessCategory>(
     `${API_BASE_URL}/api/process-categories/${id}`,
-    { name },
+    { name, display_order },
     { withCredentials: true }
   )
   return data
@@ -115,6 +118,30 @@ export default function AnalysesPage() {
   const [editingTabId, setEditingTabId] = useState<number | null>(null)
   const [editingTabName, setEditingTabName] = useState<string>('')
   const editInputRef = useRef<HTMLInputElement>(null)
+  
+  // Store unified tab order (includes both special tabs and categories) in localStorage
+  // Format: ['all', 'system', 1, 2, ...] where numbers are category IDs
+  const [unifiedTabsOrder, setUnifiedTabsOrder] = useState<Array<'all' | 'system' | number>>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('analyses-unified-tabs-order')
+      if (stored) {
+        return JSON.parse(stored)
+      }
+    }
+    return ['all', 'system'] // Default: special tabs first
+  })
+  
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px of movement before starting drag
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
   
   // Fetch categories (gracefully handle if table doesn't exist yet)
   const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery({
@@ -144,6 +171,11 @@ export default function AnalysesPage() {
   // Combine errors
   const error = categoriesError || userProcessesError || systemProcessesError
   
+  // Sort categories by display_order for consistent rendering
+  const sortedCategories = [...categories].sort((a, b) => 
+    a.display_order - b.display_order
+  )
+  
   // Filter processes based on selected tab
   const analysisTypes = selectedTab === 'all' 
     ? allUserProcesses 
@@ -163,9 +195,22 @@ export default function AnalysesPage() {
   
   // Category mutations
   const createCategoryMutation = useMutation({
-    mutationFn: createCategory,
+    mutationFn: (name: string) => {
+      // Set display_order to be after all existing categories
+      const maxOrder = sortedCategories.length > 0 
+        ? Math.max(...sortedCategories.map(c => c.display_order)) + 1 
+        : 0
+      return createCategory(name, maxOrder)
+    },
     onSuccess: (newCategory) => {
+      // Optimistically update the query cache so the new category is immediately available
+      queryClient.setQueryData<ProcessCategory[]>(['process-categories'], (old = []) => {
+        return [...old, newCategory]
+      })
+      // Also invalidate to ensure we have the latest data from server
       queryClient.invalidateQueries({ queryKey: ['process-categories'] })
+      // Add new category to unified order (at the end by default)
+      setUnifiedTabsOrder(prev => [...prev, newCategory.id])
       setSelectedTab(newCategory.id)
       setEditingTabId(newCategory.id)
       setEditingTabName(newCategory.name)
@@ -178,7 +223,8 @@ export default function AnalysesPage() {
   })
   
   const updateCategoryMutation = useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => updateCategory(id, name),
+    mutationFn: ({ id, name, display_order }: { id: number; name?: string; display_order?: number }) => 
+      updateCategory(id, name, display_order),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['process-categories'] })
       setEditingTabId(null)
@@ -186,13 +232,28 @@ export default function AnalysesPage() {
     },
   })
   
-  const deleteCategoryMutation = useMutation({
-    mutationFn: deleteCategory,
+  const reorderCategoriesMutation = useMutation({
+    mutationFn: async (reorderedCategories: ProcessCategory[]) => {
+      // Update display_order for all categories in the new order
+      const updates = reorderedCategories.map((category, index) => 
+        updateCategory(category.id, undefined, index)
+      )
+      await Promise.all(updates)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['process-categories'] })
+    },
+  })
+  
+  const deleteCategoryMutation = useMutation({
+    mutationFn: deleteCategory,
+    onSuccess: (_, deletedCategoryId) => {
+      queryClient.invalidateQueries({ queryKey: ['process-categories'] })
       queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
+      // Remove deleted category from unified order
+      setUnifiedTabsOrder(prev => prev.filter(id => id !== deletedCategoryId))
       // Switch to 'all' tab if deleted category was selected
-      if (typeof selectedTab === 'number' && selectedTab === editingTabId) {
+      if (typeof selectedTab === 'number' && selectedTab === deletedCategoryId) {
         setSelectedTab('all')
       }
       setEditingTabId(null)
@@ -232,8 +293,93 @@ export default function AnalysesPage() {
     }
   }
   
+  // Sync unified order when categories change (e.g., after initial load)
+  useEffect(() => {
+    if (sortedCategories.length > 0 && typeof window !== 'undefined') {
+      // Check if we need to sync - if there are categories not in the order
+      const categoryIds = sortedCategories.map(c => c.id)
+      const missingCategories = categoryIds.filter(id => !unifiedTabsOrder.includes(id))
+      
+      if (missingCategories.length > 0) {
+        // Add missing categories to the end
+        setUnifiedTabsOrder(prev => [...prev, ...missingCategories])
+      }
+    }
+  }, [sortedCategories.length]) // Only run when count changes
+  
   const handleCreateCategory = () => {
     createCategoryMutation.mutate('Новая папка')
+  }
+  
+  // Build unified tab list based on stored order
+  // First, ensure all categories are in the order (add new ones at the end)
+  const completeOrder = useMemo(() => {
+    const order = [...unifiedTabsOrder]
+    // Add any categories that aren't in the order yet (newly created)
+    sortedCategories.forEach(cat => {
+      if (!order.includes(cat.id)) {
+        order.push(cat.id)
+      }
+    })
+    // Remove categories that no longer exist
+    return order.filter(id => {
+      if (id === 'all' || id === 'system') return true
+      return sortedCategories.some(cat => cat.id === id)
+    })
+  }, [unifiedTabsOrder, sortedCategories])
+  
+  // Build unified tabs array for rendering
+  const unifiedTabs: Array<{ type: 'special' | 'category'; id: string | number; data?: ProcessCategory }> = useMemo(() => {
+    const tabs: Array<{ type: 'special' | 'category'; id: string | number; data?: ProcessCategory }> = []
+    
+    completeOrder.forEach(id => {
+      if (id === 'all' || id === 'system') {
+        tabs.push({ type: 'special', id })
+      } else {
+        const category = sortedCategories.find(c => c.id === id)
+        if (category) {
+          tabs.push({ type: 'category', id, data: category })
+        }
+      }
+    })
+    
+    return tabs
+  }, [completeOrder, sortedCategories])
+  
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    
+    if (!over || active.id === over.id) return
+    
+    const activeId = active.id.toString()
+    const overId = over.id.toString()
+    
+    // Convert to numbers for category IDs, keep strings for special tabs
+    const activeIdParsed = activeId === 'all' || activeId === 'system' ? activeId : parseInt(activeId, 10)
+    const overIdParsed = overId === 'all' || overId === 'system' ? overId : parseInt(overId, 10)
+    
+    const activeIndex = completeOrder.findIndex(id => id.toString() === activeId)
+    const overIndex = completeOrder.findIndex(id => id.toString() === overId)
+    
+    if (activeIndex !== -1 && overIndex !== -1) {
+      const newOrder = arrayMove(completeOrder, activeIndex, overIndex)
+      
+      // Update unified order immediately
+      setUnifiedTabsOrder(newOrder)
+      localStorage.setItem('analyses-unified-tabs-order', JSON.stringify(newOrder))
+      
+      // Update category display_order based on their position relative to other categories
+      const categoryIds = newOrder.filter(id => id !== 'all' && id !== 'system') as number[]
+      if (categoryIds.length > 0) {
+        const reorderedCategories = categoryIds
+          .map(id => sortedCategories.find(c => c.id === id))
+          .filter((cat): cat is ProcessCategory => cat !== undefined)
+        
+        if (reorderedCategories.length > 0) {
+          reorderCategoriesMutation.mutate(reorderedCategories)
+        }
+      }
+    }
   }
 
   const handleDuplicate = async (id: number) => {
@@ -342,122 +488,75 @@ export default function AnalysesPage() {
 
         {/* Folder Tabs */}
         {isAuthenticated && (
-          <div className="mb-6 flex gap-2 border-b border-gray-200 overflow-x-auto">
-            {/* All Processes Tab */}
-            <button
-              onClick={() => setSelectedTab('all')}
-              className={`px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
-                selectedTab === 'all'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              All processes
-            </button>
-            
-            {/* Custom Category Tabs */}
-            {categories.map((category) => (
-              <div
-                key={category.id}
-                className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 ${
-                  selectedTab === category.id
-                    ? 'text-blue-600 border-b-2 border-blue-600'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <div className="mb-6 flex flex-nowrap gap-2 border-b border-gray-200 overflow-x-auto overflow-y-hidden">
+              <SortableContext
+                items={unifiedTabs.map(tab => tab.id.toString())}
+                strategy={horizontalListSortingStrategy}
               >
-                {editingTabId === category.id ? (
-                  <div className="flex items-center gap-2 min-w-[150px]">
-                    <input
-                      ref={editInputRef}
-                      type="text"
-                      value={editingTabName}
-                      onChange={(e) => setEditingTabName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleSaveEdit()
-                        } else if (e.key === 'Escape') {
-                          handleCancelEdit()
-                        }
-                      }}
-                      onBlur={(e) => {
-                        // Don't save if clicking the delete button
-                        if (!(e.relatedTarget as HTMLElement)?.closest('button[title="Удалить папку"]')) {
-                          handleSaveEdit()
-                        }
-                      }}
-                      className="px-2 py-1 text-sm border border-blue-500 rounded bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1"
-                    />
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        handleDeleteCategory(category)
-                      }}
-                      onMouseDown={(e) => {
-                        // Prevent input blur when clicking delete button
-                        e.preventDefault()
-                      }}
-                      className="text-red-600 hover:text-red-800 p-1 flex-shrink-0"
-                      title="Удалить папку"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setSelectedTab(category.id)}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation()
-                        handleStartEdit(category)
-                      }}
-                      className="flex-1 text-left"
-                    >
-                      {category.name}
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleStartEdit(category)
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-opacity flex-shrink-0"
-                      title="Редактировать название (или дважды кликните на названии)"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-            
-            {/* System Processes Tab */}
-            <button
-              onClick={() => setSelectedTab('system')}
-              className={`px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
-                selectedTab === 'system'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-              data-hint="system-processes-tab"
-            >
-              Примеры процессов
-            </button>
-            
-            {/* Create New Folder Button */}
-            <button
-              onClick={handleCreateCategory}
-              className="px-4 py-2 font-medium text-gray-500 hover:text-gray-700 transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-1 border-b-2 border-transparent hover:border-gray-300"
-              title="Создать новую папку"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
-          </div>
+                {/* Render all tabs in unified order */}
+                {unifiedTabs.map((tab) => {
+                  if (tab.type === 'special') {
+                    if (tab.id === 'all') {
+                      return (
+                        <SortableSpecialTab
+                          key="all"
+                          id="all"
+                          label="All processes"
+                          selectedTab={selectedTab}
+                          onSelectTab={() => setSelectedTab('all')}
+                        />
+                      )
+                    } else if (tab.id === 'system') {
+                      return (
+                        <SortableSpecialTab
+                          key="system"
+                          id="system"
+                          label="Примеры процессов"
+                          selectedTab={selectedTab}
+                          onSelectTab={() => setSelectedTab('system')}
+                          dataHint="system-processes-tab"
+                        />
+                      )
+                    }
+                  } else if (tab.type === 'category' && tab.data) {
+                    return (
+                      <SortableCategoryTab
+                        key={tab.data.id}
+                        category={tab.data}
+                        selectedTab={selectedTab}
+                        editingTabId={editingTabId}
+                        editingTabName={editingTabName}
+                        editInputRef={editInputRef}
+                        onSelectTab={() => setSelectedTab(tab.data!.id)}
+                        onStartEdit={handleStartEdit}
+                        onSaveEdit={handleSaveEdit}
+                        onCancelEdit={handleCancelEdit}
+                        onDeleteCategory={handleDeleteCategory}
+                        onEditingTabNameChange={setEditingTabName}
+                      />
+                    )
+                  }
+                  return null
+                })}
+              </SortableContext>
+              
+              {/* Create New Folder Button */}
+              <button
+                onClick={handleCreateCategory}
+                className="px-4 py-2 font-medium text-gray-500 hover:text-gray-700 transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-1 border-b-2 border-transparent hover:border-gray-300"
+                title="Создать новую папку"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
+          </DndContext>
         )}
 
         {selectedTab === 'system' && analysisTypes.length > 0 && (
@@ -599,6 +698,194 @@ export default function AnalysesPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// Sortable Category Tab Component
+interface SortableCategoryTabProps {
+  category: ProcessCategory
+  selectedTab: TabType
+  editingTabId: number | null
+  editingTabName: string
+  editInputRef: React.RefObject<HTMLInputElement>
+  onSelectTab: () => void
+  onStartEdit: (category: ProcessCategory) => void
+  onSaveEdit: () => void
+  onCancelEdit: () => void
+  onDeleteCategory: (category: ProcessCategory) => void
+  onEditingTabNameChange: (name: string) => void
+}
+
+function SortableCategoryTab({
+  category,
+  selectedTab,
+  editingTabId,
+  editingTabName,
+  editInputRef,
+  onSelectTab,
+  onStartEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onDeleteCategory,
+  onEditingTabNameChange,
+}: SortableCategoryTabProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: category.id.toString() })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 ${
+        selectedTab === category.id
+          ? 'text-blue-600 border-b-2 border-blue-600'
+          : 'text-gray-600 hover:text-gray-900'
+      } ${isDragging ? 'z-50' : ''}`}
+    >
+      {editingTabId === category.id ? (
+        <div className="flex items-center gap-2 min-w-[150px]">
+          <input
+            ref={editInputRef}
+            type="text"
+            value={editingTabName}
+            onChange={(e) => onEditingTabNameChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onSaveEdit()
+              } else if (e.key === 'Escape') {
+                onCancelEdit()
+              }
+            }}
+            onBlur={(e) => {
+              // Don't save if clicking the delete button
+              if (!(e.relatedTarget as HTMLElement)?.closest('button[title="Удалить папку"]')) {
+                onSaveEdit()
+              }
+            }}
+            className="px-2 py-1 text-sm border border-blue-500 rounded bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1"
+          />
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onDeleteCategory(category)
+            }}
+            onMouseDown={(e) => {
+              // Prevent input blur when clicking delete button
+              e.preventDefault()
+            }}
+            className="text-red-600 hover:text-red-800 p-1 flex-shrink-0"
+            title="Удалить папку"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Drag Handle - visible on hover */}
+          <button
+            {...attributes}
+            {...listeners}
+            className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 transition-opacity flex-shrink-0 p-1"
+            title="Перетащите для изменения порядка"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+            </svg>
+          </button>
+          <button
+            onClick={onSelectTab}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              onStartEdit(category)
+            }}
+            className="flex-1 text-left cursor-pointer hover:text-blue-700 transition-colors"
+            title="Дважды кликните для переименования"
+          >
+            {category.name}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+// Sortable Special Tab Component (All processes, Examples)
+interface SortableSpecialTabProps {
+  id: 'all' | 'system'
+  label: string
+  selectedTab: TabType
+  onSelectTab: () => void
+  dataHint?: string
+}
+
+function SortableSpecialTab({
+  id,
+  label,
+  selectedTab,
+  onSelectTab,
+  dataHint,
+}: SortableSpecialTabProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 ${
+        selectedTab === id
+          ? 'text-blue-600 border-b-2 border-blue-600'
+          : 'text-gray-600 hover:text-gray-900'
+      } ${isDragging ? 'z-50' : ''}`}
+      data-hint={dataHint}
+    >
+      {/* Drag Handle - visible on hover */}
+      <button
+        {...attributes}
+        {...listeners}
+        className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 transition-opacity flex-shrink-0 p-1"
+        title="Перетащите для изменения порядка"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+        </svg>
+      </button>
+      <button
+        onClick={onSelectTab}
+        className="flex-1 text-left"
+      >
+        {label}
+      </button>
     </div>
   )
 }
