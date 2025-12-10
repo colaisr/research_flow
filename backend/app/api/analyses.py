@@ -31,6 +31,7 @@ class AnalysisTypeResponse(BaseModel):
     is_active: int
     user_id: int | None
     is_system: bool
+    category_id: int | None  # Folder/category the process belongs to
     created_at: datetime
     updated_at: datetime
 
@@ -142,6 +143,7 @@ class UpdateAnalysisTypeRequest(BaseModel):
     config: Optional[Dict[str, Any]] = None
     is_active: Optional[int] = None
     is_system: Optional[bool] = None  # Only platform admins can change this
+    category_id: Optional[int] = None  # Move process to a folder (null = "Мои процессы")
 
 
 @router.post("", response_model=AnalysisTypeResponse)
@@ -284,6 +286,47 @@ async def update_analysis_type(
                 )
         
         analysis_type.is_system = request.is_system
+    
+    # Update category_id (move to folder)
+    # Frontend always sends category_id when moving (either a number for folder, or null for "Мои процессы")
+    # When frontend sends { category_id: null }, Pydantic receives it as None
+    # We need to check if it was explicitly provided vs default
+    # Simple approach: check if value differs from current (frontend always sends it when moving)
+    request_dict = request.model_dump(exclude_unset=True)
+    category_id_provided = 'category_id' in request_dict
+    
+    logger.info(f"Update category_id check: provided={category_id_provided}, value={request.category_id}, current={analysis_type.category_id}")
+    
+    if category_id_provided:
+        new_category_id = request.category_id
+        
+        if new_category_id is not None:
+            # Moving to a folder - validate category
+            from app.models.process_category import ProcessCategory
+            category = db.query(ProcessCategory).filter(
+                ProcessCategory.id == new_category_id,
+                ProcessCategory.organization_id == current_organization.id
+            ).first()
+            if not category:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Category not found or doesn't belong to your organization"
+                )
+            # Check if user owns the category (user-specific categories)
+            if category.user_id is not None and category.user_id != current_user.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You can only move processes to your own categories"
+                )
+            if analysis_type.category_id != new_category_id:
+                analysis_type.category_id = new_category_id
+                logger.info(f"Moved process {analysis_type.id} to category {new_category_id}")
+        else:
+            # Moving to "Мои процессы" (setting to None)
+            # Only update if currently in a folder
+            if analysis_type.category_id is not None:
+                analysis_type.category_id = None
+                logger.info(f"Moved process {analysis_type.id} to 'Мои процессы' (category_id = None)")
     
     db.commit()
     db.refresh(analysis_type)
@@ -519,7 +562,8 @@ async def duplicate_analysis_type(
         is_active=1,
         user_id=current_user.id,  # Set to current user
         organization_id=current_organization.id,  # Set to current organization
-        is_system=False  # User-created pipeline
+        is_system=False,  # User-created pipeline
+        category_id=None  # Always go to "Мои процессы" (All processes)
     )
     
     db.add(new_analysis)
