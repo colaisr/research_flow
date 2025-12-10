@@ -57,8 +57,12 @@ class AnalysisType(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     is_active = Column(Integer, default=1)  # 1 = active, 0 = inactive
     
+    # Category for organizing processes
+    category_id = Column(Integer, ForeignKey('process_categories.id'), nullable=True, index=True)
+    
     # Relationships
     runs = relationship("AnalysisRun", back_populates="analysis_type")
     user = relationship("User", foreign_keys=[user_id])
     organization = relationship("Organization", foreign_keys=[organization_id])
+    category = relationship("ProcessCategory", back_populates="processes")
 

@@ -4,11 +4,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { API_BASE_URL } from '@/lib/config'
 import { useAuth } from '@/hooks/useAuth'
 import HintDisplay from '@/components/OnboardingProvider'
 import { analysesHints } from '@/lib/onboarding/hints'
+
+interface ProcessCategory {
+  id: number
+  name: string
+  organization_id: number
+  user_id: number | null
+  display_order: number
+  created_at: string
+  updated_at: string
+}
 
 interface AnalysisType {
   id: number
@@ -32,6 +42,7 @@ interface AnalysisType {
   is_active: number
   user_id: number | null
   is_system: boolean
+  category_id: number | null
   created_at: string
   updated_at: string
 }
@@ -60,24 +71,170 @@ async function deleteAnalysisType(id: number) {
   )
 }
 
+// Category API functions
+async function fetchCategories() {
+  const { data } = await axios.get<ProcessCategory[]>(
+    `${API_BASE_URL}/api/process-categories`,
+    { withCredentials: true }
+  )
+  return data
+}
+
+async function createCategory(name: string) {
+  const { data } = await axios.post<ProcessCategory>(
+    `${API_BASE_URL}/api/process-categories`,
+    { name },
+    { withCredentials: true }
+  )
+  return data
+}
+
+async function updateCategory(id: number, name: string) {
+  const { data } = await axios.put<ProcessCategory>(
+    `${API_BASE_URL}/api/process-categories/${id}`,
+    { name },
+    { withCredentials: true }
+  )
+  return data
+}
+
+async function deleteCategory(id: number) {
+  await axios.delete(
+    `${API_BASE_URL}/api/process-categories/${id}`,
+    { withCredentials: true }
+  )
+}
+
+type TabType = 'all' | 'system' | number // 'all' = all processes, 'system' = examples, number = category id
+
 export default function AnalysesPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { isAuthenticated, isPlatformAdmin } = useAuth()
-  const [filter, setFilter] = useState<'my' | 'system'>('my')
+  const [selectedTab, setSelectedTab] = useState<TabType>('all')
+  const [editingTabId, setEditingTabId] = useState<number | null>(null)
+  const [editingTabName, setEditingTabName] = useState<string>('')
+  const editInputRef = useRef<HTMLInputElement>(null)
   
-  const { data: analysisTypes = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['analysis-types', filter],
-    queryFn: () => fetchAnalysisTypes(filter),
-    enabled: isAuthenticated !== false, // Wait for auth check
+  // Fetch categories (gracefully handle if table doesn't exist yet)
+  const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery({
+    queryKey: ['process-categories'],
+    queryFn: fetchCategories,
+    enabled: isAuthenticated !== false,
+    retry: false, // Don't retry if it fails (likely migration not run)
+    onError: (err) => {
+      console.warn('Failed to fetch categories (migration may not be run):', err)
+    },
   })
+  
+  // Fetch all user processes (we'll filter by category on frontend)
+  const { data: allUserProcesses = [], isLoading: userProcessesLoading, error: userProcessesError } = useQuery({
+    queryKey: ['analysis-types', 'my'],
+    queryFn: () => fetchAnalysisTypes('my'),
+    enabled: isAuthenticated !== false,
+  })
+  
+  // Fetch system processes
+  const { data: systemProcesses = [], isLoading: systemProcessesLoading, error: systemProcessesError } = useQuery({
+    queryKey: ['analysis-types', 'system'],
+    queryFn: () => fetchAnalysisTypes('system'),
+    enabled: isAuthenticated !== false,
+  })
+  
+  // Combine errors
+  const error = categoriesError || userProcessesError || systemProcessesError
+  
+  // Filter processes based on selected tab
+  const analysisTypes = selectedTab === 'all' 
+    ? allUserProcesses 
+    : selectedTab === 'system'
+    ? systemProcesses
+    : allUserProcesses.filter(p => p.category_id === selectedTab)
+  
+  // Don't block on categories loading - if migration isn't run, we'll just show empty categories
+  const isLoading = userProcessesLoading || systemProcessesLoading
 
   const deleteMutation = useMutation({
     mutationFn: deleteAnalysisType,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['analysis-types', filter] })
+      queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
     },
   })
+  
+  // Category mutations
+  const createCategoryMutation = useMutation({
+    mutationFn: createCategory,
+    onSuccess: (newCategory) => {
+      queryClient.invalidateQueries({ queryKey: ['process-categories'] })
+      setSelectedTab(newCategory.id)
+      setEditingTabId(newCategory.id)
+      setEditingTabName(newCategory.name)
+      // Focus input after a brief delay to ensure it's rendered
+      setTimeout(() => {
+        editInputRef.current?.focus()
+        editInputRef.current?.select()
+      }, 50)
+    },
+  })
+  
+  const updateCategoryMutation = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => updateCategory(id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['process-categories'] })
+      setEditingTabId(null)
+      setEditingTabName('')
+    },
+  })
+  
+  const deleteCategoryMutation = useMutation({
+    mutationFn: deleteCategory,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['process-categories'] })
+      queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
+      // Switch to 'all' tab if deleted category was selected
+      if (typeof selectedTab === 'number' && selectedTab === editingTabId) {
+        setSelectedTab('all')
+      }
+      setEditingTabId(null)
+    },
+    onError: (error: any) => {
+      alert(`Не удалось удалить папку: ${error.response?.data?.detail || error.message || 'Неизвестная ошибка'}`)
+    },
+  })
+  
+  // Handle tab editing
+  const handleStartEdit = (category: ProcessCategory) => {
+    setEditingTabId(category.id)
+    setEditingTabName(category.name)
+    setTimeout(() => {
+      editInputRef.current?.focus()
+      editInputRef.current?.select()
+    }, 50)
+  }
+  
+  const handleSaveEdit = () => {
+    if (editingTabId && editingTabName.trim()) {
+      updateCategoryMutation.mutate({ id: editingTabId, name: editingTabName.trim() })
+    } else {
+      setEditingTabId(null)
+      setEditingTabName('')
+    }
+  }
+  
+  const handleCancelEdit = () => {
+    setEditingTabId(null)
+    setEditingTabName('')
+  }
+  
+  const handleDeleteCategory = (category: ProcessCategory) => {
+    if (confirm(`Удалить папку "${category.name}"? Процессы в этой папке будут перемещены в "All processes".`)) {
+      deleteCategoryMutation.mutate(category.id)
+    }
+  }
+  
+  const handleCreateCategory = () => {
+    createCategoryMutation.mutate('Новая папка')
+  }
 
   const handleDuplicate = async (id: number) => {
     try {
@@ -100,10 +257,10 @@ export default function AnalysesPage() {
     }
   }
 
-  // Check if user has no personal processes (show hints on "my" tab)
+  // Check if user has no personal processes (show hints on "all" tab)
   // Or if on "system" tab with system processes (show hint 2.3)
-  const hasNoPersonalProcesses = !isLoading && filter === 'my' && analysisTypes.length === 0
-  const hasSystemProcesses = !isLoading && filter === 'system' && analysisTypes.length > 0
+  const hasNoPersonalProcesses = !isLoading && selectedTab === 'all' && analysisTypes.length === 0
+  const hasSystemProcesses = !isLoading && selectedTab === 'system' && analysisTypes.length > 0
   const shouldShowHints = hasNoPersonalProcesses || hasSystemProcesses
 
   // Debug logging - MUST be before any conditional returns (Rules of Hooks)
@@ -112,7 +269,7 @@ export default function AnalysesPage() {
       setTimeout(() => {
         console.debug('[Analyses] Hint conditions:', {
           isLoading,
-          filter,
+          selectedTab,
           analysisTypesLength: analysisTypes.length,
           hasNoPersonalProcesses,
           hasSystemProcesses,
@@ -124,7 +281,7 @@ export default function AnalysesPage() {
         })
       }, 500)
     }
-  }, [isLoading, filter, analysisTypes.length, hasNoPersonalProcesses, hasSystemProcesses, shouldShowHints, isAuthenticated])
+  }, [isLoading, selectedTab, analysisTypes.length, hasNoPersonalProcesses, hasSystemProcesses, shouldShowHints, isAuthenticated])
 
   if (isLoading) {
     return (
@@ -158,7 +315,7 @@ export default function AnalysesPage() {
     <div className="p-8">
       {!isLoading && isAuthenticated && (
         <HintDisplay 
-          key={`${filter}-${analysisTypes.length}`}
+          key={`${selectedTab}-${analysisTypes.length}`}
           steps={analysesHints} 
           flowId="analyses" 
           autoStart={shouldShowHints}
@@ -183,23 +340,105 @@ export default function AnalysesPage() {
           </button>
         </div>
 
-        {/* Filter Tabs */}
+        {/* Folder Tabs */}
         {isAuthenticated && (
-          <div className="mb-6 flex gap-2 border-b border-gray-200">
+          <div className="mb-6 flex gap-2 border-b border-gray-200 overflow-x-auto">
+            {/* All Processes Tab */}
             <button
-              onClick={() => setFilter('my')}
-              className={`px-4 py-2 font-medium transition-colors ${
-                filter === 'my'
+              onClick={() => setSelectedTab('all')}
+              className={`px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
+                selectedTab === 'all'
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Мои процессы
+              All processes
             </button>
+            
+            {/* Custom Category Tabs */}
+            {categories.map((category) => (
+              <div
+                key={category.id}
+                className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 ${
+                  selectedTab === category.id
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {editingTabId === category.id ? (
+                  <div className="flex items-center gap-2 min-w-[150px]">
+                    <input
+                      ref={editInputRef}
+                      type="text"
+                      value={editingTabName}
+                      onChange={(e) => setEditingTabName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleSaveEdit()
+                        } else if (e.key === 'Escape') {
+                          handleCancelEdit()
+                        }
+                      }}
+                      onBlur={(e) => {
+                        // Don't save if clicking the delete button
+                        if (!(e.relatedTarget as HTMLElement)?.closest('button[title="Удалить папку"]')) {
+                          handleSaveEdit()
+                        }
+                      }}
+                      className="px-2 py-1 text-sm border border-blue-500 rounded bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1"
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        handleDeleteCategory(category)
+                      }}
+                      onMouseDown={(e) => {
+                        // Prevent input blur when clicking delete button
+                        e.preventDefault()
+                      }}
+                      className="text-red-600 hover:text-red-800 p-1 flex-shrink-0"
+                      title="Удалить папку"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setSelectedTab(category.id)}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        handleStartEdit(category)
+                      }}
+                      className="flex-1 text-left"
+                    >
+                      {category.name}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleStartEdit(category)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-opacity flex-shrink-0"
+                      title="Редактировать название (или дважды кликните на названии)"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+            
+            {/* System Processes Tab */}
             <button
-              onClick={() => setFilter('system')}
-              className={`px-4 py-2 font-medium transition-colors ${
-                filter === 'system'
+              onClick={() => setSelectedTab('system')}
+              className={`px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
+                selectedTab === 'system'
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
@@ -207,10 +446,21 @@ export default function AnalysesPage() {
             >
               Примеры процессов
             </button>
+            
+            {/* Create New Folder Button */}
+            <button
+              onClick={handleCreateCategory}
+              className="px-4 py-2 font-medium text-gray-500 hover:text-gray-700 transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-1 border-b-2 border-transparent hover:border-gray-300"
+              title="Создать новую папку"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
           </div>
         )}
 
-        {filter === 'system' && analysisTypes.length > 0 && (
+        {selectedTab === 'system' && analysisTypes.length > 0 && (
           <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
             <p className="text-sm text-blue-800">
               💡 Это примеры процессов для ознакомления. Нажмите кнопку клонирования, чтобы создать свою копию и начать редактирование.
@@ -220,7 +470,7 @@ export default function AnalysesPage() {
 
         {analysisTypes.length === 0 ? (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
-            {filter === 'my' ? (
+            {selectedTab === 'all' ? (
               <>
                 <p className="text-gray-600 mb-4">У вас пока нет созданных процессов.</p>
                 <button
