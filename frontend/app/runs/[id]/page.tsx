@@ -9,6 +9,8 @@ import Tooltip from '@/components/Tooltip'
 import HintDisplay from '@/components/OnboardingProvider'
 import { contextualHints } from '@/lib/onboarding/hints'
 import { useAuth } from '@/hooks/useAuth'
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
+import { saveAs } from 'file-saver'
 
 interface RunStep {
   step_name: string
@@ -227,6 +229,134 @@ export default function RunDetailPage() {
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const downloadAsWord = async (content: string) => {
+    try {
+      // Parse markdown-like content and convert to DOCX paragraphs
+      const lines = content.split('\n')
+      const paragraphs: Paragraph[] = []
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim()
+        
+        if (!line) {
+          // Empty line - add spacing
+          paragraphs.push(new Paragraph({ text: '' }))
+          continue
+        }
+
+        // Check for headings
+        if (line.startsWith('# ')) {
+          // H1
+          paragraphs.push(
+            new Paragraph({
+              text: line.substring(2),
+              heading: HeadingLevel.HEADING_1,
+            })
+          )
+        } else if (line.startsWith('## ')) {
+          // H2
+          paragraphs.push(
+            new Paragraph({
+              text: line.substring(3),
+              heading: HeadingLevel.HEADING_2,
+            })
+          )
+        } else if (line.startsWith('### ')) {
+          // H3
+          paragraphs.push(
+            new Paragraph({
+              text: line.substring(4),
+              heading: HeadingLevel.HEADING_3,
+            })
+          )
+        } else if (line.startsWith('- ') || line.startsWith('* ') || /^\d+\.\s/.test(line)) {
+          // Bullet point or numbered list
+          const listText = line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '')
+          const textRuns: TextRun[] = []
+          let currentIndex = 0
+          const boldRegex = /\*\*(.*?)\*\*/g
+          let match
+
+          while ((match = boldRegex.exec(listText)) !== null) {
+            if (match.index > currentIndex) {
+              textRuns.push(
+                new TextRun(listText.substring(currentIndex, match.index))
+              )
+            }
+            textRuns.push(
+              new TextRun({
+                text: match[1],
+                bold: true,
+              })
+            )
+            currentIndex = match.index + match[0].length
+          }
+          if (currentIndex < listText.length) {
+            textRuns.push(new TextRun(listText.substring(currentIndex)))
+          }
+
+          paragraphs.push(
+            new Paragraph({
+              bullet: { level: 0 },
+              children: textRuns.length > 0 ? textRuns : [new TextRun(listText)],
+            })
+          )
+        } else {
+          // Regular paragraph - parse bold text
+          const textRuns: TextRun[] = []
+          let currentIndex = 0
+          const boldRegex = /\*\*(.*?)\*\*/g
+          let match
+
+          while ((match = boldRegex.exec(line)) !== null) {
+            // Add text before bold
+            if (match.index > currentIndex) {
+              textRuns.push(
+                new TextRun(line.substring(currentIndex, match.index))
+              )
+            }
+            // Add bold text
+            textRuns.push(
+              new TextRun({
+                text: match[1],
+                bold: true,
+              })
+            )
+            currentIndex = match.index + match[0].length
+          }
+          // Add remaining text
+          if (currentIndex < line.length) {
+            textRuns.push(new TextRun(line.substring(currentIndex)))
+          }
+
+          paragraphs.push(
+            new Paragraph({
+              children: textRuns.length > 0 ? textRuns : [new TextRun(line)],
+            })
+          )
+        }
+      }
+
+      // Create document
+      const doc = new Document({
+        sections: [
+          {
+            properties: {},
+            children: paragraphs,
+          },
+        ],
+      })
+
+      // Generate and download
+      const blob = await Packer.toBlob(doc)
+      const fileName = `Результат_исследования_${run?.id || 'run'}.docx`
+      saveAs(blob, fileName)
+    } catch (error) {
+      console.error('Error generating DOCX:', error)
+      alert('Ошибка при создании файла Word')
+    }
   }
 
   const getResearchResult = () => {
@@ -643,12 +773,23 @@ export default function RunDetailPage() {
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => copyToClipboard(researchResult)}
-                className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-900 rounded-lg text-sm font-medium transition-colors shadow-sm border border-gray-200"
-              >
-                {copied ? '✓ Скопировано!' : 'Копировать в буфер обмена'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => copyToClipboard(researchResult)}
+                  className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-900 rounded-lg text-sm font-medium transition-colors shadow-sm border border-gray-200"
+                >
+                  {copied ? '✓ Скопировано!' : 'Копировать в буфер обмена'}
+                </button>
+                <button
+                  onClick={() => downloadAsWord(researchResult)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Скачать Word
+                </button>
+              </div>
             </div>
             
             <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-inner">

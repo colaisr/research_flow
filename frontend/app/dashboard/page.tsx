@@ -479,9 +479,9 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Активных процессов</span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    {stats?.pipelines_active || 0}
+                  <span className="text-sm text-gray-600">Активных запусков</span>
+                  <span className="text-sm font-semibold text-blue-600">
+                    {stats?.runs_running || 0}
                   </span>
                 </div>
               </div>
