@@ -5,7 +5,7 @@ import axios from 'axios'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, closestCenter, pointerWithin, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragOverlay, useDroppable, useDraggable } from '@dnd-kit/core'
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { API_BASE_URL } from '@/lib/config'
@@ -108,6 +108,15 @@ async function deleteCategory(id: number) {
   )
 }
 
+async function updateAnalysisTypeCategory(id: number, category_id: number | null) {
+  const { data } = await axios.put<AnalysisType>(
+    `${API_BASE_URL}/api/analyses/${id}`,
+    { category_id },
+    { withCredentials: true }
+  )
+  return data
+}
+
 type TabType = 'all' | 'system' | number // 'all' = all processes, 'system' = examples, number = category id
 
 export default function AnalysesPage() {
@@ -121,6 +130,7 @@ export default function AnalysesPage() {
   
   // Store unified tab order (includes both special tabs and categories) in localStorage
   // Format: ['all', 'system', 1, 2, ...] where numbers are category IDs
+  // 'all' = "Мои процессы" (My processes)
   const [unifiedTabsOrder, setUnifiedTabsOrder] = useState<Array<'all' | 'system' | number>>(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('analyses-unified-tabs-order')
@@ -135,7 +145,7 @@ export default function AnalysesPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // Require 8px of movement before starting drag
+        distance: 5, // Require 5px of movement before starting drag (reduced for better responsiveness)
       },
     }),
     useSensor(KeyboardSensor, {
@@ -149,10 +159,14 @@ export default function AnalysesPage() {
     queryFn: fetchCategories,
     enabled: isAuthenticated !== false,
     retry: false, // Don't retry if it fails (likely migration not run)
-    onError: (err) => {
-      console.warn('Failed to fetch categories (migration may not be run):', err)
-    },
   })
+  
+  // Handle errors separately (onError removed from useQuery in newer versions)
+  useEffect(() => {
+    if (categoriesError) {
+      console.warn('Failed to fetch categories (migration may not be run):', categoriesError)
+    }
+  }, [categoriesError])
   
   // Fetch all user processes (we'll filter by category on frontend)
   const { data: allUserProcesses = [], isLoading: userProcessesLoading, error: userProcessesError } = useQuery({
@@ -177,11 +191,54 @@ export default function AnalysesPage() {
   )
   
   // Filter processes based on selected tab
-  const analysisTypes = selectedTab === 'all' 
-    ? allUserProcesses 
-    : selectedTab === 'system'
-    ? systemProcesses
-    : allUserProcesses.filter(p => p.category_id === selectedTab)
+  // "Мои процессы" (selectedTab === 'all') shows only processes with category_id === null
+  // Other folders show processes with category_id === folder_id
+  const analysisTypes = useMemo(() => {
+    let filtered: AnalysisType[]
+    if (selectedTab === 'system') {
+      filtered = systemProcesses
+    } else {
+      // Helper function to normalize category_id
+      const normalizeCategoryId = (categoryId: number | null | undefined): number | null => {
+        if (categoryId === null || categoryId === undefined) {
+          return null
+        }
+        const numValue = typeof categoryId === 'number' ? categoryId : Number(categoryId)
+        return !isNaN(numValue) ? numValue : null
+      }
+      
+      if (selectedTab === 'all') {
+        // "Мои процессы" - only show processes with category_id === null
+        filtered = allUserProcesses.filter(p => {
+          const processCategoryId = normalizeCategoryId(p.category_id)
+          return processCategoryId === null
+        })
+      } else {
+        // Custom folder - show processes with category_id === selectedTab
+        const targetCategoryId = typeof selectedTab === 'number' ? selectedTab : Number(selectedTab)
+        
+        filtered = allUserProcesses.filter(p => {
+          const processCategoryId = normalizeCategoryId(p.category_id)
+          return processCategoryId === targetCategoryId
+        })
+      }
+    }
+    console.log('[Analyses] Filtered processes:', {
+      selectedTab,
+      selectedTabType: typeof selectedTab,
+      allUserProcessesCount: allUserProcesses.length,
+      filteredCount: filtered.length,
+      allProcesses: allUserProcesses.map(p => ({ 
+        id: p.id, 
+        category_id: p.category_id, 
+        category_idType: typeof p.category_id,
+        category_idValue: p.category_id,
+        category_idIsNaN: typeof p.category_id === 'number' ? isNaN(p.category_id) : 'N/A'
+      })),
+      filteredProcesses: filtered.map(p => ({ id: p.id, category_id: p.category_id }))
+    })
+    return filtered
+  }, [selectedTab, allUserProcesses, systemProcesses])
   
   // Don't block on categories loading - if migration isn't run, we'll just show empty categories
   const isLoading = userProcessesLoading || systemProcessesLoading
@@ -263,6 +320,133 @@ export default function AnalysesPage() {
     },
   })
   
+  const moveProcessMutation = useMutation({
+    mutationFn: ({ processId, categoryId }: { processId: number; categoryId: number | null }) => {
+      console.log('[Move Process] Calling API:', { processId, categoryId })
+      return updateAnalysisTypeCategory(processId, categoryId)
+    },
+    onMutate: async ({ processId, categoryId }) => {
+      // Cancel any outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ['analysis-types', 'my'] })
+      
+      // Snapshot the previous value
+      const previousProcesses = queryClient.getQueryData<AnalysisType[]>(['analysis-types', 'my'])
+      
+      // Optimistically update the process's category_id
+      queryClient.setQueryData<AnalysisType[]>(['analysis-types', 'my'], (old = []) => {
+        const oldProcess = old.find(p => p.id === processId)
+        
+        // Ensure categoryId is properly typed (number | null)
+        const normalizedCategoryId: number | null = categoryId === null || categoryId === undefined 
+          ? null 
+          : (typeof categoryId === 'number' ? categoryId : Number(categoryId))
+        
+        // Validate that if it's not null, it's a valid number
+        const finalCategoryId = (normalizedCategoryId !== null && isNaN(normalizedCategoryId)) 
+          ? null 
+          : normalizedCategoryId
+        
+        const updated = old.map(process => 
+          process.id === processId 
+            ? { ...process, category_id: finalCategoryId }
+            : process
+        )
+        const newProcess = updated.find(p => p.id === processId)
+        console.log('[Move Process] Optimistic update applied:', { 
+          processId, 
+          categoryId,
+          categoryIdType: typeof categoryId,
+          normalizedCategoryId,
+          finalCategoryId,
+          finalCategoryIdType: typeof finalCategoryId,
+          oldProcess: oldProcess ? { id: oldProcess.id, category_id: oldProcess.category_id, category_idType: typeof oldProcess.category_id } : null,
+          newProcess: newProcess ? { id: newProcess.id, category_id: newProcess.category_id, category_idType: typeof newProcess.category_id } : null,
+          allProcessesCount: updated.length,
+          processesInTargetCategory: updated.filter(p => {
+            const pCatId = p.category_id
+            return pCatId === finalCategoryId
+          }).length
+        })
+        return updated
+      })
+      
+      // Switch to the target tab so user can see the process in its new location
+      if (categoryId === null) {
+        setSelectedTab('all')
+      } else {
+        setSelectedTab(categoryId)
+      }
+      
+      // Return context with snapshot for rollback
+      return { previousProcesses, previousTab: selectedTab }
+    },
+    onSuccess: (data, variables) => {
+      // The backend response might not include category_id, so use the variable we sent
+      // Normalize the categoryId to ensure it's number | null
+      const finalCategoryId: number | null = variables.categoryId === null || variables.categoryId === undefined
+        ? null
+        : (typeof variables.categoryId === 'number' 
+            ? (isNaN(variables.categoryId) ? null : variables.categoryId)
+            : (Number(variables.categoryId) && !isNaN(Number(variables.categoryId)) ? Number(variables.categoryId) : null))
+      
+      console.log('[Move Process] Success:', { 
+        processId: variables.processId, 
+        categoryId: variables.categoryId,
+        finalCategoryId,
+        response: data,
+        responseCategoryId: data.category_id,
+        responseCategoryIdType: typeof data.category_id,
+        usingVariableCategoryId: true
+      })
+      
+      // Update the cache using the categoryId we sent (which we know is correct)
+      // The backend has already updated it, so we use our known value
+      queryClient.setQueryData<AnalysisType[]>(['analysis-types', 'my'], (old = []) => {
+        const updated = old.map(process => 
+          process.id === variables.processId 
+            ? { ...process, category_id: finalCategoryId }  // Use the categoryId we sent
+            : process
+        )
+        const updatedProcess = updated.find(p => p.id === variables.processId)
+        console.log('[Move Process] Cache updated with response:', { 
+          processId: variables.processId, 
+          categoryId: variables.categoryId,
+          finalCategoryId,
+          updatedProcess: updatedProcess ? {
+            id: updatedProcess.id,
+            category_id: updatedProcess.category_id,
+            category_idType: typeof updatedProcess.category_id,
+            category_idIsNaN: typeof updatedProcess.category_id === 'number' ? isNaN(updatedProcess.category_id) : false
+          } : null,
+          allProcesses: updated.map(p => ({ 
+            id: p.id, 
+            category_id: p.category_id, 
+            category_idType: typeof p.category_id,
+            category_idIsNaN: typeof p.category_id === 'number' ? isNaN(p.category_id) : false
+          }))
+        })
+        return updated
+      })
+      
+      // Invalidate after a short delay to ensure we get the latest data from backend
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['analysis-types'] })
+      }, 100)
+    },
+    onError: (error: any, variables, context) => {
+      console.error('[Move Process] Error:', error)
+      // Rollback optimistic update on error
+      if (context?.previousProcesses) {
+        queryClient.setQueryData(['analysis-types', 'my'], context.previousProcesses)
+      }
+      // Rollback tab switch on error
+      if (context?.previousTab !== undefined) {
+        setSelectedTab(context.previousTab)
+      }
+      alert(`Не удалось переместить процесс: ${error.response?.data?.detail || error.message || 'Неизвестная ошибка'}`)
+    },
+  })
+  
   // Handle tab editing
   const handleStartEdit = (category: ProcessCategory) => {
     setEditingTabId(category.id)
@@ -288,7 +472,7 @@ export default function AnalysesPage() {
   }
   
   const handleDeleteCategory = (category: ProcessCategory) => {
-    if (confirm(`Удалить папку "${category.name}"? Процессы в этой папке будут перемещены в "All processes".`)) {
+    if (confirm(`Удалить папку "${category.name}"? Процессы в этой папке будут перемещены в "Мои процессы".`)) {
       deleteCategoryMutation.mutate(category.id)
     }
   }
@@ -346,17 +530,90 @@ export default function AnalysesPage() {
     return tabs
   }, [completeOrder, sortedCategories])
   
+  const [activeDragId, setActiveDragId] = useState<string | number | null>(null)
+  
+  const handleDragStart = (event: any) => {
+    console.log('[Drag] Drag started:', {
+      activeId: event.active.id,
+      activeIdType: typeof event.active.id,
+      activeIdString: event.active.id.toString(),
+    })
+    setActiveDragId(event.active.id)
+  }
+  
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
+    console.log('[Drag] Drag ended:', {
+      activeId: active.id,
+      activeIdString: active.id.toString(),
+      overId: over?.id,
+      overIdString: over?.id?.toString(),
+      hasOver: !!over,
+    })
+    setActiveDragId(null)
     
-    if (!over || active.id === over.id) return
+    if (!over) {
+      console.log('[Drag] No drop target, cancelling')
+      return
+    }
     
     const activeId = active.id.toString()
     const overId = over.id.toString()
     
-    // Convert to numbers for category IDs, keep strings for special tabs
-    const activeIdParsed = activeId === 'all' || activeId === 'system' ? activeId : parseInt(activeId, 10)
-    const overIdParsed = overId === 'all' || overId === 'system' ? overId : parseInt(overId, 10)
+    console.log('[Drag] Processing drag:', { activeId, overId })
+    
+    // Check if dragging a process card (starts with "process-")
+    if (activeId.startsWith('process-')) {
+      console.log('[Drag] Detected process drag')
+      const processId = parseInt(activeId.replace('process-', ''), 10)
+      
+      // Determine target category
+      let targetCategoryId: number | null = null
+      if (overId === 'all') {
+        targetCategoryId = null // Move to "Мои процессы"
+      } else if (overId === 'system') {
+        // Can't move to system tab
+        return
+      } else {
+        // Dropped on a category tab
+        const categoryId = parseInt(overId, 10)
+        if (isNaN(categoryId)) {
+          return // Invalid category ID
+        }
+        targetCategoryId = categoryId
+      }
+      
+      // Only allow moving user processes (not system processes)
+      const process = allUserProcesses.find(p => p.id === processId)
+      if (!process || process.is_system) {
+        return // Can't move system processes
+      }
+      
+      // Don't move if already in the target category
+      // Handle null comparison correctly (null === null is true, but we need to check both null and undefined)
+      const currentCategoryId = process.category_id ?? null
+      const targetId = targetCategoryId ?? null
+      
+      if (currentCategoryId === targetId) {
+        console.log('[Drag] Process already in target category, skipping:', { currentCategoryId, targetId })
+        return
+      }
+      
+      // Move the process
+      console.log('[Drag] Moving process:', { 
+        processId, 
+        targetCategoryId, 
+        currentCategoryId: process.category_id,
+        targetCategoryIdType: typeof targetCategoryId,
+        willSendNull: targetCategoryId === null,
+        requestPayload: { category_id: targetCategoryId },
+      })
+      moveProcessMutation.mutate({ processId, categoryId: targetCategoryId })
+      return
+    }
+    
+    // Handle tab reordering (existing logic)
+    if (activeId === overId) return
     
     const activeIndex = completeOrder.findIndex(id => id.toString() === activeId)
     const overIndex = completeOrder.findIndex(id => id.toString() === overId)
@@ -409,25 +666,17 @@ export default function AnalysesPage() {
   const hasSystemProcesses = !isLoading && selectedTab === 'system' && analysisTypes.length > 0
   const shouldShowHints = hasNoPersonalProcesses || hasSystemProcesses
 
-  // Debug logging - MUST be before any conditional returns (Rules of Hooks)
+  // Debug logging for drag functionality
   useEffect(() => {
-    if (!isLoading && typeof window !== 'undefined') {
-      setTimeout(() => {
-        console.debug('[Analyses] Hint conditions:', {
-          isLoading,
-          selectedTab,
-          analysisTypesLength: analysisTypes.length,
-          hasNoPersonalProcesses,
-          hasSystemProcesses,
-          shouldShowHints,
-          isAuthenticated,
-          createButtonExists: !!document.querySelector('[data-hint="create-process-button"]'),
-          systemTabExists: !!document.querySelector('[data-hint="system-processes-tab"]'),
-          duplicateButtonExists: !!document.querySelector('[data-hint="duplicate-button"]'),
-        })
-      }, 500)
+    if (typeof window !== 'undefined') {
+      console.log('[Analyses] Component state:', {
+        selectedTab,
+        analysisTypesCount: analysisTypes.length,
+        categoriesCount: sortedCategories.length,
+        unifiedTabsCount: unifiedTabs.length,
+      })
     }
-  }, [isLoading, selectedTab, analysisTypes.length, hasNoPersonalProcesses, hasSystemProcesses, shouldShowHints, isAuthenticated])
+  }, [selectedTab, analysisTypes.length, sortedCategories.length, unifiedTabs.length])
 
   if (isLoading) {
     return (
@@ -486,13 +735,16 @@ export default function AnalysesPage() {
           </button>
         </div>
 
-        {/* Folder Tabs */}
+        {/* Folder Tabs and Process Cards - wrapped in DndContext */}
         {isAuthenticated && (
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={pointerWithin}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
+            modifiers={[]}
           >
+            {/* Folder Tabs */}
             <div className="mb-6 flex flex-nowrap gap-2 border-b border-gray-200 overflow-x-auto overflow-y-hidden">
               <SortableContext
                 items={unifiedTabs.map(tab => tab.id.toString())}
@@ -506,7 +758,7 @@ export default function AnalysesPage() {
                         <SortableSpecialTab
                           key="all"
                           id="all"
-                          label="All processes"
+                          label="Мои процессы"
                           selectedTab={selectedTab}
                           onSelectTab={() => setSelectedTab('all')}
                         />
@@ -556,8 +808,6 @@ export default function AnalysesPage() {
                 </svg>
               </button>
             </div>
-          </DndContext>
-        )}
 
         {selectedTab === 'system' && analysisTypes.length > 0 && (
           <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
@@ -579,123 +829,45 @@ export default function AnalysesPage() {
                   Создать первый процесс
                 </button>
               </>
-            ) : (
+            ) : selectedTab === 'system' ? (
               <p className="text-gray-600">Нет доступных примеров процессов.</p>
+            ) : (
+              <p className="text-gray-600">В этой папке пока нет процессов.</p>
             )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {analysisTypes.map((analysis) => (
-              <div
+              <DraggableProcessCard
                 key={analysis.id}
-                className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-gray-300 transition-all p-6 flex flex-col"
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2 truncate">
-                      {analysis.display_name}
-                    </h3>
-                    <span className="inline-block text-xs px-2 py-1 bg-gray-100 rounded text-gray-600 font-medium">
-                      v{analysis.version}
-                    </span>
-                  </div>
-                </div>
-
-                {analysis.description && (
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-3 leading-relaxed">
-                    {analysis.description}
-                  </p>
-                )}
-
-                <div className="space-y-2.5 mb-5 flex-grow">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500 uppercase tracking-wide text-xs">Шаги:</span>
-                    <span className="text-gray-900 font-semibold">
-                      {analysis.config.steps.length}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500 uppercase tracking-wide text-xs">Длительность:</span>
-                    <span className="text-gray-900 font-semibold">
-                      ~{Math.round(analysis.config.estimated_duration_seconds / 60)} мин
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 mt-auto pt-4 border-t border-gray-200">
-                  {analysis.is_system ? (
-                    <>
-                      {/* For system/example processes: only show duplicate button */}
-                      <button
-                        onClick={() => handleDuplicate(analysis.id)}
-                        className="w-full px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
-                        title="Дублировать"
-                        data-hint="duplicate-button"
-                      >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                        <span>Дублировать</span>
-                      </button>
-                      {isPlatformAdmin && (
-                        <button
-                          onClick={() => handleDelete(analysis.id, analysis.display_name)}
-                          disabled={deleteMutation.isPending}
-                          className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Удалить"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => router.push(`/pipelines/${analysis.id}/edit`)}
-                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
-                        title="Редактировать"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                      <Link
-                        href={`/analyses/${analysis.id}`}
-                        className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-center transition-colors shadow-sm flex items-center justify-center"
-                        title="Запустить"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </Link>
-                      <button
-                        onClick={() => handleDelete(analysis.id, analysis.display_name)}
-                        disabled={deleteMutation.isPending}
-                        className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Удалить"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => router.push(`/runs?analysis_type_id=${analysis.id}`)}
-                        className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
-                        title="История"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+                analysis={analysis}
+                isSystem={analysis.is_system}
+                isPlatformAdmin={isPlatformAdmin}
+                onEdit={() => router.push(`/pipelines/${analysis.id}/edit`)}
+                onRun={() => router.push(`/analyses/${analysis.id}`)}
+                onDelete={() => handleDelete(analysis.id, analysis.display_name)}
+                onDuplicate={() => handleDuplicate(analysis.id)}
+                onHistory={() => router.push(`/runs?analysis_type_id=${analysis.id}`)}
+                deletePending={deleteMutation.isPending}
+              />
             ))}
           </div>
+        )}
+        
+        {/* Drag Overlay - shows the dragged item following the cursor */}
+        <DragOverlay>
+          {activeDragId && activeDragId.toString().startsWith('process-') ? (
+            <div className="bg-white rounded-lg shadow-lg border-2 border-blue-400 p-6 opacity-90 rotate-2">
+              <div className="flex items-center gap-2">
+                <div className="text-gray-400">☰</div>
+                <div className="font-semibold text-gray-900">
+                  {allUserProcesses.find(p => `process-${p.id}` === activeDragId.toString())?.display_name || 'Процесс'}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </DragOverlay>
+          </DndContext>
         )}
       </div>
     </div>
@@ -738,6 +910,10 @@ function SortableCategoryTab({
     transition,
     isDragging,
   } = useSortable({ id: category.id.toString() })
+  
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+    id: category.id.toString(),
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -747,13 +923,16 @@ function SortableCategoryTab({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node)
+        setDroppableRef(node)
+      }}
       style={style}
-      className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 ${
+      className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 cursor-pointer min-h-[44px] ${
         selectedTab === category.id
           ? 'text-blue-600 border-b-2 border-blue-600'
           : 'text-gray-600 hover:text-gray-900'
-      } ${isDragging ? 'z-50' : ''}`}
+      } ${isDragging ? 'z-50' : ''} ${isOver ? 'bg-blue-50 border-b-2 border-blue-400 ring-2 ring-blue-300' : ''}`}
     >
       {editingTabId === category.id ? (
         <div className="flex items-center gap-2 min-w-[150px]">
@@ -850,6 +1029,10 @@ function SortableSpecialTab({
     transition,
     isDragging,
   } = useSortable({ id })
+  
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+    id: id,
+  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -859,14 +1042,18 @@ function SortableSpecialTab({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        setNodeRef(node)
+        setDroppableRef(node)
+      }}
       style={style}
-      className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 ${
+      className={`group relative px-4 py-2 font-medium transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-2 cursor-pointer min-h-[44px] ${
         selectedTab === id
           ? 'text-blue-600 border-b-2 border-blue-600'
           : 'text-gray-600 hover:text-gray-900'
-      } ${isDragging ? 'z-50' : ''}`}
+      } ${isDragging ? 'z-50' : ''} ${isOver ? 'bg-blue-50 border-b-2 border-blue-400 ring-2 ring-blue-300' : ''}`}
       data-hint={dataHint}
+      onClick={onSelectTab}
     >
       {/* Drag Handle - visible on hover */}
       <button
@@ -880,12 +1067,209 @@ function SortableSpecialTab({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
         </svg>
       </button>
-      <button
-        onClick={onSelectTab}
+      <div
         className="flex-1 text-left"
       >
         {label}
-      </button>
+      </div>
+    </div>
+  )
+}
+
+// Draggable Process Card Component
+interface DraggableProcessCardProps {
+  analysis: AnalysisType
+  isSystem: boolean
+  isPlatformAdmin: boolean
+  onEdit: () => void
+  onRun: () => void
+  onDelete: () => void
+  onDuplicate: () => void
+  onHistory: () => void
+  deletePending: boolean
+}
+
+function DraggableProcessCard({
+  analysis,
+  isSystem,
+  isPlatformAdmin,
+  onEdit,
+  onRun,
+  onDelete,
+  onDuplicate,
+  onHistory,
+  deletePending,
+}: DraggableProcessCardProps) {
+  // Only make user processes draggable (not system processes)
+  const isDraggable = !isSystem
+  
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useDraggable({
+    id: `process-${analysis.id}`,
+    disabled: !isDraggable,
+  })
+  
+  useEffect(() => {
+    if (isDraggable && listeners) {
+      console.log('[DraggableProcessCard] Listeners detail:', {
+        id: `process-${analysis.id}`,
+        listeners: listeners,
+        listenersType: typeof listeners,
+        listenersKeys: Object.keys(listeners),
+        onPointerDown: listeners.onPointerDown,
+        onKeyDown: listeners.onKeyDown,
+      })
+    }
+  }, [isDraggable, listeners, analysis.id])
+  
+  console.log('[DraggableProcessCard] Render:', {
+    id: `process-${analysis.id}`,
+    isDraggable,
+    hasAttributes: !!attributes,
+    hasListeners: !!listeners,
+    isDragging,
+    analysisId: analysis.id,
+    listenersKeys: listeners ? Object.keys(listeners) : 'no listeners',
+    attributesKeys: attributes ? Object.keys(attributes) : 'no attributes',
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...(isDraggable ? attributes : {})}
+      style={style}
+      className={`bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-gray-300 transition-all p-6 flex flex-col group relative ${
+        isDragging ? 'z-50 opacity-50' : ''
+      }`}
+    >
+      <div className="flex justify-between items-start mb-4">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-xl font-semibold text-gray-900 mb-2 truncate">
+            {analysis.display_name}
+          </h3>
+          <span className="inline-block text-xs px-2 py-1 bg-gray-100 rounded text-gray-600 font-medium">
+            v{analysis.version}
+          </span>
+        </div>
+        {isDraggable && (
+          <div
+            {...listeners}
+            {...attributes}
+            className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 flex-shrink-0 p-1"
+            title="Перетащите в папку"
+            style={{ touchAction: 'none', userSelect: 'none' }}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+            </svg>
+          </div>
+        )}
+      </div>
+
+      {analysis.description && (
+        <p className="text-sm text-gray-600 mb-4 line-clamp-3 leading-relaxed">
+          {analysis.description}
+        </p>
+      )}
+
+      <div className="space-y-2.5 mb-5 flex-grow">
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-gray-500 uppercase tracking-wide text-xs">Шаги:</span>
+          <span className="text-gray-900 font-semibold">
+            {analysis.config.steps.length}
+          </span>
+        </div>
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-gray-500 uppercase tracking-wide text-xs">Длительность:</span>
+          <span className="text-gray-900 font-semibold">
+            ~{Math.round(analysis.config.estimated_duration_seconds / 60)} мин
+          </span>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mt-auto pt-4 border-t border-gray-200">
+        {isSystem ? (
+          <>
+            {/* For system/example processes: only show duplicate button */}
+            <button
+              onClick={onDuplicate}
+              className="w-full px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
+              title="Дублировать"
+              data-hint="duplicate-button"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <span>Дублировать</span>
+            </button>
+            {isPlatformAdmin && (
+              <button
+                onClick={onDelete}
+                disabled={deletePending}
+                className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Удалить"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <button
+              onClick={onEdit}
+              className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm flex items-center justify-center"
+              title="Редактировать"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            <Link
+              href={`/analyses/${analysis.id}`}
+              className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-center transition-colors shadow-sm flex items-center justify-center"
+              title="Запустить"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </Link>
+            <button
+              onClick={onDelete}
+              disabled={deletePending}
+              className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Удалить"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+            <button
+              onClick={onHistory}
+              className="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
+              title="История"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          </>
+        )}
+      </div>
     </div>
   )
 }
