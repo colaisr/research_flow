@@ -139,11 +139,12 @@ def execute_schedule(schedule_id: int):
         
         # Get default instrument (or use N/A if not needed)
         # Check if process needs market data by looking at config
-        needs_market_data = True
+        # A process needs market data if any step has tool_references (tools that fetch market data)
+        needs_market_data = False
         if analysis_type.config and 'steps' in analysis_type.config:
-            # Check if any step uses market data
+            # Check if any step has tool references (which typically fetch market data)
             needs_market_data = any(
-                step.get('data_sources') and 'market_data' in step.get('data_sources', [])
+                step.get('tool_references') and len(step.get('tool_references', [])) > 0
                 for step in analysis_type.config.get('steps', [])
             )
         
