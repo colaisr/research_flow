@@ -364,8 +364,10 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
   useEffect(() => {
     if (isNew && steps.length === 0 && pipelineName.trim() && !hasAutoCreatedFirstStep.current) {
       hasAutoCreatedFirstStep.current = true
+      // First step always uses the default system prompt
       const newStep: StepConfig = {
         ...DEFAULT_STEP_TEMPLATE,
+        system_prompt: DEFAULT_STEP_TEMPLATE.system_prompt, // Explicitly use default for first step
         step_name: 'Шаг 1',
         order: 1,
       } as StepConfig
@@ -398,8 +400,14 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
       return
     }
     
+    // Use system prompt from last step if there are previous steps, otherwise use default
+    const systemPrompt = steps.length > 0 
+      ? steps[steps.length - 1].system_prompt 
+      : DEFAULT_STEP_TEMPLATE.system_prompt
+    
     const newStep: StepConfig = {
       ...DEFAULT_STEP_TEMPLATE,
+      system_prompt: systemPrompt,
       step_name: nameToUse,
       order: steps.length + 1,
     } as StepConfig
