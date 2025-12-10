@@ -162,10 +162,9 @@ export default function AnalysesPage() {
   })
   
   // Handle errors separately (onError removed from useQuery in newer versions)
+  // Error handling for categories fetch (migration may not be run)
   useEffect(() => {
-    if (categoriesError) {
-      console.warn('Failed to fetch categories (migration may not be run):', categoriesError)
-    }
+    // Silently handle category fetch errors
   }, [categoriesError])
   
   // Fetch all user processes (we'll filter by category on frontend)
@@ -223,20 +222,6 @@ export default function AnalysesPage() {
         })
       }
     }
-    console.log('[Analyses] Filtered processes:', {
-      selectedTab,
-      selectedTabType: typeof selectedTab,
-      allUserProcessesCount: allUserProcesses.length,
-      filteredCount: filtered.length,
-      allProcesses: allUserProcesses.map(p => ({ 
-        id: p.id, 
-        category_id: p.category_id, 
-        category_idType: typeof p.category_id,
-        category_idValue: p.category_id,
-        category_idIsNaN: typeof p.category_id === 'number' ? isNaN(p.category_id) : 'N/A'
-      })),
-      filteredProcesses: filtered.map(p => ({ id: p.id, category_id: p.category_id }))
-    })
     return filtered
   }, [selectedTab, allUserProcesses, systemProcesses])
   
@@ -322,7 +307,6 @@ export default function AnalysesPage() {
   
   const moveProcessMutation = useMutation({
     mutationFn: ({ processId, categoryId }: { processId: number; categoryId: number | null }) => {
-      console.log('[Move Process] Calling API:', { processId, categoryId })
       return updateAnalysisTypeCategory(processId, categoryId)
     },
     onMutate: async ({ processId, categoryId }) => {
@@ -351,22 +335,6 @@ export default function AnalysesPage() {
             ? { ...process, category_id: finalCategoryId }
             : process
         )
-        const newProcess = updated.find(p => p.id === processId)
-        console.log('[Move Process] Optimistic update applied:', { 
-          processId, 
-          categoryId,
-          categoryIdType: typeof categoryId,
-          normalizedCategoryId,
-          finalCategoryId,
-          finalCategoryIdType: typeof finalCategoryId,
-          oldProcess: oldProcess ? { id: oldProcess.id, category_id: oldProcess.category_id, category_idType: typeof oldProcess.category_id } : null,
-          newProcess: newProcess ? { id: newProcess.id, category_id: newProcess.category_id, category_idType: typeof newProcess.category_id } : null,
-          allProcessesCount: updated.length,
-          processesInTargetCategory: updated.filter(p => {
-            const pCatId = p.category_id
-            return pCatId === finalCategoryId
-          }).length
-        })
         return updated
       })
       
@@ -389,16 +357,6 @@ export default function AnalysesPage() {
             ? (isNaN(variables.categoryId) ? null : variables.categoryId)
             : (Number(variables.categoryId) && !isNaN(Number(variables.categoryId)) ? Number(variables.categoryId) : null))
       
-      console.log('[Move Process] Success:', { 
-        processId: variables.processId, 
-        categoryId: variables.categoryId,
-        finalCategoryId,
-        response: data,
-        responseCategoryId: data.category_id,
-        responseCategoryIdType: typeof data.category_id,
-        usingVariableCategoryId: true
-      })
-      
       // Update the cache using the categoryId we sent (which we know is correct)
       // The backend has already updated it, so we use our known value
       queryClient.setQueryData<AnalysisType[]>(['analysis-types', 'my'], (old = []) => {
@@ -407,24 +365,6 @@ export default function AnalysesPage() {
             ? { ...process, category_id: finalCategoryId }  // Use the categoryId we sent
             : process
         )
-        const updatedProcess = updated.find(p => p.id === variables.processId)
-        console.log('[Move Process] Cache updated with response:', { 
-          processId: variables.processId, 
-          categoryId: variables.categoryId,
-          finalCategoryId,
-          updatedProcess: updatedProcess ? {
-            id: updatedProcess.id,
-            category_id: updatedProcess.category_id,
-            category_idType: typeof updatedProcess.category_id,
-            category_idIsNaN: typeof updatedProcess.category_id === 'number' ? isNaN(updatedProcess.category_id) : false
-          } : null,
-          allProcesses: updated.map(p => ({ 
-            id: p.id, 
-            category_id: p.category_id, 
-            category_idType: typeof p.category_id,
-            category_idIsNaN: typeof p.category_id === 'number' ? isNaN(p.category_id) : false
-          }))
-        })
         return updated
       })
       
@@ -434,7 +374,6 @@ export default function AnalysesPage() {
       }, 100)
     },
     onError: (error: any, variables, context) => {
-      console.error('[Move Process] Error:', error)
       // Rollback optimistic update on error
       if (context?.previousProcesses) {
         queryClient.setQueryData(['analysis-types', 'my'], context.previousProcesses)
@@ -533,38 +472,22 @@ export default function AnalysesPage() {
   const [activeDragId, setActiveDragId] = useState<string | number | null>(null)
   
   const handleDragStart = (event: any) => {
-    console.log('[Drag] Drag started:', {
-      activeId: event.active.id,
-      activeIdType: typeof event.active.id,
-      activeIdString: event.active.id.toString(),
-    })
     setActiveDragId(event.active.id)
   }
   
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
-    console.log('[Drag] Drag ended:', {
-      activeId: active.id,
-      activeIdString: active.id.toString(),
-      overId: over?.id,
-      overIdString: over?.id?.toString(),
-      hasOver: !!over,
-    })
     setActiveDragId(null)
     
     if (!over) {
-      console.log('[Drag] No drop target, cancelling')
       return
     }
     
     const activeId = active.id.toString()
     const overId = over.id.toString()
     
-    console.log('[Drag] Processing drag:', { activeId, overId })
-    
     // Check if dragging a process card (starts with "process-")
     if (activeId.startsWith('process-')) {
-      console.log('[Drag] Detected process drag')
       const processId = parseInt(activeId.replace('process-', ''), 10)
       
       // Determine target category
@@ -595,19 +518,10 @@ export default function AnalysesPage() {
       const targetId = targetCategoryId ?? null
       
       if (currentCategoryId === targetId) {
-        console.log('[Drag] Process already in target category, skipping:', { currentCategoryId, targetId })
         return
       }
       
       // Move the process
-      console.log('[Drag] Moving process:', { 
-        processId, 
-        targetCategoryId, 
-        currentCategoryId: process.category_id,
-        targetCategoryIdType: typeof targetCategoryId,
-        willSendNull: targetCategoryId === null,
-        requestPayload: { category_id: targetCategoryId },
-      })
       moveProcessMutation.mutate({ processId, categoryId: targetCategoryId })
       return
     }
