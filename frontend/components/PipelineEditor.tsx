@@ -292,6 +292,7 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
   const [stepResults, setStepResults] = useState<Map<number, { step_name: string; status: 'idle' | 'running' | 'completed' | 'error' | 'waiting'; result?: string; error?: string; tokens?: number; cost?: number; model?: string }>>(new Map())
   const [currentExecutingStepIndex, setCurrentExecutingStepIndex] = useState<number | undefined>(undefined)
   const newStepInputRef = useRef<HTMLInputElement>(null)
+  const hasAutoCreatedFirstStep = useRef(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -358,6 +359,20 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
       setPipelineName(`Новый процесс ${timestamp}`)
     }
   }, [existingPipeline, isNew])
+
+  // Auto-create first step for new workflows
+  useEffect(() => {
+    if (isNew && steps.length === 0 && pipelineName.trim() && !hasAutoCreatedFirstStep.current) {
+      hasAutoCreatedFirstStep.current = true
+      const newStep: StepConfig = {
+        ...DEFAULT_STEP_TEMPLATE,
+        step_name: 'Шаг 1',
+        order: 1,
+      } as StepConfig
+      setSteps([newStep])
+      setSelectedStepIndex(0)
+    }
+  }, [isNew, steps.length, pipelineName])
 
   const createMutation = useMutation({
     mutationFn: createPipeline,
@@ -1174,8 +1189,21 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
             </h2>
 
             {steps.length === 0 ? (
-              <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
-                <p className="text-gray-600 mb-4">Пока нет шагов. Добавьте первый шаг ниже, чтобы начать.</p>
+              <div 
+                onClick={() => addStep('Шаг 1')}
+                className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 group"
+              >
+                <div className="flex flex-col items-center justify-center">
+                  <div className="mb-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg className="w-8 h-8 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-600 mb-2 group-hover:text-blue-600 transition-colors">
+                    Пока нет шагов. <span className="font-semibold text-blue-600">Нажмите здесь, чтобы добавить первый шаг</span>
+                  </p>
+                  <p className="text-sm text-gray-500">или используйте поле ввода ниже</p>
+                </div>
               </div>
             ) : (
               <DndContext
