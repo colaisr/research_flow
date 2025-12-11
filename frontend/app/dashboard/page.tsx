@@ -28,6 +28,7 @@ interface Run {
   finished_at: string | null
   cost_est_total: number
   analysis_type_id?: number | null
+  analysis_type_name?: string | null
 }
 
 interface DashboardStats {
@@ -364,7 +365,7 @@ export default function DashboardPage() {
         {/* Recent Runs & Status */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Runs */}
-          <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-6 flex flex-col h-full">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold text-gray-900">Последние запуски</h2>
               <Link
@@ -408,7 +409,7 @@ export default function DashboardPage() {
                             #{run.id}
                           </span>
                           <span className="text-sm text-gray-600">
-                            {run.instrument} • {run.timeframe}
+                            {run.analysis_type_name || 'Без названия'}
                           </span>
                         </div>
                         <div className="text-xs text-gray-500">
@@ -419,9 +420,6 @@ export default function DashboardPage() {
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(run.status)}`}>
                           {getStatusLabel(run.status)}
                         </span>
-                        <span className="text-sm text-gray-600">
-                          {formatCurrency(run.cost_est_total)}
-                        </span>
                       </div>
                     </div>
                   </Link>
@@ -431,9 +429,9 @@ export default function DashboardPage() {
           </div>
 
           {/* Status Overview */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 flex flex-col h-full">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Статус</h2>
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1 flex flex-col">
               {stats && stats.runs_running > 0 && (
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-center gap-3 mb-2">
@@ -469,7 +467,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-gray-200">
+              <div className="pt-4 border-t border-gray-200 mt-auto">
                 <Link
                   href="/runs"
                   className="block w-full text-center px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
