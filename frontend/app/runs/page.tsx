@@ -155,7 +155,11 @@ function RunsContent() {
                         ${run.cost_est_total.toFixed(4)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(run.created_at).toLocaleString('ru-RU')}
+                        {run.finished_at 
+                          ? new Date(run.finished_at).toLocaleString('ru-RU')
+                          : (run.status === 'running' || run.status === 'queued')
+                          ? 'В процессе'
+                          : 'Не завершено'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <Link
