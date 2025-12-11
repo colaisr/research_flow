@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface StepResult {
   step_name: string
@@ -19,6 +19,7 @@ interface FlowDiagramProps {
   currentStepIndex?: number
   onTestPipeline?: () => void
   onStepClick?: (stepIndex: number) => void
+  onStepNameUpdate?: (stepIndex: number, newName: string) => void
   isTestingPipeline?: boolean
 }
 
@@ -29,9 +30,21 @@ export default function FlowDiagram({
   currentStepIndex,
   onTestPipeline,
   onStepClick,
+  onStepNameUpdate,
   isTestingPipeline,
 }: FlowDiagramProps) {
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
+  const [editingStepIndex, setEditingStepIndex] = useState<number | null>(null)
+  const [editedName, setEditedName] = useState<string>('')
+  const nameInputRef = useRef<HTMLInputElement>(null)
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingStepIndex !== null && nameInputRef.current) {
+      nameInputRef.current.focus()
+      nameInputRef.current.select()
+    }
+  }, [editingStepIndex])
 
   const toggleStep = (index: number) => {
     const newExpanded = new Set(expandedSteps)
@@ -184,9 +197,46 @@ export default function FlowDiagram({
                         <span className="text-xs font-medium text-gray-500">
                           {step.order || index + 1}.
                         </span>
-                        <span className="font-semibold text-gray-900 truncate">
-                          {step.step_name}
-                        </span>
+                        {editingStepIndex === index ? (
+                          <input
+                            ref={nameInputRef}
+                            type="text"
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            onBlur={() => {
+                              if (editedName.trim() && onStepNameUpdate) {
+                                onStepNameUpdate(index, editedName.trim())
+                              }
+                              setEditingStepIndex(null)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                if (editedName.trim() && onStepNameUpdate) {
+                                  onStepNameUpdate(index, editedName.trim())
+                                }
+                                setEditingStepIndex(null)
+                              } else if (e.key === 'Escape') {
+                                setEditingStepIndex(null)
+                                setEditedName(step.step_name)
+                              }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-semibold text-gray-900 px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-w-0"
+                          />
+                        ) : (
+                          <span
+                            className="font-semibold text-gray-900 truncate cursor-pointer hover:text-blue-600 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingStepIndex(index)
+                              setEditedName(step.step_name)
+                            }}
+                            title="Нажмите для редактирования"
+                          >
+                            {step.step_name}
+                          </span>
+                        )}
                         <div className="flex-shrink-0">
                           {getStatusIcon(status)}
                         </div>

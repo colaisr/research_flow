@@ -528,6 +528,7 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
     setSteps((prevSteps) => {
       const newSteps = [...prevSteps]
       const currentStep = newSteps[index]
+      const oldStepName = currentStep.step_name
       
       // Only merge updates that are explicitly provided (not undefined)
       // This prevents overwriting existing fields like tool_references when they're not in updates
@@ -547,6 +548,27 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
       }
       
       newSteps[index] = { ...currentStep, ...filteredUpdates }
+      
+      // If step name changed, update references in other steps' prompts
+      if ('step_name' in filteredUpdates && filteredUpdates.step_name !== oldStepName) {
+        const newStepName = filteredUpdates.step_name!
+        const oldReference = `{${oldStepName}_output}`
+        const newReference = `{${newStepName}_output}`
+        
+        // Update all other steps that reference the old step name
+        newSteps.forEach((step, i) => {
+          if (i !== index && step.user_prompt_template && step.user_prompt_template.includes(oldReference)) {
+            newSteps[i] = {
+              ...step,
+              user_prompt_template: step.user_prompt_template.replace(
+                new RegExp(oldReference.replace(/[{}]/g, '\\$&'), 'g'),
+                newReference
+              )
+            }
+          }
+        })
+      }
+      
       console.log(`[updateStep] Step ${index} after update (functional):`, { 
         newStep: newSteps[index],
         hasToolRefs: 'tool_references' in newSteps[index],
@@ -1347,6 +1369,17 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
             currentStepIndex={currentExecutingStepIndex}
             onTestPipeline={handleTestPipeline}
             onStepClick={(index) => setSelectedStepIndex(index)}
+            onStepNameUpdate={(stepIndex, newName) => {
+              // Check for duplicate names
+              const isDuplicate = steps.some((s, i) => i !== stepIndex && s.step_name === newName)
+              if (isDuplicate) {
+                alert(`Шаг с именем "${newName}" уже существует. Пожалуйста, выберите другое имя.`)
+                return
+              }
+              // Normalize the name
+              const normalizedName = normalizeStepNameForVariable(newName)
+              updateStep(stepIndex, { step_name: normalizedName })
+            }}
             isTestingPipeline={isTestingPipeline}
           />
         </div>
@@ -1468,10 +1501,73 @@ function SortableStepItem({
     isDragging,
   } = useSortable({ id: index.toString() })
 
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editedName, setEditedName] = useState(step.step_name)
+  const nameInputRef = useRef<HTMLInputElement>(null)
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+  }
+
+  // Update editedName when step.step_name changes externally
+  useEffect(() => {
+    setEditedName(step.step_name)
+  }, [step.step_name])
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus()
+      nameInputRef.current.select()
+    }
+  }, [isEditingName])
+
+  const handleNameClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setIsEditingName(true)
+    setEditedName(step.step_name)
+  }
+
+  const handleNameBlur = () => {
+    saveStepName()
+  }
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      saveStepName()
+    } else if (e.key === 'Escape') {
+      setIsEditingName(false)
+      setEditedName(step.step_name)
+    }
+  }
+
+  const saveStepName = () => {
+    const trimmedName = editedName.trim()
+    if (!trimmedName) {
+      setEditedName(step.step_name)
+      setIsEditingName(false)
+      return
+    }
+
+    // Check for duplicate names
+    const isDuplicate = allSteps.some((s, i) => i !== index && s.step_name === trimmedName)
+    if (isDuplicate) {
+      alert(`Шаг с именем "${trimmedName}" уже существует. Пожалуйста, выберите другое имя.`)
+      setEditedName(step.step_name)
+      setIsEditingName(false)
+      return
+    }
+
+    // Normalize the name
+    const normalizedName = normalizeStepNameForVariable(trimmedName)
+    
+    // Update the step name (parent will handle reference updates)
+    onUpdate({ step_name: normalizedName })
+    
+    setIsEditingName(false)
   }
 
   return (
@@ -1497,9 +1593,26 @@ function SortableStepItem({
           <span className="text-sm font-medium text-gray-500 flex-shrink-0">
             {step.order || index + 1}.
           </span>
-          <span className="font-semibold text-gray-900 truncate">
-            {step.step_name}
-          </span>
+          {isEditingName ? (
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={editedName}
+              onChange={(e) => setEditedName(e.target.value)}
+              onBlur={handleNameBlur}
+              onKeyDown={handleNameKeyDown}
+              className="font-semibold text-gray-900 px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-w-0"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span
+              className="font-semibold text-gray-900 truncate cursor-pointer hover:text-blue-600 transition-colors"
+              onClick={handleNameClick}
+              title="Нажмите для редактирования"
+            >
+              {step.step_name}
+            </span>
+          )}
           <span className="text-xs px-2 py-1 bg-blue-100 rounded text-blue-700 font-medium flex-shrink-0">
             {step.model}
           </span>
