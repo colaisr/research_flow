@@ -581,16 +581,6 @@ export default function AnalysesPage() {
   const shouldShowHints = hasNoPersonalProcesses || hasSystemProcesses
 
   // Debug logging for drag functionality
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      console.log('[Analyses] Component state:', {
-        selectedTab,
-        analysisTypesCount: analysisTypes.length,
-        categoriesCount: sortedCategories.length,
-        unifiedTabsCount: unifiedTabs.length,
-      })
-    }
-  }, [selectedTab, analysisTypes.length, sortedCategories.length, unifiedTabs.length])
 
   if (isLoading) {
     return (
@@ -771,10 +761,10 @@ export default function AnalysesPage() {
         {/* Drag Overlay - shows the dragged item following the cursor */}
         <DragOverlay>
           {activeDragId && activeDragId.toString().startsWith('process-') ? (
-            <div className="bg-white rounded-lg shadow-lg border-2 border-blue-400 p-6 opacity-90 rotate-2">
-              <div className="flex items-center gap-2">
-                <div className="text-gray-400">☰</div>
-                <div className="font-semibold text-gray-900">
+            <div className="bg-white rounded-lg shadow-lg border-2 border-blue-400 p-3 opacity-90 rotate-2 scale-50 origin-center">
+              <div className="flex items-center gap-1">
+                <div className="text-gray-400 text-xs">☰</div>
+                <div className="font-semibold text-gray-900 text-sm">
                   {allUserProcesses.find(p => `process-${p.id}` === activeDragId.toString())?.display_name || 'Процесс'}
                 </div>
               </div>
@@ -1028,29 +1018,6 @@ function DraggableProcessCard({
     disabled: !isDraggable,
   })
   
-  useEffect(() => {
-    if (isDraggable && listeners) {
-      console.log('[DraggableProcessCard] Listeners detail:', {
-        id: `process-${analysis.id}`,
-        listeners: listeners,
-        listenersType: typeof listeners,
-        listenersKeys: Object.keys(listeners),
-        onPointerDown: listeners.onPointerDown,
-        onKeyDown: listeners.onKeyDown,
-      })
-    }
-  }, [isDraggable, listeners, analysis.id])
-  
-  console.log('[DraggableProcessCard] Render:', {
-    id: `process-${analysis.id}`,
-    isDraggable,
-    hasAttributes: !!attributes,
-    hasListeners: !!listeners,
-    isDragging,
-    analysisId: analysis.id,
-    listenersKeys: listeners ? Object.keys(listeners) : 'no listeners',
-    attributesKeys: attributes ? Object.keys(attributes) : 'no attributes',
-  })
 
   const style = {
     transform: CSS.Transform.toString(transform),
