@@ -374,13 +374,43 @@ export default function RunDetailPage() {
   // Calculate duration
   const getDuration = () => {
     if (!run) return null
-    const start = new Date(run.created_at)
-    const end = run.finished_at ? new Date(run.finished_at) : new Date()
-    const seconds = Math.floor((end.getTime() - start.getTime()) / 1000)
-    if (seconds < 60) return `${seconds}s`
+    // Prefer run-level timestamps; if missing/invalid or negative, fall back to step timestamps
+    const primaryStart = run.created_at ? new Date(run.created_at) : null
+    const primaryEnd = run.finished_at ? new Date(run.finished_at) : null
+    const primaryValid = primaryStart && primaryEnd && !isNaN(primaryStart.getTime()) && !isNaN(primaryEnd.getTime()) && (primaryEnd.getTime() - primaryStart.getTime()) >= 0
+
+    // Fallback: derive from steps (first to last)
+    let startDate: Date | null = null
+    let endDate: Date | null = null
+    if (primaryValid) {
+      startDate = primaryStart
+      endDate = primaryEnd
+    } else if (run.steps && run.steps.length > 0) {
+      const sortedSteps = [...run.steps].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      const first = sortedSteps[0]
+      const last = sortedSteps[sortedSteps.length - 1]
+      const s = new Date(first.created_at)
+      const e = new Date(last.created_at)
+      if (!isNaN(s.getTime()) && !isNaN(e.getTime()) && (e.getTime() - s.getTime()) >= 0) {
+        startDate = s
+        endDate = e
+      }
+    }
+
+    if (!startDate || !endDate) return '—'
+
+    const diffMs = Math.max(0, endDate.getTime() - startDate.getTime())
+    const seconds = Math.floor(diffMs / 1000)
+    if (seconds < 1) return '<1с'
+    if (seconds < 60) return `${seconds}с`
+
     const minutes = Math.floor(seconds / 60)
     const remainingSeconds = seconds % 60
-    return `${minutes}m ${remainingSeconds}s`
+    if (minutes < 60) return `${minutes}м ${remainingSeconds}с`
+
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    return `${hours}ч ${remainingMinutes}м`
   }
 
   if (isLoading) {

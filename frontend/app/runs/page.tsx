@@ -15,8 +15,10 @@ interface Run {
   status: string
   created_at: string
   finished_at: string | null
+  duration_seconds?: number | null
   cost_est_total: number
   analysis_type_id?: number | null
+  analysis_type_name?: string | null
 }
 
 async function fetchRuns(analysisTypeId?: string) {
@@ -25,6 +27,34 @@ async function fetchRuns(analysisTypeId?: string) {
     : `${API_BASE_URL}/api/runs`
   const { data } = await axios.get<Run[]>(url, { withCredentials: true })
   return data
+}
+
+const formatDuration = (durationSeconds?: number | null, start?: string, end?: string | null) => {
+  // Prefer precomputed duration; fallback to timestamps if provided
+  let diffSeconds: number | null = null
+  if (durationSeconds !== undefined && durationSeconds !== null) {
+    diffSeconds = durationSeconds
+  } else if (start && end) {
+    const startDate = new Date(start)
+    const endDate = new Date(end)
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return '—'
+    const diffMs = endDate.getTime() - startDate.getTime()
+    if (diffMs < 0) return '—'
+    diffSeconds = Math.floor(diffMs / 1000)
+  } else {
+    return '—'
+  }
+
+  if (diffSeconds === null) return '—'
+  if (diffSeconds < 1) return '<1с'
+
+  const hours = Math.floor(diffSeconds / 3600)
+  const minutes = Math.floor((diffSeconds % 3600) / 60)
+  const seconds = diffSeconds % 60
+
+  if (hours > 0) return `${hours}ч ${minutes}м`
+  if (minutes > 0) return `${minutes}м ${seconds}с`
+  return `${seconds}с`
 }
 
 function RunsContent() {
@@ -111,16 +141,13 @@ function RunsContent() {
                       ID
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Инструмент
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Таймфрейм
+                      Процесс
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Статус
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Стоимость
+                      Время выполнения
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Выполнено
@@ -137,10 +164,7 @@ function RunsContent() {
                         #{run.id}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {run.instrument || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {run.timeframe || 'N/A'}
+                        {run.analysis_type_name || 'Процесс'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(run.status)}`}>
@@ -152,7 +176,7 @@ function RunsContent() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        ${run.cost_est_total.toFixed(4)}
+                        {formatDuration(run.duration_seconds, run.created_at, run.finished_at)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {run.finished_at 

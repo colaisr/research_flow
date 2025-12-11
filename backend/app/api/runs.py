@@ -53,10 +53,47 @@ class RunResponse(BaseModel):
     status: str
     created_at: datetime
     finished_at: Optional[datetime] = None
+    duration_seconds: Optional[int] = None  # Derived duration (seconds)
     cost_est_total: float = 0.0
     steps: list[RunStepResponse] = []
     analysis_type_id: Optional[int] = None
+    analysis_type_name: Optional[str] = None  # Human-readable process name
     analysis_type_config: Optional[dict] = None  # Include config to find publishable steps
+
+
+def _calc_duration_seconds(start: datetime | None, end: datetime | None) -> Optional[int]:
+    """Return non-negative duration in seconds if both timestamps present and valid."""
+    if not start or not end:
+        return None
+    try:
+        diff = (end - start).total_seconds()
+        if diff < 0:
+            return None
+        return int(diff)
+    except Exception:
+        return None
+
+
+def _calc_duration_with_fallback(run: AnalysisRun) -> Optional[int]:
+    """
+    Duration preference:
+    1) run.created_at -> run.finished_at if valid and non-negative
+    2) fallback to steps: earliest step created_at to latest step created_at
+    """
+    primary = _calc_duration_seconds(run.created_at, run.finished_at)
+    if primary is not None:
+        return primary
+
+    # Fallback to steps if available
+    if run.steps:
+        try:
+            sorted_steps = sorted(run.steps, key=lambda s: s.created_at or datetime.min.replace(tzinfo=timezone.utc))
+            first = sorted_steps[0].created_at
+            last = sorted_steps[-1].created_at
+            return _calc_duration_seconds(first, last)
+        except Exception:
+            return None
+    return None
 
 
 @router.post("", response_model=RunResponse)
@@ -335,9 +372,11 @@ async def get_run(
         status=run.status.value,
         created_at=run.created_at,
         finished_at=run.finished_at,
+        duration_seconds=_calc_duration_with_fallback(run),
         cost_est_total=run.cost_est_total,
         steps=steps,
         analysis_type_id=run.analysis_type_id,
+        analysis_type_name=run.analysis_type.display_name if run.analysis_type else None,
         analysis_type_config=run.analysis_type.config if run.analysis_type else None
     )
 
@@ -367,9 +406,11 @@ async def list_runs(
             status=run.status.value,
             created_at=run.created_at,
             finished_at=run.finished_at,
+            duration_seconds=_calc_duration_with_fallback(run),
             cost_est_total=run.cost_est_total,
             steps=[],  # Don't include steps in list view
             analysis_type_id=run.analysis_type_id,
+            analysis_type_name=run.analysis_type.display_name if run.analysis_type else None,
             analysis_type_config=None  # Don't include config in list view
         ))
     
