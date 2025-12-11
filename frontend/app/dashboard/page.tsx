@@ -261,7 +261,7 @@ export default function DashboardPage() {
               {stats?.pipelines_total || 0}
             </div>
             <div className="text-sm text-gray-600">
-              Процессов {stats?.pipelines_active ? `(${stats.pipelines_active} активных)` : ''}
+              Процессов
             </div>
             </div>
 
