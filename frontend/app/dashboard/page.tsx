@@ -284,7 +284,7 @@ export default function DashboardPage() {
               {stats?.runs_total || 0}
             </div>
             <div className="text-sm text-gray-600">
-              Запусков {stats?.runs_this_month ? `(${stats.runs_this_month} в этом месяце)` : ''}
+              Запусков
             </div>
             </div>
 
