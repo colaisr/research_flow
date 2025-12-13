@@ -887,8 +887,8 @@ async def update_document(
             detail="Document not found"
         )
     
-        # Update content
-        doc.content = content
+    # Update content
+    doc.content = content
     doc.updated_at = datetime.now(timezone.utc)
     
     # Re-process embeddings if content changed
@@ -896,6 +896,7 @@ async def update_document(
         logger.info(f"Document {doc_id} has completed embeddings, starting re-processing with update_existing=True")
         doc.embedding_status = EmbeddingStatus.PROCESSING.value
         db.commit()
+        db.refresh(doc)  # Ensure the updated content is visible
         
         try:
             _process_document_embeddings(

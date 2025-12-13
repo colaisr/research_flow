@@ -538,6 +538,17 @@ export default function RAGEditorPage() {
     }
   }, [rag])
 
+  // Update document preview when document data changes in the documents list
+  useEffect(() => {
+    if (showDocumentPreview) {
+      const updatedDoc = documents.find(doc => doc.id === showDocumentPreview.id)
+      if (updatedDoc) {
+        // Update preview with latest document data (content, status, etc.)
+        setShowDocumentPreview(updatedDoc)
+      }
+    }
+  }, [documents, showDocumentPreview?.id])
+
   // Monitor document processing status and close modal when done
   useEffect(() => {
     if (processingDocumentId === null) return
