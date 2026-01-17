@@ -106,6 +106,7 @@ def format_user_prompt_template(
     # Get previous step outputs
     # For merge step, use full outputs; for other steps, truncate for context
     is_merge_step = "объедини" in template.lower() or "merge" in template.lower() or "финальный пост" in template.lower()
+    referenced_outputs = set(re.findall(r'\{([^}]+_output)\}', template))
     
     # Build format dict with standard variables
     format_dict = {
@@ -119,22 +120,22 @@ def format_user_prompt_template(
     standard_steps = ["wyckoff", "smc", "vsa", "delta", "ict", "price_action"]
     for step_name in standard_steps:
         step_output = previous_steps.get(step_name, {}).get("output", "Не доступно")
-        if not is_merge_step and len(step_output) > 100:
-            step_output = step_output[:100] + "..."
         # Normalize step name for variable (handles spaces, special chars)
         var_name = _normalize_step_name_for_variable(step_name)
+        if not is_merge_step and f"{var_name}_output" not in referenced_outputs and len(step_output) > 100:
+            step_output = step_output[:100] + "..."
         format_dict[f"{var_name}_output"] = step_output
     
     # Add any other step outputs dynamically (for custom steps)
     for step_name, step_result in previous_steps.items():
         if step_name not in standard_steps:
             step_output = step_result.get("output", "Не доступно")
-            # Don't truncate fetch_market_data output - it contains data that needs to be passed fully
-            # Also don't truncate for merge steps
-            if step_name != "fetch_market_data" and not is_merge_step and len(step_output) > 100:
-                step_output = step_output[:100] + "..."
             # Normalize step name for variable (handles spaces, special chars)
             var_name = _normalize_step_name_for_variable(step_name)
+            # Don't truncate fetch_market_data output - it contains data that needs to be passed fully
+            # Also don't truncate for merge steps
+            if step_name != "fetch_market_data" and not is_merge_step and f"{var_name}_output" not in referenced_outputs and len(step_output) > 100:
+                step_output = step_output[:100] + "..."
             format_dict[f"{var_name}_output"] = step_output
     
     # Replace hardcoded "last X candles" text in template with actual num_candles value
