@@ -96,17 +96,29 @@ function normalizeStepNameForVariable(stepName: string): string {
 }
 
 function normalizeToolVariableName(displayName: string, toolId: number): string {
-  const normalized = displayName
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '_')
-    .replace(/^_+|_+$/g, '')
-
-  if (!normalized) {
+  const trimmed = displayName.trim()
+  if (!trimmed) {
     return `tool_${toolId}`
   }
 
-  return normalized
+  const normalized = Array.from(trimmed)
+    .map((char) => {
+      const lower = char.toLowerCase()
+      const upper = char.toUpperCase()
+      const isLetter = lower !== upper
+      const isDigit = char >= '0' && char <= '9'
+
+      if (isLetter || isDigit) {
+        return lower
+      }
+
+      return '_'
+    })
+    .join('')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+  return normalized || `tool_${toolId}`
 }
 
 // Helper function to get user-friendly temperature label
