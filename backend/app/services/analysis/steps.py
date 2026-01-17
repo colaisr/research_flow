@@ -33,7 +33,7 @@ def _normalize_step_name_for_variable(step_name: str) -> str:
     # Ensure it starts with a letter or underscore (Python identifier requirement)
     if normalized and not normalized[0].isalpha() and normalized[0] != '_':
         normalized = '_' + normalized
-    return normalized
+    return normalized.lower()
 
 
 def format_user_prompt_template(
