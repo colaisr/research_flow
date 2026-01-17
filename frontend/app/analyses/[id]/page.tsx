@@ -88,11 +88,42 @@ async function fetchTools() {
 
 // Helper function to normalize step names for variables
 function normalizeStepNameForVariable(stepName: string): string {
-  let normalized = stepName.replace(/[\s-]/g, '_')
-  normalized = normalized.replace(/[^\w]/g, '_')
+  const trimmed = stepName.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  let normalized = Array.from(trimmed)
+    .map((char) => {
+      if (char === '_') {
+        return char
+      }
+
+      const lower = char.toLowerCase()
+      const upper = char.toUpperCase()
+      const isLetter = lower !== upper
+      const isDigit = char >= '0' && char <= '9'
+
+      if (isLetter || isDigit) {
+        return lower
+      }
+
+      return '_'
+    })
+    .join('')
+
   normalized = normalized.replace(/_+/g, '_')
   normalized = normalized.replace(/^_+|_+$/g, '')
-  return normalized.toLowerCase()
+
+  if (normalized) {
+    const first = normalized[0]
+    const isLetter = first.toLowerCase() !== first.toUpperCase()
+    if (!isLetter && first !== '_') {
+      normalized = '_' + normalized
+    }
+  }
+
+  return normalized
 }
 
 function normalizeToolVariableName(displayName: string, toolId: number): string {

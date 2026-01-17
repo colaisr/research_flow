@@ -28,18 +28,43 @@ import { pipelineEditorHints, contextualHints } from '@/lib/onboarding/hints'
  *   "my-step" -> "my_step"
  */
 function normalizeStepNameForVariable(stepName: string): string {
-  // Replace spaces and hyphens with underscores
-  let normalized = stepName.replace(/[\s-]/g, '_')
-  // Remove any other non-word characters except underscores
-  normalized = normalized.replace(/[^\w]/g, '_')
+  const trimmed = stepName.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  let normalized = Array.from(trimmed)
+    .map((char) => {
+      if (char === '_') {
+        return char
+      }
+
+      const lower = char.toLowerCase()
+      const upper = char.toUpperCase()
+      const isLetter = lower !== upper
+      const isDigit = char >= '0' && char <= '9'
+
+      if (isLetter || isDigit) {
+        return lower
+      }
+
+      return '_'
+    })
+    .join('')
+
   // Collapse multiple underscores into one
   normalized = normalized.replace(/_+/g, '_')
   // Remove leading/trailing underscores
   normalized = normalized.replace(/^_+|_+$/g, '')
   // Ensure it starts with a letter or underscore (Python identifier requirement)
-  if (normalized && !/^[a-zA-Z_]/.test(normalized)) {
-    normalized = '_' + normalized
+  if (normalized) {
+    const first = normalized[0]
+    const isLetter = first.toLowerCase() !== first.toUpperCase()
+    if (!isLetter && first !== '_') {
+      normalized = '_' + normalized
+    }
   }
+
   return normalized
 }
 
@@ -1404,6 +1429,10 @@ export default function PipelineEditor({ pipelineId: initialPipelineId }: Pipeli
               }
               // Normalize the name
               const normalizedName = normalizeStepNameForVariable(newName)
+              if (!normalizedName) {
+                alert('Название шага должно содержать буквы или цифры.')
+                return
+              }
               updateStep(stepIndex, { step_name: normalizedName })
             }}
             isTestingPipeline={isTestingPipeline}
@@ -1589,6 +1618,12 @@ function SortableStepItem({
 
     // Normalize the name
     const normalizedName = normalizeStepNameForVariable(trimmedName)
+    if (!normalizedName) {
+      alert('Название шага должно содержать буквы или цифры.')
+      setEditedName(step.step_name)
+      setIsEditingName(false)
+      return
+    }
     
     // Update the step name (parent will handle reference updates)
     onUpdate({ step_name: normalizedName })
