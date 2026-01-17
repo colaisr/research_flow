@@ -804,12 +804,12 @@ export default function RunDetailPage() {
                 )}
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={() => copyToClipboard(researchResult)}
-                  className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-900 rounded-lg text-sm font-medium transition-colors shadow-sm border border-gray-200"
-                >
-                  {copied ? '✓ Скопировано!' : 'Копировать в буфер обмена'}
-                </button>
+              <button
+                onClick={() => copyToClipboard(researchResult)}
+                className="px-4 py-2 bg-white hover:bg-gray-50 text-gray-900 rounded-lg text-sm font-medium transition-colors shadow-sm border border-gray-200"
+              >
+                {copied ? '✓ Скопировано!' : 'Копировать в буфер обмена'}
+              </button>
                 <button
                   onClick={() => downloadAsWord(researchResult)}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"

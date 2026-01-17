@@ -43,6 +43,20 @@ function normalizeStepNameForVariable(stepName: string): string {
   return normalized
 }
 
+function normalizeToolVariableName(displayName: string, toolId: number): string {
+  const normalized = displayName
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '_')
+    .replace(/^_+|_+$/g, '')
+
+  if (!normalized) {
+    return `tool_${toolId}`
+  }
+
+  return normalized
+}
+
 interface Model {
   id: number
   name: string
@@ -1769,10 +1783,7 @@ function StepConfigurationPanel({ step, stepIndex, allSteps, enabledModels, tool
           const toolVars = tools
             .filter(tool => tool.is_active)
             .map(tool => {
-              const variableName = tool.display_name
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '_')
-                .replace(/^_+|_+$/g, '')
+              const variableName = normalizeToolVariableName(tool.display_name, tool.id)
               return `{${variableName}}`
             })
           const availableVariables = [...stepOutputVars, ...toolVars]
@@ -1996,10 +2007,7 @@ function VariablePalette({ allSteps, currentStepIndex, editorRef, onInsertVariab
     .filter(tool => tool.is_active)
     .map(tool => {
       // Generate variable name from display_name
-      const variableName = tool.display_name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '')
+      const variableName = normalizeToolVariableName(tool.display_name, tool.id)
       
       return {
         toolId: tool.id,
