@@ -188,6 +188,17 @@ class ToolExecutor:
                 llm_client=llm_client
             )
             logger.info(f"AI extraction completed for {tool.display_name}, extracted params: {params}")
+
+            # Fallback for database tools when AI returns empty query
+            if tool.tool_type == ToolType.DATABASE.value:
+                query_value = params.get("query", "") if isinstance(params, dict) else ""
+                if not query_value or not str(query_value).strip():
+                    fallback_query = self._fallback_extract_database_query(context_text, tool)
+                    if fallback_query:
+                        params["query"] = fallback_query
+                        logger.info(
+                            f"[DB Tool] Using fallback query for '{tool.display_name}': {fallback_query}"
+                        )
             
             # Execute tool
             result = self.execute_tool(tool, params)
@@ -650,6 +661,47 @@ Extract parameters needed to execute this tool. Return ONLY valid JSON."""
         
         logger.info(f"[RAG Tool] Fallback extraction extracted: '{query_text}'")
         return {"query": query_text}
+
+    def _fallback_extract_database_query(self, context_text: str, tool: UserTool) -> Optional[str]:
+        """Fallback method to build simple SQL from natural language."""
+        # Very simple heuristic for "count tables" style questions
+        text = context_text.lower()
+        count_tables_patterns = [
+            r"how many tables",
+            r"count tables",
+            r"number of tables",
+            r"сколько таблиц",
+            r"число таблиц",
+        ]
+        is_count_tables = any(re.search(pattern, text) for pattern in count_tables_patterns)
+        if not is_count_tables:
+            return None
+
+        try:
+            config = decrypt_tool_config(tool.config)
+        except Exception:
+            config = {}
+
+        connector_name = str(config.get("connector_name", "")).lower()
+        database_name = str(config.get("database", "")).strip()
+        if not database_name:
+            return None
+
+        if connector_name in ["mysql", "mariadb"]:
+            return (
+                "SELECT COUNT(*) AS table_count "
+                "FROM information_schema.tables "
+                f"WHERE table_schema = '{database_name}';"
+            )
+        if connector_name in ["postgresql", "postgres"]:
+            return (
+                "SELECT COUNT(*) AS table_count "
+                "FROM information_schema.tables "
+                "WHERE table_schema = 'public' "
+                f"AND table_catalog = '{database_name}';"
+            )
+
+        return None
     
     def _format_tool_result(self, result: Dict[str, Any], tool_type: str, tool: Optional[UserTool] = None) -> str:
         """Format tool execution result as string for prompt injection.

@@ -108,6 +108,11 @@ export default function NewToolPage() {
       setStep(3)
       return
     }
+    if (toolType === 'database') {
+      setCreationMethod('predefined')
+      setStep(2)
+      return
+    }
     if (!creationMethod) {
       alert('Пожалуйста, выберите метод создания')
       return
@@ -122,8 +127,8 @@ export default function NewToolPage() {
         alert('Please provide base URL')
         return
       }
-    } else if (toolType === 'database' && creationMethod === 'custom') {
-      if (!config.host || !config.database || !config.username) {
+    } else if (toolType === 'database') {
+      if (!config.connector_name || !config.host || !config.port || !config.database || !config.username) {
         alert('Please provide database connection details')
         return
       }
@@ -170,11 +175,12 @@ export default function NewToolPage() {
     }
     
     // Create other tool types
+    const connectorType = toolType === 'database' ? 'predefined' : creationMethod
     const request: CreateToolRequest = {
       tool_type: toolType as 'database' | 'api',
       display_name: displayName,
       config: {
-        connector_type: creationMethod,
+        connector_type: connectorType,
         connector_name: config.connector_name || undefined,
         ...config
       },
@@ -203,7 +209,11 @@ export default function NewToolPage() {
         </label>
         <div className="grid grid-cols-3 gap-4">
           <button
-            onClick={() => setToolType('api')}
+            onClick={() => {
+              setToolType('api')
+              setCreationMethod('')
+              setConfig({})
+            }}
             className={`p-4 border-2 rounded-lg text-center transition ${
               toolType === 'api'
                 ? 'border-blue-500 bg-blue-50'
@@ -214,7 +224,14 @@ export default function NewToolPage() {
             <div className="text-sm text-gray-600 mt-1">REST API, GraphQL</div>
           </button>
           <button
-            onClick={() => setToolType('database')}
+            onClick={() => {
+              setToolType('database')
+              setCreationMethod('predefined')
+              setConfig({
+                connector_name: 'mysql',
+                port: 3306,
+              })
+            }}
             className={`p-4 border-2 rounded-lg text-center transition ${
               toolType === 'database'
                 ? 'border-blue-500 bg-blue-50'
@@ -225,7 +242,11 @@ export default function NewToolPage() {
             <div className="text-sm text-gray-600 mt-1">MySQL, PostgreSQL</div>
           </button>
           <button
-            onClick={() => setToolType('rag')}
+            onClick={() => {
+              setToolType('rag')
+              setCreationMethod('')
+              setConfig({})
+            }}
             className={`p-4 border-2 rounded-lg text-center transition ${
               toolType === 'rag'
                 ? 'border-blue-500 bg-blue-50'
@@ -238,7 +259,7 @@ export default function NewToolPage() {
         </div>
       </div>
 
-      {toolType && toolType !== 'rag' && (
+      {toolType === 'api' && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Способ создания *
@@ -288,23 +309,6 @@ export default function NewToolPage() {
         </div>
       )}
 
-      {toolType === 'database' && creationMethod === 'predefined' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Выберите тип БД
-          </label>
-          <select
-            value={config.connector_name || ''}
-            onChange={(e) => setConfig({ ...config, connector_name: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Выберите...</option>
-            <option value="mysql">MySQL</option>
-            <option value="postgresql">PostgreSQL</option>
-            <option value="mongodb">MongoDB</option>
-          </select>
-        </div>
-      )}
     </div>
   )
 
@@ -394,70 +398,108 @@ export default function NewToolPage() {
       )
     }
 
-    if (toolType === 'database' && creationMethod === 'custom') {
+    if (toolType === 'database') {
+      const handleDatabaseTypeChange = (value: string) => {
+        const defaultPorts: Record<string, number> = {
+          mysql: 3306,
+          postgresql: 5432,
+          mongodb: 27017,
+        }
+        setConfig((current) => ({
+          ...current,
+          connector_name: value,
+          port: current.port || defaultPorts[value],
+        }))
+      }
+
       return (
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Host *
+              Тип БД *
             </label>
-            <input
-              type="text"
-              value={config.host || ''}
-              onChange={(e) => setConfig({ ...config, host: e.target.value })}
-              placeholder="localhost"
+            <select
+              value={config.connector_name || ''}
+              onChange={(e) => handleDatabaseTypeChange(e.target.value)}
               className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            >
+              <option value="">Выберите...</option>
+              <option value="mysql">MySQL</option>
+              <option value="postgresql">PostgreSQL</option>
+              <option value="mongodb">MongoDB</option>
+            </select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+
+          <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+            <div className="text-sm font-medium text-gray-700">Сервер</div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Port *
-              </label>
-              <input
-                type="number"
-                value={config.port || ''}
-                onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) })}
-                placeholder="3306"
-                className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Database *
+                Server Host *
               </label>
               <input
                 type="text"
-                value={config.database || ''}
-                onChange={(e) => setConfig({ ...config, database: e.target.value })}
+                value={config.host || ''}
+                onChange={(e) => setConfig({ ...config, host: e.target.value })}
+                placeholder="localhost"
                 className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Port *
+                </label>
+                <input
+                  type="number"
+                  value={config.port || ''}
+                  onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) })}
+                  placeholder="3306"
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Database *
+                </label>
+                <input
+                  type="text"
+                  value={config.database || ''}
+                  onChange={(e) => setConfig({ ...config, database: e.target.value })}
+                  placeholder="my_database"
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Username *
-              </label>
-              <input
-                type="text"
-                value={config.username || ''}
-                onChange={(e) => setConfig({ ...config, username: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password *
-              </label>
-              <input
-                type="password"
-                value={config.password_encrypted || ''}
-                onChange={(e) => setConfig({ ...config, password_encrypted: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+
+          <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+            <div className="text-sm font-medium text-gray-700">Аутентификация</div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Username *
+                </label>
+                <input
+                  type="text"
+                  value={config.username || ''}
+                  onChange={(e) => setConfig({ ...config, username: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Password *
+                </label>
+                <input
+                  type="password"
+                  value={config.password_encrypted || ''}
+                  onChange={(e) => setConfig({ ...config, password_encrypted: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               SSL Mode
