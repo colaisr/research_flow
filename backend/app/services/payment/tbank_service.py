@@ -254,6 +254,22 @@ class TBankPaymentService:
             logger = logging.getLogger(__name__)
             log_data = {k: v for k, v in request_data.items() if k != 'Token'}
             logger.info(f"T-Bank Init request (masked): {log_data}")
+            
+            # Log the token string being generated (for debugging)
+            # Recreate token calculation to log it
+            token_debug_data = {k: v for k, v in request_data.items() if k != 'Token'}
+            token_debug_data['Password'] = self.password
+            sorted_debug = sorted(token_debug_data.items())
+            debug_values = []
+            for k, v in sorted_debug:
+                if isinstance(v, (dict, list)):
+                    debug_values.append(json.dumps(v, ensure_ascii=False, separators=(',', ':'), sort_keys=True))
+                else:
+                    debug_values.append(str(v))
+            debug_token_string = ''.join(debug_values)
+            logger.info(f"T-Bank token calculation string length: {len(debug_token_string)}")
+            logger.info(f"T-Bank token calculation (first 100 chars): {debug_token_string[:100]}")
+            
             logger.info(f"T-Bank Init response: {response.status_code} - {result}")
             
             # Log full response for debugging
