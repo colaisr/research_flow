@@ -106,12 +106,14 @@ class TBankPaymentService:
         sorted_data = sorted(token_data.items())
         
         # Concatenate only the VALUES (not keys) in sorted order
-        # For nested objects (like Receipt), serialize as JSON
+        # For nested objects (like Receipt), serialize as JSON with sorted keys
+        # T-Bank requires deterministic JSON serialization for token calculation
         values_list = []
         for k, v in sorted_data:
             if isinstance(v, (dict, list)):
-                # Serialize nested objects as JSON (compact, no spaces)
-                values_list.append(json.dumps(v, ensure_ascii=False, separators=(',', ':')))
+                # Serialize nested objects as JSON with sorted keys (deterministic order)
+                # This is critical for token generation - keys must be in consistent order
+                values_list.append(json.dumps(v, ensure_ascii=False, separators=(',', ':'), sort_keys=True))
             else:
                 values_list.append(str(v))
         
