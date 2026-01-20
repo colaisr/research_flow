@@ -308,12 +308,13 @@ class TBankPaymentService:
         if not self.terminal_key:
             raise ValueError("T-Bank terminal key not configured")
         
+        # GetState request only needs TerminalKey and PaymentId (no Receipt)
         request_data = {
             'TerminalKey': self.terminal_key,
             'PaymentId': payment_id,
         }
         
-        # Generate token
+        # Generate token (GetState uses same algorithm but only root-level fields)
         request_data['Token'] = self._generate_token(request_data)
         
         # Make API request
@@ -336,9 +337,13 @@ class TBankPaymentService:
             logger.debug(f"T-Bank GetState request: {request_data}")
             logger.debug(f"T-Bank GetState response: {response.status_code} - {result}")
             
+            # Log response for debugging
+            logger.info(f"T-Bank GetState response: {response.status_code} - Success: {result.get('Success')}, Status: {result.get('Status')}")
+            
             if response.status_code != 200:
                 error_message = result.get('Message', response_text[:200])
                 error_code = result.get('ErrorCode', f'HTTP_{response.status_code}')
+                logger.error(f"T-Bank GetState failed: {error_code} - {error_message}")
                 return {
                     'success': False,
                     'order_id': None,
@@ -351,6 +356,9 @@ class TBankPaymentService:
         # Return status regardless of Success flag (payment might be rejected/failed)
         # T-Bank returns Success=False for rejected payments, but we still get the status
         status = result.get('Status', 'UNKNOWN')
+        
+        # Log the actual status we got
+        logger.info(f"T-Bank GetState - Payment ID: {payment_id}, Status: {status}, Success: {result.get('Success')}")
         error_message = result.get('Message', '')
         
         # Generate user-friendly error message based on status
