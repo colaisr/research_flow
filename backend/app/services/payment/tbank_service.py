@@ -200,22 +200,27 @@ class TBankPaymentService:
             request_data['CustomerKey'] = customer_email
         
         # Add Receipt field (required if terminal has online cash register enabled)
-        # Error 309 often means Receipt is required but missing
+        # Error 204/309 means Receipt is required but missing or invalid
+        # T-Bank expects lowercase field names: email, taxation, items (not Email, Taxation, Items)
         receipt = {
-            'Email': customer_email or '',
-            'Taxation': 'usn_income',  # Simplified tax system (упрощенная система налогообложения)
-            'Items': [
+            'taxation': 'usn_income',  # Simplified tax system (упрощенная система налогообложения)
+            'items': [
                 {
-                    'Name': description[:128],  # Max 128 chars
-                    'Price': amount_kopecks,
-                    'Quantity': 1.0,
-                    'Amount': amount_kopecks,
-                    'Tax': 'vat20',  # VAT 20%
-                    'PaymentMethod': 'full_prepayment',  # Full prepayment
-                    'PaymentObject': 'service',  # Service (услуга)
+                    'name': description[:128],  # Max 128 chars
+                    'price': amount_kopecks,
+                    'quantity': 1.0,
+                    'amount': amount_kopecks,
+                    'tax': 'vat20',  # VAT 20%
+                    'paymentMethod': 'full_prepayment',  # Full prepayment
+                    'paymentObject': 'service',  # Service (услуга)
                 }
             ]
         }
+        
+        # Add email only if provided (T-Bank requires at least one contact: email OR phone)
+        if customer_email:
+            receipt['email'] = customer_email
+        
         request_data['Receipt'] = receipt
         
         # Generate token (must include Receipt in token calculation)
