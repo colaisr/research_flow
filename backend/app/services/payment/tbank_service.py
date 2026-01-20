@@ -177,10 +177,15 @@ class TBankPaymentService:
             'Amount': amount_kopecks,
             'OrderId': order_id,
             'Description': description,
-            'SuccessURL': success_url or '',
-            'FailURL': fail_url or '',
-            'NotificationURL': notification_url or '',
         }
+        
+        # Add URLs only if provided (T-Bank may reject empty strings)
+        if success_url:
+            request_data['SuccessURL'] = success_url
+        if fail_url:
+            request_data['FailURL'] = fail_url
+        if notification_url:
+            request_data['NotificationURL'] = notification_url
         
         if customer_email:
             request_data['CustomerKey'] = customer_email

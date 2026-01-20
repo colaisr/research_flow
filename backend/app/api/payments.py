@@ -110,11 +110,8 @@ async def initiate_payment(
         fail_url = "https://researchflow.ru/billing?payment=failed"
     
     # Webhook URL - T-Bank needs a publicly accessible URL
-    # For local dev, use production URL (webhooks won't work locally without ngrok/tunnel)
-    if 'localhost' in host or '127.0.0.1' in host:
-        notification_url = "https://researchflow.ru/api/payments/webhook"
-    else:
-        notification_url = f"https://{host}/api/payments/webhook"
+    # Always use production URL for webhooks (T-Bank needs HTTPS)
+    notification_url = "https://researchflow.ru/api/payments/webhook"
     
     # Initiate payment with T-Bank
     try:
