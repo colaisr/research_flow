@@ -90,34 +90,35 @@ class TBankPaymentService:
         Generate token for T-Bank API request.
         
         T-Bank token generation algorithm:
-        1. Add Password to the data dictionary
-        2. Sort all key-value pairs (including Password, excluding Token) by key alphabetically
-        3. Concatenate only the VALUES in sorted order (nested objects as JSON)
-        4. Compute SHA-256 hash (lowercase hex)
+        1. Use ONLY root-level fields (exclude nested objects like Receipt, DATA)
+        2. Add Password to the root-level fields
+        3. Sort all key-value pairs (including Password, excluding Token) by key alphabetically
+        4. Concatenate only the VALUES in sorted order
+        5. Compute SHA-256 hash (lowercase hex)
+        
+        IMPORTANT: Nested objects (Receipt, DATA, etc.) are NOT included in token calculation!
         """
         if not self.password:
             raise ValueError("T-Bank password not configured")
         
-        # Create a copy of data and add Password (exclude Token)
-        token_data = {k: v for k, v in data.items() if k != 'Token'}
+        # Extract only root-level fields (exclude nested objects like Receipt, DATA)
+        # These nested objects are sent in the request but NOT used for token calculation
+        root_fields = ['TerminalKey', 'Amount', 'OrderId', 'Description', 
+                      'SuccessURL', 'FailURL', 'NotificationURL', 'CustomerKey']
+        
+        token_data = {}
+        for key in root_fields:
+            if key in data and data[key] is not None:
+                token_data[key] = data[key]
+        
+        # Add Password
         token_data['Password'] = self.password
         
         # Sort by key alphabetically
         sorted_data = sorted(token_data.items())
         
         # Concatenate only the VALUES (not keys) in sorted order
-        # For nested objects (like Receipt), serialize as JSON with sorted keys
-        # T-Bank requires deterministic JSON serialization for token calculation
-        values_list = []
-        for k, v in sorted_data:
-            if isinstance(v, (dict, list)):
-                # Serialize nested objects as JSON with sorted keys (deterministic order)
-                # This is critical for token generation - keys must be in consistent order
-                values_list.append(json.dumps(v, ensure_ascii=False, separators=(',', ':'), sort_keys=True))
-            else:
-                values_list.append(str(v))
-        
-        values_str = ''.join(values_list)
+        values_str = ''.join(str(v) for k, v in sorted_data)
         
         # Compute SHA-256 hash (lowercase hex)
         token = hashlib.sha256(values_str.encode('utf-8')).hexdigest()
