@@ -106,15 +106,15 @@ export default function BillingPage() {
     }
   }, [router, queryClient])
   
-  // Also poll for any processing payments when page loads
+  // Also poll for any processing or pending payments when page loads
   useEffect(() => {
     if (!isAuthenticated) return
     
-    // Check if there are any processing payments and poll their status
+    // Check if there are any processing or pending payments and poll their status
     const checkProcessingPayments = () => {
       fetchPurchaseHistory(5, 0).then((history) => {
         const processingPurchases = history.purchases.filter(
-          p => p.payment_status === 'processing' && p.id
+          p => (p.payment_status === 'processing' || p.payment_status === 'pending') && p.id
         )
         
         // Poll status for each processing payment
