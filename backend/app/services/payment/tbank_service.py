@@ -318,6 +318,9 @@ class TBankPaymentService:
         request_data['Token'] = self._generate_token(request_data)
         
         # Make API request
+        import logging
+        logger = logging.getLogger(__name__)
+        
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{self.base_url}/GetState",
@@ -332,12 +335,8 @@ class TBankPaymentService:
                 result = {'Success': False, 'Message': response_text[:200]}
             
             # Log for debugging
-            import logging
-            logger = logging.getLogger(__name__)
             logger.debug(f"T-Bank GetState request: {request_data}")
             logger.debug(f"T-Bank GetState response: {response.status_code} - {result}")
-            
-            # Log response for debugging
             logger.info(f"T-Bank GetState response: {response.status_code} - Success: {result.get('Success')}, Status: {result.get('Status')}")
             
             if response.status_code != 200:
@@ -352,35 +351,35 @@ class TBankPaymentService:
                     'Message': error_message,
                     'ErrorCode': error_code,
                 }
-        
-        # Return status regardless of Success flag (payment might be rejected/failed)
-        # T-Bank returns Success=False for rejected payments, but we still get the status
-        status = result.get('Status', 'UNKNOWN')
-        
-        # Log the actual status we got
-        logger.info(f"T-Bank GetState - Payment ID: {payment_id}, Status: {status}, Success: {result.get('Success')}")
-        error_message = result.get('Message', '')
-        
-        # Generate user-friendly error message based on status
-        if status == 'REJECTED':
-            if not error_message or error_message == 'OK':
-                error_message = 'Платеж отклонен банком. Проверьте данные карты или обратитесь в банк.'
-            elif 'Платеж отклонен' not in error_message:
-                error_message = f'Платеж отклонен: {error_message}'
-        elif status in ['AUTH_FAIL', 'REVERSED']:
-            if not error_message or error_message == 'OK':
-                error_message = 'Ошибка авторизации платежа. Проверьте данные карты.'
-            else:
-                error_message = f'Ошибка авторизации: {error_message}'
-        
-        return {
-            'success': result.get('Success', False),
-            'order_id': result.get('OrderId'),
-            'status': status,
-            'amount': result.get('Amount'),
-            'Message': error_message,
-            'ErrorCode': result.get('ErrorCode'),
-        }
+            
+            # Return status regardless of Success flag (payment might be rejected/failed)
+            # T-Bank returns Success=False for rejected payments, but we still get the status
+            status = result.get('Status', 'UNKNOWN')
+            
+            # Log the actual status we got
+            logger.info(f"T-Bank GetState - Payment ID: {payment_id}, Status: {status}, Success: {result.get('Success')}")
+            error_message = result.get('Message', '')
+            
+            # Generate user-friendly error message based on status
+            if status == 'REJECTED':
+                if not error_message or error_message == 'OK':
+                    error_message = 'Платеж отклонен банком. Проверьте данные карты или обратитесь в банк.'
+                elif 'Платеж отклонен' not in error_message:
+                    error_message = f'Платеж отклонен: {error_message}'
+            elif status in ['AUTH_FAIL', 'REVERSED']:
+                if not error_message or error_message == 'OK':
+                    error_message = 'Ошибка авторизации платежа. Проверьте данные карты.'
+                else:
+                    error_message = f'Ошибка авторизации: {error_message}'
+            
+            return {
+                'success': result.get('Success', False),
+                'order_id': result.get('OrderId'),
+                'status': status,
+                'amount': result.get('Amount'),
+                'Message': error_message,
+                'ErrorCode': result.get('ErrorCode'),
+            }
     
     def verify_webhook(self, webhook_data: Dict[str, Any]) -> bool:
         """
