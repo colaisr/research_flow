@@ -201,7 +201,7 @@ class TBankPaymentService:
         
         # Add Receipt field (required if terminal has online cash register enabled)
         # T-Bank expects capitalized field names: Email, Taxation, Items, Name, Price, etc.
-        # Error 204 suggests Receipt format issue - try with FfdVersion field
+        # Error 204 suggests Receipt format issue - FFD 1.2 requires PaymentMethod and PaymentObject
         receipt = {
             'FfdVersion': '1.2',  # Fiscal document format version (required for some terminals)
             'Taxation': 'osn',  # General taxation system (общая система налогообложения)
@@ -212,6 +212,8 @@ class TBankPaymentService:
                     'Quantity': 1.0,  # Can be float
                     'Amount': amount_kopecks,
                     'Tax': 'vat20',  # VAT 20%
+                    'PaymentMethod': 'full_payment',  # Required for FFD 1.2
+                    'PaymentObject': 'service',  # Required for FFD 1.2
                 }
             ]
         }
