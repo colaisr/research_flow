@@ -23,6 +23,11 @@ export default function BillingPage() {
     purchaseId: number
   } | null>(null)
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [paymentSuccess, setPaymentSuccess] = useState<{
+    show: boolean
+    message: string
+    tokensAdded?: number
+  } | null>(null)
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -50,10 +55,27 @@ export default function BillingPage() {
         const pollStatus = setInterval(() => {
           pollCount++
           
-          getPaymentStatus(purchaseId)
+              getPaymentStatus(purchaseId)
             .then((status) => {
               if (status.payment_status === 'completed') {
                 clearInterval(pollStatus)
+                // Show success message
+                fetchPurchaseHistory(1, 0).then((history) => {
+                  if (history.purchases.length > 0) {
+                    const completedPurchase = history.purchases.find(p => p.id === purchaseId)
+                    if (completedPurchase) {
+                      setPaymentSuccess({
+                        show: true,
+                        message: `Платеж успешно завершен!`,
+                        tokensAdded: completedPurchase.token_amount
+                      })
+                      // Hide after 10 seconds
+                      setTimeout(() => {
+                        setPaymentSuccess(null)
+                      }, 10000)
+                    }
+                  }
+                })
                 // Refresh all data
                 queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
                 queryClient.invalidateQueries({ queryKey: ['current-subscription'] })
@@ -105,7 +127,17 @@ export default function BillingPage() {
                   queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
                   queryClient.invalidateQueries({ queryKey: ['current-subscription'] })
                   
-                  if (status.payment_status === 'failed' && status.payment_error) {
+                  if (status.payment_status === 'completed') {
+                    // Show success message
+                    setPaymentSuccess({
+                      show: true,
+                      message: `Платеж успешно завершен!`,
+                      tokensAdded: purchase.token_amount
+                    })
+                    setTimeout(() => {
+                      setPaymentSuccess(null)
+                    }, 10000)
+                  } else if (status.payment_status === 'failed' && status.payment_error) {
                     setPaymentError(status.payment_error)
                   }
                 }
@@ -286,12 +318,48 @@ export default function BillingPage() {
           </div>
         )}
 
-        {/* Payment Error Message */}
-        {paymentError && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
+        {/* Payment Success Message */}
+        {paymentSuccess && paymentSuccess.show && (
+          <div className="bg-green-50 border-2 border-green-500 rounded-lg p-6 mb-6 shadow-lg">
             <div className="flex items-start">
               <svg
-                className="w-6 h-6 text-red-600 mr-3 mt-0.5 flex-shrink-0"
+                className="w-8 h-8 text-green-600 mr-4 mt-0.5 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-green-900 mb-2">Платеж успешно завершен!</h3>
+                <p className="text-green-800 mb-2 text-lg">{paymentSuccess.message}</p>
+                {paymentSuccess.tokensAdded && (
+                  <p className="text-green-700 mb-4">
+                    На ваш баланс добавлено <span className="font-bold">{formatTokens(paymentSuccess.tokensAdded)}</span> токенов
+                  </p>
+                )}
+                <button
+                  onClick={() => setPaymentSuccess(null)}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  Отлично!
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Payment Error Message */}
+        {paymentError && (
+          <div className="bg-red-50 border-2 border-red-500 rounded-lg p-6 mb-6 shadow-lg">
+            <div className="flex items-start">
+              <svg
+                className="w-8 h-8 text-red-600 mr-4 mt-0.5 flex-shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -304,11 +372,11 @@ export default function BillingPage() {
                 />
               </svg>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-red-900 mb-2">Ошибка платежа</h3>
-                <p className="text-red-700 mb-4">{paymentError}</p>
+                <h3 className="text-xl font-bold text-red-900 mb-2">Ошибка платежа</h3>
+                <p className="text-red-800 mb-4 text-lg">{paymentError}</p>
                 <button
                   onClick={handleDismissError}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                  className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
                 >
                   Закрыть
                 </button>
