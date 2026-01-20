@@ -21,11 +21,11 @@ async def process_completed_payments():
     """Process completed payments and add tokens to balances."""
     db = SessionLocal()
     try:
-        # Get processing purchases with payment IDs
+        # Get processing or pending purchases with payment IDs
         purchases = db.execute(text('''
             SELECT id, payment_id, payment_status, token_amount, user_id, organization_id
             FROM token_purchases
-            WHERE payment_status = 'processing' AND payment_id IS NOT NULL
+            WHERE payment_status IN ('processing', 'pending') AND payment_id IS NOT NULL
             ORDER BY purchased_at DESC
         ''')).fetchall()
         

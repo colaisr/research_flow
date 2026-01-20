@@ -369,7 +369,8 @@ async def get_payment_status(
     if not purchase:
         raise HTTPException(status_code=404, detail="Purchase not found")
     
-    # If payment is processing and we have payment_id, check status with T-Bank
+    # If payment is pending/processing and we have payment_id, check status with T-Bank
+    # This allows frontend polling to update status immediately
     if purchase.payment_status in ['pending', 'processing'] and purchase.payment_id:
         try:
             tbank_service = TBankPaymentService(db=db)
@@ -384,8 +385,44 @@ async def get_payment_status(
                     "status": new_status,
                 }
                 
+                # If completed, add tokens and set paid_at
+                if new_status == 'completed':
+                    # Get purchase details for adding tokens
+                    purchase_details = db.execute(
+                        text("""
+                            SELECT user_id, organization_id, token_amount, payment_status
+                            FROM token_purchases
+                            WHERE id = :purchase_id
+                        """),
+                        {"purchase_id": purchase_id}
+                    ).fetchone()
+                    
+                    # Only add tokens if not already completed
+                    if purchase_details and purchase_details.payment_status != 'completed':
+                        reason = f"Purchased token package (payment_id: {purchase.payment_id})"
+                        add_tokens(
+                            db=db,
+                            user_id=purchase_details.user_id,
+                            organization_id=purchase_details.organization_id,
+                            amount=purchase_details.token_amount,
+                            reason=reason
+                        )
+                        update_data["paid_at"] = datetime.now(timezone.utc)
+                    
+                    db.execute(
+                        text("""
+                            UPDATE token_purchases
+                            SET payment_status = :status,
+                                paid_at = :paid_at
+                            WHERE id = :purchase_id
+                        """),
+                        {
+                            **update_data,
+                            "paid_at": update_data.get("paid_at", purchase[4])  # Use existing paid_at if already set
+                        }
+                    )
                 # If failed, try to get error message
-                if new_status == 'failed':
+                elif new_status == 'failed':
                     error_message = tbank_status.get('Message', '')
                     if not error_message or error_message == 'OK':
                         # Generate user-friendly message based on T-Bank status
@@ -409,6 +446,7 @@ async def get_payment_status(
                         update_data
                     )
                 else:
+                    # Other statuses (processing, etc.)
                     db.execute(
                         text("""
                             UPDATE token_purchases
@@ -420,11 +458,18 @@ async def get_payment_status(
                 
                 db.commit()
                 
-                # Update purchase tuple for response
-                if new_status == 'failed':
-                    purchase = (purchase[0], new_status, purchase[2], purchase[3], purchase[4], update_data.get("error"))
-                else:
-                    purchase = (purchase[0], new_status, purchase[2], purchase[3], purchase[4], purchase[5])
+                # Refresh purchase data for response
+                updated_purchase = db.execute(
+                    text("""
+                        SELECT id, payment_status, payment_id, payment_url, paid_at, payment_error
+                        FROM token_purchases
+                        WHERE id = :purchase_id
+                    """),
+                    {"purchase_id": purchase_id}
+                ).fetchone()
+                
+                if updated_purchase:
+                    purchase = updated_purchase
         except Exception as e:
             logger.error(f"Error checking payment status: {e}")
             # If status check fails, return current status
