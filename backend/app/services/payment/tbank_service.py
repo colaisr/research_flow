@@ -90,26 +90,27 @@ class TBankPaymentService:
         Generate token for T-Bank API request.
         
         T-Bank token generation algorithm:
-        1. Use ONLY root-level fields (exclude nested objects like Receipt, DATA)
+        1. Use ONLY root-level fields that are present (exclude nested objects like Receipt, DATA)
         2. Add Password to the root-level fields
         3. Sort all key-value pairs (including Password, excluding Token) by key alphabetically
         4. Concatenate only the VALUES in sorted order
         5. Compute SHA-256 hash (lowercase hex)
         
-        IMPORTANT: Nested objects (Receipt, DATA, etc.) are NOT included in token calculation!
+        IMPORTANT: 
+        - Nested objects (Receipt, DATA, etc.) are NOT included in token calculation
+        - Only include fields that are actually present in the data dict
+        - Different endpoints may have different required fields (Init vs GetState)
         """
         if not self.password:
             raise ValueError("T-Bank password not configured")
         
-        # Extract only root-level fields (exclude nested objects like Receipt, DATA)
-        # These nested objects are sent in the request but NOT used for token calculation
-        root_fields = ['TerminalKey', 'Amount', 'OrderId', 'Description', 
-                      'SuccessURL', 'FailURL', 'NotificationURL', 'CustomerKey']
-        
+        # Extract only root-level fields that are present (exclude nested objects like Receipt, DATA)
+        # Include all root-level string/number fields, but exclude dict/list values
         token_data = {}
-        for key in root_fields:
-            if key in data and data[key] is not None:
-                token_data[key] = data[key]
+        for key, value in data.items():
+            if key != 'Token' and not isinstance(value, (dict, list)):
+                if value is not None:
+                    token_data[key] = value
         
         # Add Password
         token_data['Password'] = self.password
