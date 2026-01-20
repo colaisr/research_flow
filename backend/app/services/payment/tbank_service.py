@@ -200,21 +200,23 @@ class TBankPaymentService:
             request_data['CustomerKey'] = customer_email
         
         # Add Receipt field (required if terminal has online cash register enabled)
-        # T-Bank expects capitalized field names: Email, Taxation, Items, Name, Price, etc.
-        # Error 204 suggests Receipt format issue - FFD 1.2 requires PaymentMethod and PaymentObject
+        # Official T-Bank API format for FFD 1.2 - see developer.tbank.ru documentation
         receipt = {
-            'FfdVersion': '1.2',  # Fiscal document format version (required for some terminals)
+            'FfdVersion': '1.2',  # Fiscal document format version 1.2
             'Taxation': 'osn',  # General taxation system (общая система налогообложения)
+            'Payments': {
+                'Electronic': amount_kopecks  # Electronic payment (required - must match Amount)
+            },
             'Items': [
                 {
-                    'Name': description[:128],  # Max 128 chars
-                    'Price': amount_kopecks,
-                    'Quantity': 1.0,  # Can be float
-                    'Amount': amount_kopecks,
-                    'Tax': 'vat20',  # VAT 20%
-                    'PaymentMethod': 'full_payment',  # Required for FFD 1.2
-                    'PaymentObject': 'service',  # Required for FFD 1.2
-                    'MeasurementUnit': 'шт',  # Required for FFD 1.2 - unit of measurement (шт = piece/item)
+                    'Name': description[:128],  # Max 128 chars (FFD tag 1030)
+                    'Price': amount_kopecks,  # Price per unit in kopecks (FFD tag 1078)
+                    'Quantity': 1,  # Quantity as integer (FFD tag 1023)
+                    'Amount': amount_kopecks,  # Total amount = Price * Quantity (FFD tag 1043)
+                    'Tax': 'vat20',  # VAT 20% (FFD tag 1199)
+                    'PaymentMethod': 'full_payment',  # Required for FFD 1.2 (FFD tag 1214)
+                    'PaymentObject': 'service',  # Required for FFD 1.2 (FFD tag 1212)
+                    'MeasurementUnit': 'шт',  # Required for FFD 1.2 - unit of measurement (FFD tag 2108)
                 }
             ]
         }
