@@ -92,7 +92,7 @@ class TBankPaymentService:
         T-Bank token generation algorithm:
         1. Add Password to the data dictionary
         2. Sort all key-value pairs (including Password, excluding Token) by key alphabetically
-        3. Concatenate only the VALUES in sorted order
+        3. Concatenate only the VALUES in sorted order (nested objects as JSON)
         4. Compute SHA-256 hash (lowercase hex)
         """
         if not self.password:
@@ -106,7 +106,16 @@ class TBankPaymentService:
         sorted_data = sorted(token_data.items())
         
         # Concatenate only the VALUES (not keys) in sorted order
-        values_str = ''.join(str(v) for k, v in sorted_data)
+        # For nested objects (like Receipt), serialize as JSON
+        values_list = []
+        for k, v in sorted_data:
+            if isinstance(v, (dict, list)):
+                # Serialize nested objects as JSON (compact, no spaces)
+                values_list.append(json.dumps(v, ensure_ascii=False, separators=(',', ':')))
+            else:
+                values_list.append(str(v))
+        
+        values_str = ''.join(values_list)
         
         # Compute SHA-256 hash (lowercase hex)
         token = hashlib.sha256(values_str.encode('utf-8')).hexdigest()
@@ -209,7 +218,7 @@ class TBankPaymentService:
         }
         request_data['Receipt'] = receipt
         
-        # Generate token
+        # Generate token (must include Receipt in token calculation)
         request_data['Token'] = self._generate_token(request_data)
         
         # Make API request
