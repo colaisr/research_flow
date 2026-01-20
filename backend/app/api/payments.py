@@ -97,19 +97,20 @@ async def initiate_payment(
     host = http_request.headers.get('host', 'localhost:3000')
     origin = http_request.headers.get('origin', f'http://{host}')
     
+    # Include purchase_id in URLs for status polling
     if request.success_url:
         success_url = request.success_url
     elif 'localhost' in host or '127.0.0.1' in host:
-        success_url = f"http://{host}/billing?payment=success"
+        success_url = f"http://{host}/billing?payment=success&purchase_id={purchase_id}"
     else:
-        success_url = "https://researchflow.ru/billing?payment=success"
+        success_url = f"https://researchflow.ru/billing?payment=success&purchase_id={purchase_id}"
     
     if request.fail_url:
         fail_url = request.fail_url
     elif 'localhost' in host or '127.0.0.1' in host:
-        fail_url = f"http://{host}/billing?payment=failed"
+        fail_url = f"http://{host}/billing?payment=failed&purchase_id={purchase_id}"
     else:
-        fail_url = "https://researchflow.ru/billing?payment=failed"
+        fail_url = f"https://researchflow.ru/billing?payment=failed&purchase_id={purchase_id}"
     
     # Webhook URL - T-Bank needs a publicly accessible URL
     # Always use production URL for webhooks (T-Bank needs HTTPS)

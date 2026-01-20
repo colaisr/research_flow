@@ -31,44 +31,101 @@ export default function BillingPage() {
     }
   }, [authLoading, isAuthenticated, router])
 
-  // Handle payment success/failure from URL params
+  // Handle payment success/failure from URL params and poll for status
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const paymentStatus = params.get('payment')
+    const purchaseIdParam = params.get('purchase_id')
     
-    if (paymentStatus === 'success') {
-      // Refresh data after successful payment
-      queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
-      queryClient.invalidateQueries({ queryKey: ['current-subscription'] })
-      queryClient.invalidateQueries({ queryKey: ['token-packages'] })
-      
-      // Clean URL
+    if (paymentStatus === 'success' || paymentStatus === 'failed' || purchaseIdParam) {
+      // Clean URL first
       router.replace('/billing')
-    } else if (paymentStatus === 'failed') {
-      // Check latest purchase for error details
-      // Refresh purchase history first to get latest status
-      queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
       
-      // Try to get error from latest purchase
-      setTimeout(() => {
-        fetchPurchaseHistory(1, 0).then((history) => {
-          if (history.purchases.length > 0) {
-            const latestPurchase = history.purchases[0]
-            if (latestPurchase.payment_status === 'failed' && latestPurchase.payment_error) {
-              setPaymentError(latestPurchase.payment_error)
-            } else if (latestPurchase.payment_status === 'failed') {
-              setPaymentError('Платеж не прошел. Попробуйте еще раз или обратитесь в поддержку.')
-            }
-          }
-        }).catch(() => {
-          // Ignore errors
-        })
-      }, 1000) // Wait a bit for history to refresh
-      
-      // Clean URL
-      router.replace('/billing')
+      // Poll for payment status if we have a purchase ID
+      if (purchaseIdParam) {
+        const purchaseId = parseInt(purchaseIdParam)
+        let pollCount = 0
+        const maxPolls = 10 // Poll for up to 10 seconds
+        
+        const pollStatus = setInterval(() => {
+          pollCount++
+          
+          getPaymentStatus(purchaseId)
+            .then((status) => {
+              if (status.payment_status === 'completed') {
+                clearInterval(pollStatus)
+                // Refresh all data
+                queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
+                queryClient.invalidateQueries({ queryKey: ['current-subscription'] })
+                queryClient.invalidateQueries({ queryKey: ['token-packages'] })
+              } else if (status.payment_status === 'failed') {
+                clearInterval(pollStatus)
+                setPaymentError(status.payment_error || 'Платеж не прошел. Попробуйте еще раз или обратитесь в поддержку.')
+                queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
+              } else if (pollCount >= maxPolls) {
+                // Stop polling after max attempts
+                clearInterval(pollStatus)
+                queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
+              }
+            })
+            .catch(() => {
+              // Ignore errors, will retry on next poll
+            })
+        }, 1000) // Poll every second
+        
+        // Cleanup on unmount
+        return () => clearInterval(pollStatus)
+      } else {
+        // No purchase ID, just refresh data
+        queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
+        queryClient.invalidateQueries({ queryKey: ['current-subscription'] })
+        queryClient.invalidateQueries({ queryKey: ['token-packages'] })
+      }
     }
   }, [router, queryClient])
+  
+  // Also poll for any processing payments when page loads
+  useEffect(() => {
+    if (!isAuthenticated) return
+    
+    // Check if there are any processing payments and poll their status
+    const checkProcessingPayments = () => {
+      fetchPurchaseHistory(5, 0).then((history) => {
+        const processingPurchases = history.purchases.filter(
+          p => p.payment_status === 'processing' && p.id
+        )
+        
+        // Poll status for each processing payment
+        processingPurchases.forEach((purchase) => {
+          if (purchase.id) {
+            getPaymentStatus(purchase.id)
+              .then((status) => {
+                if (status.payment_status !== 'processing') {
+                  // Status changed, refresh data
+                  queryClient.invalidateQueries({ queryKey: ['purchase-history'] })
+                  queryClient.invalidateQueries({ queryKey: ['current-subscription'] })
+                  
+                  if (status.payment_status === 'failed' && status.payment_error) {
+                    setPaymentError(status.payment_error)
+                  }
+                }
+              })
+              .catch(() => {
+                // Ignore errors
+              })
+          }
+        })
+      }).catch(() => {
+        // Ignore errors
+      })
+    }
+    
+    // Check immediately and then every 5 seconds
+    checkProcessingPayments()
+    const interval = setInterval(checkProcessingPayments, 5000)
+    
+    return () => clearInterval(interval)
+  }, [isAuthenticated, queryClient])
 
   // Fetch token packages
   const { data: packages, isLoading: packagesLoading } = useQuery({
@@ -112,6 +169,11 @@ export default function BillingPage() {
         purchaseId: data.purchase_id,
       })
       setShowPayment(true)
+      
+      // Store purchase_id in URL for status polling after redirect
+      const url = new URL(window.location.href)
+      url.searchParams.set('purchase_id', data.purchase_id.toString())
+      window.history.replaceState({}, '', url.toString())
     },
     onError: (error: any) => {
       console.error('Payment initiation failed:', error)
