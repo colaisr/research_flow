@@ -201,13 +201,15 @@ class TBankPaymentService:
         
         # Add Receipt field (required if terminal has online cash register enabled)
         # T-Bank expects capitalized field names: Email, Taxation, Items, Name, Price, etc.
+        # Error 204 suggests Receipt format issue - try with FfdVersion field
         receipt = {
+            'FfdVersion': '1.2',  # Fiscal document format version (required for some terminals)
             'Taxation': 'osn',  # General taxation system (общая система налогообложения)
             'Items': [
                 {
                     'Name': description[:128],  # Max 128 chars
                     'Price': amount_kopecks,
-                    'Quantity': 1,  # Integer or number
+                    'Quantity': 1.0,  # Can be float
                     'Amount': amount_kopecks,
                     'Tax': 'vat20',  # VAT 20%
                 }
@@ -242,8 +244,13 @@ class TBankPaymentService:
             import logging
             logger = logging.getLogger(__name__)
             log_data = {k: v for k, v in request_data.items() if k != 'Token'}
-            logger.info(f"T-Bank Init request: {log_data}")
+            logger.info(f"T-Bank Init request (masked): {log_data}")
             logger.info(f"T-Bank Init response: {response.status_code} - {result}")
+            
+            # Log full response for debugging
+            if not result.get('Success', False):
+                logger.error(f"T-Bank Init failed - Full response: {response_text}")
+                logger.error(f"T-Bank Init failed - Error details: {result}")
             
             if response.status_code != 200:
                 error_message = result.get('Message', response_text[:200])
