@@ -214,6 +214,7 @@ class TBankPaymentService:
                     'Tax': 'vat20',  # VAT 20%
                     'PaymentMethod': 'full_payment',  # Required for FFD 1.2
                     'PaymentObject': 'service',  # Required for FFD 1.2
+                    'MeasurementUnit': 'шт',  # Required for FFD 1.2 - unit of measurement (шт = piece/item)
                 }
             ]
         }
