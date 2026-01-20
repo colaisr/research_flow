@@ -199,37 +199,35 @@ class TBankPaymentService:
         if customer_email:
             request_data['CustomerKey'] = customer_email
         
-        # Receipt field: Only required if terminal has online cash register enabled
-        # AND automatic fiscal document sending is NOT enabled
-        # If "Чеки Т-Бизнеса" (T-Business Checks) automatic sending is enabled,
-        # Receipt field can be omitted - T-Bank will generate fiscal documents automatically
-        # 
-        # For now, we'll try WITHOUT Receipt first, and only add it if T-Bank requires it
-        # This matches the user's setup where automatic FSD sending is enabled
+        # Receipt field is REQUIRED when online cash register is enabled
+        # Even with "Чеки Т-Бизнеса" (automatic FSD sending) enabled, Receipt is still required
+        # T-Bank uses Receipt data to generate the fiscal documents automatically
+        # Official format per developer.tbank.ru documentation:
+        receipt = {
+            'FfdVersion': '1.2',  # Fiscal document format version 1.2
+            'Taxation': 'osn',  # General taxation system (общая система налогообложения)
+            'Payments': {
+                'Electronic': amount_kopecks  # Electronic payment (must match Amount)
+            },
+            'Items': [
+                {
+                    'Name': description[:128],  # Max 128 chars (FFD tag 1030)
+                    'Price': amount_kopecks,  # Price per unit in kopecks (FFD tag 1078)
+                    'Quantity': 1,  # Quantity as integer (FFD tag 1023)
+                    'Amount': amount_kopecks,  # Total amount = Price * Quantity (FFD tag 1043)
+                    'Tax': 'vat20',  # VAT 20% (FFD tag 1199)
+                    'PaymentMethod': 'full_payment',  # Required for FFD 1.2 (FFD tag 1214)
+                    'PaymentObject': 'service',  # Required for FFD 1.2 (FFD tag 1212)
+                    'MeasurementUnit': 'шт',  # Required for FFD 1.2 (FFD tag 2108)
+                }
+            ]
+        }
         
-        # Uncomment below if T-Bank still requires Receipt even with automatic sending:
-        # receipt = {
-        #     'FfdVersion': '1.2',
-        #     'Taxation': 'osn',
-        #     'Payments': {
-        #         'Electronic': amount_kopecks
-        #     },
-        #     'Items': [
-        #         {
-        #             'Name': description[:128],
-        #             'Price': amount_kopecks,
-        #             'Quantity': 1,
-        #             'Amount': amount_kopecks,
-        #             'Tax': 'vat20',
-        #             'PaymentMethod': 'full_payment',
-        #             'PaymentObject': 'service',
-        #             'MeasurementUnit': 'шт',
-        #         }
-        #     ]
-        # }
-        # if customer_email:
-        #     receipt['Email'] = customer_email
-        # request_data['Receipt'] = receipt
+        # Add email if provided (T-Bank requires at least one contact: email OR phone)
+        if customer_email:
+            receipt['Email'] = customer_email
+        
+        request_data['Receipt'] = receipt
         
         # Generate token (must include Receipt in token calculation)
         request_data['Token'] = self._generate_token(request_data)
