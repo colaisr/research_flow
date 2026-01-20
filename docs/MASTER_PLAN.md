@@ -1731,3 +1731,185 @@ customer-llm-package/
 - Backend gracefully handles missing table (returns empty list)
 - Frontend handles missing categories gracefully (shows default tabs only)
 
+### 17) Payment Gateway Integration (T-Bank Acquiring) ✅ **COMPLETE**
+
+**Purpose**: Integrated T-Bank payment gateway for purchasing token packages, enabling users to buy additional LLM tokens for their accounts.
+
+**Overview**:
+The platform integrates with T-Bank (Tinkoff Bank) payment gateway to allow users to purchase token packages. Payments are processed securely, tokens are automatically added to user balances upon successful payment, and users receive clear success/failure notifications.
+
+**Architecture**:
+
+**Payment Flow**:
+1. **Initiation**: User selects token package → Frontend calls `/api/payments/initiate` → Backend creates `token_purchases` record → T-Bank payment URL returned
+2. **Payment**: User redirected to T-Bank payment page → Completes payment → T-Bank redirects back with status
+3. **Webhook**: T-Bank sends webhook to `/api/payments/webhook` → Backend verifies signature → Updates purchase status → Adds tokens to balance
+4. **Status Polling**: Frontend polls `/api/payments/status/{purchase_id}` → Updates UI with final status → Shows success/failure banners
+
+**Database Schema**:
+- **`token_packages`**: Available token packages for purchase
+  - `id`, `name`, `display_name`, `token_amount`, `price_rub`, `is_active`
+- **`token_purchases`**: Purchase records tracking payment status
+  - `id`, `user_id`, `organization_id`, `package_id`, `token_amount`, `price_rub`
+  - `payment_status` (pending/processing/completed/failed/cancelled)
+  - `payment_id` (T-Bank payment ID), `payment_url`, `paid_at`, `payment_error`
+  - `purchased_at` timestamp
+- **`token_balances`**: User token balances (existing table)
+- **`token_consumption`**: Token usage tracking (existing table)
+
+**API Endpoints** (`/api/payments`):
+- **`POST /api/payments/initiate`**: Initiate payment for token package
+  - Creates `token_purchases` record with `pending` status
+  - Calls T-Bank `/Init` API to create payment
+  - Returns `payment_url` for redirect
+  - Includes `purchase_id` in success/fail URLs for frontend polling
+- **`POST /api/payments/webhook`**: T-Bank webhook handler
+  - Verifies webhook signature (SHA-256 token)
+  - Parses payment status from T-Bank
+  - Updates `token_purchases` record
+  - Adds tokens to balance on `completed` status
+  - No authentication required (signature verification only)
+- **`GET /api/payments/status/{purchase_id}`**: Get payment status
+  - Checks local database status
+  - If pending/processing, polls T-Bank `/GetState` API
+  - Updates database if status changed
+  - Adds tokens automatically if status becomes `completed`
+  - Returns current status and error message if failed
+
+**T-Bank Service** (`backend/app/services/payment/tbank_service.py`):
+- **`TBankPaymentService`**: Core service for T-Bank API interaction
+  - **Credential Management**: Reads credentials from `app_settings` table dynamically
+    - `tbank_terminal_key`: Terminal ID
+    - `tbank_password`: Password for token generation
+    - `tbank_test_mode`: Test/production mode flag
+  - **Token Generation**: SHA-256 hash of sorted key-value pairs (excluding nested objects like `Receipt`)
+    - Includes `Password` in token calculation
+    - Only root-level fields used (TerminalKey, PaymentId, Amount, etc.)
+    - Nested objects (Receipt, DATA) excluded from hash
+  - **`initiate_payment`**: Creates payment in T-Bank
+    - Converts amount to kopecks (smallest currency unit)
+    - Generates unique `order_id` (format: `pkg{purchase_id}{timestamp}`, max 20 chars)
+    - Includes `Receipt` object for online cash register (FFD 1.2 format)
+    - Returns `payment_id` and `payment_url`
+  - **`get_payment_status`**: Checks payment status via T-Bank `/GetState` API
+    - Returns current status (CONFIRMED, REFUNDED, REJECTED, etc.)
+    - Handles errors gracefully
+  - **`parse_webhook_status`**: Maps T-Bank statuses to internal statuses
+    - `CONFIRMED` → `completed`
+    - `REFUNDED`, `REJECTED`, `AUTH_FAIL` → `failed`
+    - `NEW`, `FORM_SHOWED`, `AUTHORIZING` → `processing` or `pending`
+
+**T-Bank API Requirements**:
+- **FFD 1.2 Receipt Format**: Required for online cash register compliance
+  - `FfdVersion: '1.2'`
+  - `Taxation: 'osn'` (general taxation system)
+  - `Payments: { Electronic: amount_kopecks }`
+  - `Items`: Array with `Name`, `Price`, `Quantity` (integer), `Amount`, `Tax`, `PaymentMethod: 'full_payment'`, `PaymentObject: 'service'`, `MeasurementUnit: 'шт'`
+- **Token Generation**: Critical for API authentication
+  - Only root-level fields included (excludes nested objects)
+  - `Password` included before sorting
+  - SHA-256 hash of concatenated values
+- **Order ID Format**: Maximum 20 characters
+  - Format: `pkg{purchase_id}{timestamp}` (e.g., `pkg171768902756`)
+- **Webhook URL**: Hardcoded to `https://researchflow.ru/api/payments/webhook`
+  - Must be accessible from T-Bank's servers
+  - Signature verification required
+
+**Frontend Implementation** (`frontend/app/billing/page.tsx`):
+- **Billing Page**: Main UI for token packages and subscriptions
+  - Displays available token packages
+  - Shows purchase history with status
+  - Payment initiation button
+- **Payment Flow**:
+  - User clicks "Купить" (Buy) → Calls `initiatePayment` API
+  - Receives `payment_url` → Redirects to T-Bank payment page
+  - After payment → Redirects back with `purchase_id` in URL
+  - Frontend polls status every 1 second for up to 10 seconds
+- **Status Polling**:
+  - **After Redirect**: Polls `getPaymentStatus(purchaseId)` every 1s for 10s
+  - **Background Polling**: Checks all pending/processing purchases every 5s
+  - Updates purchase history automatically
+  - Shows success/failure banners when status changes
+- **Success/Failure Banners**:
+  - **Success Banner**: Green banner showing "Платеж успешно завершен!" with tokens added
+  - **Failure Banner**: Red banner showing error message
+  - Auto-dismiss after 10 seconds (success) or manual dismiss (failure)
+  - Prominent display at top of billing page
+
+**Components**:
+- **`TBankPayment`** (`frontend/components/TBankPayment.tsx`): Payment widget component
+  - Loads T-Bank integration script
+  - Redirects to payment URL
+  - Handles payment completion/cancellation
+- **`PaymentSuccess`** / **`PaymentError`**: Notification banners (integrated in billing page)
+
+**Credential Management**:
+- **Storage**: Credentials stored in `app_settings` table (not config files)
+  - Allows dynamic updates without code changes
+  - Secure storage with `is_secret = true` flag
+- **Setup Script**: `backend/scripts/set_tbank_credentials.py`
+  - Sets credentials via command-line arguments
+  - Updates database directly
+  - No restart required (credentials read dynamically)
+- **Production Credentials**: Set via SSH script execution
+  - Terminal Key: `1768852476070`
+  - Password: Stored securely in database
+  - Test Mode: `false` (production)
+
+**Status Handling**:
+- **Payment Statuses**:
+  - `pending`: Payment created, not yet paid
+  - `processing`: Payment in progress (authorizing, 3DS verification, etc.)
+  - `completed`: Payment successful, tokens added
+  - `failed`: Payment failed (rejected, refunded, auth failure)
+  - `cancelled`: Payment cancelled by user
+- **Automatic Token Addition**: Tokens added to balance when status becomes `completed`
+  - Uses `add_tokens` service function
+  - Records reason: "Purchased token package (payment_id: {payment_id})"
+  - Updates `token_balances` table
+- **Error Handling**: Failed payments include error messages
+  - User-friendly messages in Russian
+  - Specific messages for different failure types (rejected, auth failure, etc.)
+
+**Frontend Polling Strategy**:
+- **Immediate Polling**: After redirect from T-Bank, polls every 1s for 10s
+- **Background Polling**: Checks all pending/processing purchases every 5s
+- **Status Updates**: Automatically updates purchase history when status changes
+- **Banner Display**: Shows success/failure banners when payment completes or fails
+- **Query Invalidation**: Refreshes purchase history and subscription data after status changes
+
+**Security**:
+- **Webhook Signature Verification**: SHA-256 token verification for webhook requests
+- **HTTPS Required**: All payment URLs use HTTPS
+- **Credential Security**: Credentials stored in database with `is_secret` flag
+- **Token Generation**: Secure token generation using SHA-256 with password
+- **CORS**: Payment endpoints properly configured for production domain
+
+**Deployment**:
+- **Database Migration**: `68193a34b210_add_payment_status_to_token_purchases.py`
+  - Adds payment-related columns to `token_purchases` table
+- **Scripts**:
+  - `backend/scripts/set_tbank_credentials.py`: Set credentials
+  - `backend/scripts/process_completed_payments.py`: Manual status check script (for debugging)
+- **Documentation**: `docs/TBANK_CREDENTIALS_DEPLOYMENT.md` - Complete deployment guide
+
+**Key Features**:
+- ✅ Secure payment processing via T-Bank gateway
+- ✅ Automatic token addition on successful payment
+- ✅ Real-time status updates via webhooks and polling
+- ✅ Clear success/failure notifications for users
+- ✅ Purchase history tracking
+- ✅ FFD 1.2 receipt compliance for online cash register
+- ✅ Dynamic credential management (no restart required)
+- ✅ Robust error handling and user-friendly messages
+
+**Related Files**:
+- **Backend Service**: `backend/app/services/payment/tbank_service.py`
+- **API Endpoints**: `backend/app/api/payments.py`
+- **Frontend Billing Page**: `frontend/app/billing/page.tsx`
+- **Payment Component**: `frontend/components/TBankPayment.tsx`
+- **API Client**: `frontend/lib/api/payments.ts`
+- **Settings Model**: `backend/app/models/settings.py`
+- **Setup Script**: `backend/scripts/set_tbank_credentials.py`
+- **Deployment Guide**: `docs/TBANK_CREDENTIALS_DEPLOYMENT.md`
+
