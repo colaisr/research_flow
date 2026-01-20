@@ -37,6 +37,8 @@ export interface PurchaseHistoryItem {
   token_amount: number
   price_rub: number
   purchased_at: string
+  payment_status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+  payment_error?: string | null
 }
 
 export interface PurchaseHistory {

@@ -3,7 +3,7 @@ FastAPI application entry point.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import health, runs, auth, instruments, analyses, settings, user_settings, organizations, tools, schedules, rags, rags_public, subscriptions, token_packages, consumption, process_categories
+from app.api import health, runs, auth, instruments, analyses, settings, user_settings, organizations, tools, schedules, rags, rags_public, subscriptions, token_packages, consumption, process_categories, payments
 from app.api.admin import router as admin_router, subscriptions as admin_subscriptions, pricing as admin_pricing, provider_credentials as admin_provider_credentials
 from app.core.config import get_settings
 from app.core.database import SessionLocal
@@ -54,6 +54,7 @@ app.include_router(process_categories.router, prefix="/api/process-categories", 
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["subscriptions"])
 app.include_router(token_packages.router, prefix="/api/token-packages", tags=["token-packages"])
 app.include_router(consumption.router, prefix="/api/consumption", tags=["consumption"])
+app.include_router(payments.router, prefix="/api/payments", tags=["payments"])
 
 
 def _acquire_polling_lock() -> tuple[bool, object]:

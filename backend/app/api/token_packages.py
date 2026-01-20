@@ -207,6 +207,8 @@ class PurchaseHistoryItem(BaseModel):
     token_amount: int
     price_rub: Decimal
     purchased_at: datetime
+    payment_status: Optional[str] = None
+    payment_error: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -226,6 +228,7 @@ async def get_purchase_history(
     current_organization: Organization = Depends(get_current_organization_dependency),
 ):
     """Get purchase history for the current user/organization."""
+    from sqlalchemy import text
     
     # Get total count
     count_result = db.execute(
@@ -243,6 +246,7 @@ async def get_purchase_history(
         text("""
             SELECT 
                 p.id, p.package_id, p.token_amount, p.price_rub, p.purchased_at,
+                p.payment_status, p.payment_error,
                 pk.name as package_name, pk.display_name as package_display_name
             FROM token_purchases p
             INNER JOIN token_packages pk ON p.package_id = pk.id
@@ -268,6 +272,8 @@ async def get_purchase_history(
             token_amount=row.token_amount,
             price_rub=row.price_rub,
             purchased_at=row.purchased_at,
+            payment_status=row.payment_status,
+            payment_error=row.payment_error,
         ))
     
     return PurchaseHistoryResponse(
