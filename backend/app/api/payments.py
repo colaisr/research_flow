@@ -208,28 +208,51 @@ async def payment_webhook(
     payment_id = webhook_data.get('PaymentId')
     status = tbank_service.parse_webhook_status(webhook_data)
     
-    if not order_id:
-        raise HTTPException(status_code=400, detail="OrderId missing in webhook")
+    if not payment_id:
+        raise HTTPException(status_code=400, detail="PaymentId missing in webhook")
     
-    # Extract purchase_id from order_id (format: pkg_{purchase_id}_{user_id}_{timestamp})
-    try:
-        purchase_id = int(order_id.split('_')[1])
-    except (IndexError, ValueError):
-        raise HTTPException(status_code=400, detail=f"Invalid order_id format: {order_id}")
-    
-    # Get purchase record
+    # Find purchase by payment_id (more reliable than parsing order_id)
     purchase_result = db.execute(
         text("""
             SELECT id, user_id, organization_id, package_id, token_amount, payment_status
             FROM token_purchases
-            WHERE id = :purchase_id
+            WHERE payment_id = :payment_id
         """),
-        {"purchase_id": purchase_id}
+        {"payment_id": payment_id}
     )
     purchase = purchase_result.fetchone()
     
     if not purchase:
-        raise HTTPException(status_code=404, detail=f"Purchase {purchase_id} not found")
+        # Fallback: try to extract purchase_id from order_id if format allows
+        purchase_id = None
+        if order_id and order_id.startswith('pkg'):
+            try:
+                # Try old format first: pkg_{id}_{user}_{timestamp}
+                if '_' in order_id:
+                    purchase_id = int(order_id.split('_')[1])
+                else:
+                    # New format: pkg{id}{timestamp} - try to extract by querying
+                    # Since we can't reliably parse, log and use payment_id lookup
+                    logger.warning(f"Could not extract purchase_id from order_id: {order_id}, using payment_id: {payment_id}")
+            except (ValueError, IndexError):
+                pass
+        
+        if not purchase_id:
+            raise HTTPException(status_code=404, detail=f"Purchase not found for payment_id: {payment_id}")
+        
+        # Try lookup by purchase_id
+        purchase_result = db.execute(
+            text("""
+                SELECT id, user_id, organization_id, package_id, token_amount, payment_status
+                FROM token_purchases
+                WHERE id = :purchase_id
+            """),
+            {"purchase_id": purchase_id}
+        )
+        purchase = purchase_result.fetchone()
+        
+        if not purchase:
+            raise HTTPException(status_code=404, detail=f"Purchase {purchase_id} not found")
     
     # Update purchase status
     update_data = {
