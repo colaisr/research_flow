@@ -43,11 +43,12 @@ async def process_completed_payments():
         for p in purchases:
             try:
                 # Check payment status with T-Bank
+                print(f"\nPurchase ID: {p.id}, Payment ID: {p.payment_id}")
                 status = await service.get_payment_status(p.payment_id)
+                print(f"  Full status response: {status}")
                 tbank_status = status.get('status', 'UNKNOWN')
                 parsed_status = service.parse_webhook_status({'Status': tbank_status})
                 
-                print(f"\nPurchase ID: {p.id}, Payment ID: {p.payment_id}")
                 print(f"  T-Bank Status: {tbank_status}")
                 print(f"  Parsed Status: {parsed_status}")
                 print(f"  Tokens: {p.token_amount:,}")
