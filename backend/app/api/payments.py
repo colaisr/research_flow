@@ -87,8 +87,10 @@ async def initiate_payment(
     purchase_id = purchase_result.lastrowid
     db.commit()
     
-    # Generate unique order ID
-    order_id = f"pkg_{purchase_id}_{current_user.id}_{int(datetime.now(timezone.utc).timestamp())}"
+    # Generate unique order ID (T-Bank requires max 20 chars, but we use format: pkg_{id}_{timestamp})
+    # Using shorter format: pkg{id}{timestamp} (max 20 chars: pkg + 6 digits + 10 timestamp = 19 chars)
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    order_id = f"pkg{purchase_id}{timestamp}"[:20]  # Ensure max 20 chars
     
     # Prepare payment URLs
     # Use URLs from request if provided, otherwise detect from HTTP headers

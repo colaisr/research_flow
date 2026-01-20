@@ -208,11 +208,12 @@ class TBankPaymentService:
             except:
                 result = {'Success': False, 'Message': response_text[:200]}
             
-            # Log request/response for debugging
+            # Log request/response for debugging (mask sensitive data)
             import logging
             logger = logging.getLogger(__name__)
-            logger.debug(f"T-Bank Init request: {request_data}")
-            logger.debug(f"T-Bank Init response: {response.status_code} - {result}")
+            log_data = {k: v for k, v in request_data.items() if k != 'Token'}
+            logger.info(f"T-Bank Init request: {log_data}")
+            logger.info(f"T-Bank Init response: {response.status_code} - {result}")
             
             if response.status_code != 200:
                 error_message = result.get('Message', response_text[:200])
