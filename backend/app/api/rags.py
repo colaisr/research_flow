@@ -1,7 +1,7 @@
 """
 RAG (Knowledge Base) management API endpoints.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from pydantic import BaseModel
@@ -575,10 +575,115 @@ async def remove_rag_access(
     return {"success": True, "message": "Access removed"}
 
 
+def _process_document_in_background(
+    rag_id: int,
+    doc_id: int,
+    user_id: Optional[int],
+    organization_id: int,
+):
+    """Background task: extract text from file, then process embeddings.
+    Runs asynchronously so upload returns immediately (avoids timeout on large PDFs).
+    user_id can be None for public uploads; will be resolved from org owner.
+    """
+    from app.core.database import SessionLocal
+    from sqlalchemy import text
+
+    bg_db = SessionLocal()
+    try:
+        # Resolve user_id for public uploads (charge tokens to org owner)
+        if user_id is None:
+            rag = bg_db.query(RAGKnowledgeBase).filter(RAGKnowledgeBase.id == rag_id).first()
+            if rag:
+                org_owner_result = bg_db.execute(
+                    text("""
+                        SELECT u.id FROM users u
+                        JOIN organization_members om ON om.user_id = u.id
+                        WHERE om.organization_id = :org_id
+                        ORDER BY om.created_at ASC LIMIT 1
+                    """),
+                    {"org_id": organization_id}
+                )
+                org_owner = org_owner_result.fetchone()
+                user_id = org_owner[0] if org_owner else None
+
+        doc = bg_db.query(RAGDocument).filter(RAGDocument.id == doc_id).first()
+        if not doc:
+            logger.error(f"Document {doc_id} not found for background processing")
+            return
+
+        storage = RAGStorage()
+        if not doc.file_path:
+            logger.error(f"Document {doc_id} has no file_path")
+            doc.embedding_status = EmbeddingStatus.FAILED.value
+            doc.document_metadata = (doc.document_metadata or {}) | {"processing_error": "No file path"}
+            bg_db.commit()
+            return
+
+        file_path = storage.get_absolute_path(doc.file_path)
+        if not file_path.exists():
+            logger.error(f"File not found for document {doc_id}: {file_path}")
+            doc.embedding_status = EmbeddingStatus.FAILED.value
+            doc.document_metadata = (doc.document_metadata or {}) | {"processing_error": "File not found"}
+            bg_db.commit()
+            return
+
+        # Extract text
+        processor = DocumentProcessor()
+        try:
+            text, metadata = processor.extract_text_from_file(file_path)
+            doc.content = text
+            doc.document_metadata = {
+                **(metadata or {}),
+                **(doc.document_metadata or {}),
+            }
+            doc.embedding_status = EmbeddingStatus.PROCESSING.value
+            bg_db.commit()
+            bg_db.refresh(doc)
+        except Exception as e:
+            logger.error(f"Failed to extract text from document {doc_id}: {e}")
+            doc.embedding_status = EmbeddingStatus.FAILED.value
+            doc.document_metadata = (doc.document_metadata or {}) | {"processing_error": str(e)}
+            bg_db.commit()
+            return
+
+        # Process embeddings
+        try:
+            _process_document_embeddings(
+                bg_db, rag_id, doc_id,
+                user_id=user_id,
+                organization_id=organization_id,
+            )
+        except Exception as e:
+            logger.error(f"Failed to process embeddings for document {doc_id}: {e}")
+            doc = bg_db.query(RAGDocument).filter(RAGDocument.id == doc_id).first()
+            if doc:
+                doc.embedding_status = EmbeddingStatus.FAILED.value
+                doc.document_metadata = (doc.document_metadata or {}) | {"processing_error": str(e)}
+                bg_db.commit()
+            return
+
+        # Update RAG document count
+        rag = bg_db.query(RAGKnowledgeBase).filter(RAGKnowledgeBase.id == rag_id).first()
+        if rag:
+            rag.document_count = bg_db.query(RAGDocument).filter(
+                RAGDocument.rag_id == rag_id,
+                RAGDocument.embedding_status == EmbeddingStatus.COMPLETED.value
+            ).count()
+            rag.updated_at = datetime.now(timezone.utc)
+            bg_db.commit()
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Background document processing failed for doc {doc_id}: {e}\n{traceback.format_exc()}")
+    finally:
+        bg_db.close()
+
+
 # Document Management Endpoints
 @router.post("/rags/{rag_id}/documents", response_model=DocumentResponse)
 async def upload_document(
     rag_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db),
@@ -627,57 +732,25 @@ async def upload_document(
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)
-        
-        # Extract text (PDFs always use AI OCR via OpenRouter)
-        processor = DocumentProcessor()
-        try:
-            text, metadata = processor.extract_text_from_file(file_path)
-            doc.content = text
-            doc.file_path = storage.get_relative_path(file_path)
-            doc.document_metadata = {
-                **(metadata or {}),
-                "original_filename": filename,
-                "uploaded_by": current_user.id,
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            }
-            doc.embedding_status = EmbeddingStatus.PROCESSING.value
-            
-            db.commit()
-            db.refresh(doc)
-            
-            # TODO: Process embeddings asynchronously (background task)
-            # For now, we'll process synchronously (MVP)
-            try:
-                _process_document_embeddings(
-                    db, rag_id, doc.id,
-                    user_id=current_user.id,
-                    organization_id=current_organization.id
-                )
-            except Exception as e:
-                logger.error(f"Failed to process embeddings for document {doc.id}: {e}")
-                doc.embedding_status = EmbeddingStatus.FAILED.value
-                db.commit()
-            
-        except Exception as e:
-            logger.error(f"Failed to extract text from file: {e}")
-            # Clean up file
-            if file_path.exists():
-                try:
-                    file_path.unlink()
-                except:
-                    pass
-            # Delete document record (only if it's persisted)
-            try:
-                db.delete(doc)
-                db.commit()
-            except Exception as delete_error:
-                # Document might not be persisted, rollback instead
-                logger.warning(f"Could not delete document record: {delete_error}")
-                db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to process document: {str(e)}"
-            )
+
+        # Save file path and minimal metadata; process extraction + embeddings in background
+        doc.file_path = storage.get_relative_path(file_path)
+        doc.document_metadata = {
+            "original_filename": filename,
+            "uploaded_by": current_user.id,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        db.commit()
+        db.refresh(doc)
+
+        # Process extraction and embeddings in background (avoids timeout on large PDFs)
+        background_tasks.add_task(
+            _process_document_in_background,
+            rag_id=rag_id,
+            doc_id=doc.id,
+            user_id=current_user.id,
+            organization_id=current_organization.id,
+        )
     except HTTPException:
         # Re-raise HTTP exceptions (like unsupported file type)
         raise

@@ -1,7 +1,7 @@
 """
 Public RAG access endpoints (no authentication required, uses token).
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -14,7 +14,7 @@ from app.models.rag_knowledge_base import RAGKnowledgeBase
 from app.models.rag_document import RAGDocument, EmbeddingStatus
 from app.services.rag import VectorDB, EmbeddingService, RAGStorage, DocumentProcessor
 from app.core.config import RAG_MIN_SIMILARITY_SCORE
-from app.api.rags import DocumentResponse, QueryRAGResponse, _process_document_embeddings
+from app.api.rags import DocumentResponse, QueryRAGResponse, _process_document_in_background
 from fastapi.responses import FileResponse
 
 router = APIRouter()
@@ -87,6 +87,7 @@ async def list_public_documents(
 @router.post("/rags/public/{token}/documents", response_model=DocumentResponse)
 async def upload_public_document(
     token: str,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     db: Session = Depends(get_db)
@@ -120,8 +121,6 @@ async def upload_public_document(
             detail=f"Unsupported file type: {file_ext}. Supported types: {', '.join(supported_extensions)}"
         )
 
-    processor = DocumentProcessor()
-
     doc = RAGDocument(
         rag_id=rag.id,
         title=doc_title,
@@ -130,83 +129,49 @@ async def upload_public_document(
     )
     db.add(doc)
     db.flush()
-    
+
     storage = RAGStorage()
     file_path = storage.get_document_file_path(rag.id, doc.id, filename)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     logger.info(f"Public upload: Saving file to {file_path}, RAG ID: {rag.id}, Doc ID: {doc.id}")
     try:
         with open(file_path, "wb") as f:
             content = await file.read()
             logger.info(f"Public upload: Received {len(content)} bytes")
             f.write(content)
-        
-        try:
-            text, metadata = processor.extract_text_from_file(file_path)
-            doc.content = text
-            doc.file_path = storage.get_relative_path(file_path)
-            doc.document_metadata = {
-                **(metadata or {}),
-                "original_filename": filename,
-                "uploaded_at": datetime.now(timezone.utc).isoformat(),
-                "uploaded_via": "public_link",
-            }
-            doc.embedding_status = EmbeddingStatus.PROCESSING.value
-            
-            db.commit()
-            db.refresh(doc)
-            
-            try:
-                # For public uploads, charge tokens to the organization owner
-                # Get the first user in the organization (typically the owner)
-                from sqlalchemy import text
-                org_owner_result = db.execute(
-                    text("""
-                        SELECT u.id
-                        FROM users u
-                        JOIN organization_members om ON om.user_id = u.id
-                        WHERE om.organization_id = :org_id
-                        ORDER BY om.created_at ASC
-                        LIMIT 1
-                    """),
-                    {"org_id": rag.organization_id}
-                )
-                org_owner = org_owner_result.fetchone()
-                user_id = org_owner[0] if org_owner else None
-                
-                if not user_id:
-                    logger.warning(f"No users found in organization {rag.organization_id} for public upload token tracking")
-                
-                _process_document_embeddings(
-                    db, rag.id, doc.id,
-                    user_id=user_id,
-                    organization_id=rag.organization_id
-                )
-            except Exception as e:
-                logger.error(f"Failed to process embeddings for document {doc.id}: {e}")
-                doc.embedding_status = EmbeddingStatus.FAILED.value
-                db.commit()
-            
-        except Exception as e:
-            logger.error(f"Failed to extract text from file: {e}")
-            if file_path.exists():
-                try:
-                    file_path.unlink()
-                except:
-                    pass
-            db.delete(doc)
-            db.commit()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to process document: {str(e)}"
-            )
+
+        doc.file_path = storage.get_relative_path(file_path)
+        doc.document_metadata = {
+            "original_filename": filename,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "uploaded_via": "public_link",
+        }
+        db.commit()
+        db.refresh(doc)
+
+        # Process extraction + embeddings in background (avoids timeout)
+        background_tasks.add_task(
+            _process_document_in_background,
+            rag_id=rag.id,
+            doc_id=doc.id,
+            user_id=None,  # Resolved from org owner in background task
+            organization_id=rag.organization_id,
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to save uploaded file: {e}")
-        db.delete(doc)
-        db.commit()
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except Exception:
+                pass
+        try:
+            db.delete(doc)
+            db.commit()
+        except Exception:
+            db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save uploaded file: {str(e)}"

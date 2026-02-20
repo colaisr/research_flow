@@ -290,7 +290,8 @@ class DocumentProcessor:
         current_font_size = None
         
         # Sort words by y position (top to bottom) and x position (left to right)
-        words_sorted = sorted(words, key=lambda w: (-w['top'], w['x0']))
+        # pdfplumber: top increases downward, so smaller top = higher on page
+        words_sorted = sorted(words, key=lambda w: (w['top'], w['x0']))
         
         for word in words_sorted:
             word_y = word['top']
