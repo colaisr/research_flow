@@ -136,7 +136,7 @@ async function uploadDocument(ragId: number, file: File, title?: string) {
     { 
       withCredentials: true,
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 300000 // 5 min - backend processes in background; this covers slow file upload only
+      timeout: 1800000 // 30 min - large documents need longer for slow file transfer; backend processes in background
     }
   )
   return data

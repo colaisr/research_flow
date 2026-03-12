@@ -70,7 +70,7 @@ async function uploadPublicDocument(token: string, file: File, title?: string) {
     formData,
     { 
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 300000 // 5 min - backend processes in background; covers slow file upload only
+      timeout: 1800000 // 30 min - large documents need longer for slow file transfer; backend processes in background
     }
   )
   return data
